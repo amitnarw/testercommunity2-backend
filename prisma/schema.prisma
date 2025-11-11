@@ -1,15 +1,277 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model User {
+  id                      Int                 @id @default(autoincrement())
+  name                    String
+  phone                   String              @unique
+  image                   String?
+  email                   String              @unique
+  emailVerified           Boolean
+  authType                UserAuthType
+  password                String
+  country                 String?
+  deviceCompany           String?
+  deviceModel             String?
+  ram                     String?
+  os                      String?
+  screenResolution        String?
+  language                String?
+  network                 String?
+
+  role                    String?             @default("user")
+  banned                  Boolean?            @default(false)
+  banReason               String?
+
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+
+  sessions                Session[]
+  ownedDashboardAndHubApps DashboardAndHub[]  @relation("DashboardAndHubAppOwner")
+  testingDashboardAndHubApps DashboardAndHub[] @relation("DashboardAndHubTesters")
+
+  @@map("user")
+}
+
+enum UserAuthType {
+  email_and_password
+  google
+}
+
+model TesterRelation {
+  id                Int      @id @default(autoincrement())
+  testerId          Int
+  dashboardAndHubId Int?
+  isActive          Boolean  @default(true)
+  joinedAt          DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tester            User             @relation(fields: [testerId], references: [id])
+  dashboard_and_hub DashboardAndHub? @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
+
+  @@map("tester_relation")
+}
+
+model Session {
+  id          Int      @id @default(autoincrement())
+  refreshToken String   @unique
+  expiresAt   DateTime
+  userId      Int       @unique
+  userAgent   String?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Plan {
+  id         String    @id @default(uuid()) @map("_id")
+  name       String
+  price      Float
+  package    Int
+  features   Json
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  user_plan  UserPlan[]
+
+  @@map("plan")
+}
+
+model UserPlan {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  planId    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan      Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@map("user_plan")
+}
+
+model Blog {
+  id          Int      @id @default(autoincrement())
+  title       String
+  authorName  String
+  tags        String[]
+  description String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  media       Media[]
+
+  @@map("blog")
+}
+
+model Faq {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String
+  category    FaqCategory
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("faq")
+}
+
+enum FaqCategory {
+  general
+  community
+  professional
+  homepage
+}
+
+model AppCategory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("app_category")
+}
+
+model DashboardAndHub {
+  id                    Int      @id @default(autoincrement())
+  appId                 Int
+  appOwnerId            Int
+  currentTester         Int
+  totalTester           Int
+  currentDay            Int
+  totalDay              Int
+  instructionsForTester String?
+  points                Float?
+  averageTimeTesting    String?
+  status                DashboardAndHubStatus
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  android_app AndroidApp @relation(fields: [appId], references: [id])
+  appOwner    User        @relation("DashboardAndHubAppOwner", fields: [appOwnerId], references: [id])
+  testers     User[]      @relation("DashboardAndHubTesters") // renamed to plural, array type
+  feedback    Feedback[]
+
+  @@map("dashboard_and_hub")
+}
+
+enum DashboardAndHubStatus {
+  in_review
+  draft
+  rejected
+  in_testing
+  completed
+  on_hold
+  requested
+  available
+}
+
+model AndroidApp {
+  id          Int         @id @default(autoincrement())
+  appName     String
+  appCategoryId Int
+  packageName String
+  description String?
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  app_category AppCategory @relation(fields: [appCategoryId], references: [id])
+  media        Media[]
+  rating       Rating[]
+
+  @@map("android_app")
+}
+
+model Media {
+  id         Int      @id @default(autoincrement())
+  type       MediaType
+  mime       String?
+  category   MediaCategory
+  src        String
+  appId      Int?
+  blogId     Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  android_app AndroidApp? @relation(fields: [appId], references: [id], onDelete: Cascade)
+  blog        Blog?        @relation(fields: [blogId], references: [id], onDelete: Cascade)
+
+  @@map("media")
+}
+
+enum MediaType {
+  image
+  video
+}
+
+enum MediaCategory {
+  app_logo
+  screenshot
+  feedback_media
+  featured_image
+  author_image
+  other
+}
+
+model Rating {
+  id         Int      @id @default(autoincrement())
+  rating     Float
+  ratingType RatingType
+  appId      Int?
+  userId     Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  android_app AndroidApp? @relation(fields: [appId], references: [id])
+  user        User?        @relation(fields: [userId], references: [id])
+
+  @@map("rating")
+}
+
+enum RatingType {
+  app
+  user
+}
+
+model Feedback {
+  id                Int      @id @default(autoincrement())
+  message           String
+  type              FeedbackType
+  priority          FeedbackPriority?
+  testerId          Int
+  dashboardAndHubId Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tester            User              @relation(fields: [testerId], references: [id])
+  dashboard_and_hub DashboardAndHub?  @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
+
+  @@map("feedback")
+}
+
+enum FeedbackType {
+  bug
+  suggestion
+  praise
+}
+
+enum FeedbackPriority {
+  critical
+  high
+  medium
+  low
 }
