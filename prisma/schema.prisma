@@ -84,9 +84,11 @@ model Session {
   accessTokenExpiry       DateTime
   refreshToken            String              @unique
   refreshTokenExpiry      DateTime
-  deviceInfo              String?
+  deviceId                String              @unique
+  deviceInfo              Json?
   userAgent               String?
   ipAddress               String?
+  lastUsedAt              DateTime
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt
 
@@ -557,4 +559,41 @@ model UserWallet {
   earningHistory    UserEarningHistory[]
 
   @@map("user_wallet")
+}
+
+
+
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+
+    createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  permissions Permission[]
+}
+
+model Module {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+
+    createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+}
+
+model Permission {
+  id        Int      @id @default(autoincrement())
+  roleId    Int
+  moduleId  Int
+  canCreate Boolean @default(false)
+  canRead   Boolean @default(false)
+  canUpdate Boolean @default(false)
+  canDelete Boolean @default(false)
+
+    createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  role   Role   @relation(fields: [roleId], references: [id])
+  module Module @relation(fields: [moduleId], references: [id])
 }
