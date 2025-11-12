@@ -26,7 +26,7 @@ model User {
   language                    String?
   network                     String?
 
-  role                        UserRole                @default(user)
+  roleId                      Int
   banned                      Boolean?                @default(false)
   banReason                   String?
 
@@ -35,6 +35,7 @@ model User {
 
   // Relations
   sessions                    Session[]
+  role                        Role                    @relation(fields: [roleId], references: [id])
   ownedDashboardAndHubApps    DashboardAndHub[]       @relation("DashboardAndHubAppOwner")
   testingDashboardAndHubApps  DashboardAndHub[]       @relation("DashboardAndHubTesters")
   activities                  UserActivity[]
@@ -568,32 +569,39 @@ model Role {
   id          Int      @id @default(autoincrement())
   name        String   @unique
 
-    createdAt   DateTime             @default(now())
+  createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
 
   permissions Permission[]
+
+  @@map("role")
 }
 
 model Module {
   id          Int      @id @default(autoincrement())
   name        String   @unique
 
-    createdAt   DateTime             @default(now())
+  createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
+
+  @@map("module")
 }
 
 model Permission {
-  id        Int      @id @default(autoincrement())
-  roleId    Int
-  moduleId  Int
-  canCreate Boolean @default(false)
-  canRead   Boolean @default(false)
-  canUpdate Boolean @default(false)
-  canDelete Boolean @default(false)
+  id                    Int                   @id @default(autoincrement())
+  roleId                Int
+  moduleId              Int
+  canReadList           Boolean               @default(false)
+  canReadSingle         Boolean               @default(false)
+  canCreate             Boolean               @default(false)
+  canUpdate             Boolean               @default(false)
+  canDelete             Boolean               @default(false)
 
-    createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
 
-  role   Role   @relation(fields: [roleId], references: [id])
-  module Module @relation(fields: [moduleId], references: [id])
+  role                  Role                  @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  module                Module                @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@map("permission")
 }
