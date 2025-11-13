@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client-js"
   output   = "./generated/prisma"
@@ -9,49 +10,52 @@ datasource db {
 }
 
 model User {
-  id                          Int                     @id @default(autoincrement())
-  name                        String
-  phone                       String                  @unique
-  image                       String?
-  email                       String                  @unique
-  emailVerified               Boolean
-  authType                    UserAuthType
-  password                    String
-  country                     String?
-  deviceCompany               String?
-  deviceModel                 String?
-  ram                         String?
-  os                          String?
-  screenResolution            String?
-  language                    String?
-  network                     String?
+  id               Int          @id @default(autoincrement())
+  name             String
+  phone            String       @unique
+  image            String?
+  email            String       @unique
+  emailVerified    Boolean
+  authType         UserAuthType
+  password         String
+  country          String?
+  deviceCompany    String?
+  deviceModel      String?
+  ram              String?
+  os               String?
+  screenResolution String?
+  language         String?
+  network          String?
 
-  roleId                      Int
-  banned                      Boolean?                @default(false)
-  banReason                   String?
+  roleId    Int
+  banned    Boolean? @default(false)
+  banReason String?
 
-  createdAt                   DateTime                @default(now())
-  updatedAt                   DateTime                @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  sessions                    Session[]
-  role                        Role                    @relation("UserRole", fields: [roleId], references: [id])
-  ownedDashboardAndHubApps    DashboardAndHub[]       @relation("DashboardAndHubAppOwner")
-  testingDashboardAndHubApps  DashboardAndHub[]       @relation("DashboardAndHubTesters")
-  activities                  UserActivity[]
-  logs                        UserLogs[]
-  supportRequests             SupportRequest[]
-  supportMessages             SupportMessage[]
-  supportAgent                SupportAgent?
-  withdrawalRequests          WithdrawalRequest[]
-  earningHistory              UserEarningHistory[]
-  wallet                      UserWallet?
-  testerRelations             TesterRelation[]
-  userPlans                   UserPlan[]
-  ratings                     Rating[]
-  feedbacks                   Feedback[]
-  notifications               Notification[]
-  websiteFeedbackSuggestions  WebsiteFeedbackSuggestion[]
+  sessions                   Session[]
+  role                       Role                        @relation("UserRole", fields: [roleId], references: [id])
+  ownedDashboardAndHubApps   DashboardAndHub[]           @relation("DashboardAndHubAppOwner")
+  testingDashboardAndHubApps DashboardAndHub[]           @relation("DashboardAndHubTesters")
+  activities                 UserActivity[]
+  logs                       UserLogs[]
+  supportRequests            SupportRequest[]
+  supportMessages            SupportMessage[]
+  supportAgent               SupportAgent?
+  withdrawalRequests         WithdrawalRequest[]
+  earningHistory             UserEarningHistory[]
+  wallet                     UserWallet?
+  testerRelations            TesterRelation[]
+  userPlans                  UserPlan[]
+  ratings                    Rating[]
+  feedbacks                  Feedback[]
+  notifications              Notification[]
+  websiteFeedbackSuggestions WebsiteFeedbackSuggestion[]
+  auditLogs                  AuditLog[] 
+
+  accounts Account[]
 
   @@map("user")
 }
@@ -70,89 +74,93 @@ enum UserRole {
 }
 
 model TesterRelation {
-  id                      Int                 @id @default(autoincrement())
-  testerId                Int
-  dashboardAndHubId       Int?
-  isActive                Boolean             @default(true)
-  joinedAt                DateTime            @default(now())
-  createdAt               DateTime            @default(now())
-  updatedAt               DateTime            @updatedAt
+  id                Int      @id @default(autoincrement())
+  testerId          Int
+  dashboardAndHubId Int?
+  isActive          Boolean  @default(true)
+  joinedAt          DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  tester                  User                @relation(fields: [testerId], references: [id])
-  dashboardAndHub         DashboardAndHub?    @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
+  tester          User             @relation(fields: [testerId], references: [id])
+  dashboardAndHub DashboardAndHub? @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
 
   @@map("tester_relation")
 }
 
 model Session {
-  id                      Int                 @id @default(autoincrement())
-  userId                  Int                 
-  accessToken             String              @unique
-  accessTokenExpiry       DateTime
-  refreshToken            String              @unique
-  refreshTokenExpiry      DateTime
-  deviceId                String              @unique
-  deviceInfo              Json?
-  userAgent               String?
-  ipAddress               String?
-  lastUsedAt              DateTime
-  createdAt               DateTime            @default(now())
-  updatedAt               DateTime            @updatedAt
+  id                 Int      @id @default(autoincrement())
+  userId             Int
+  accessToken        String   @unique
+  accessTokenExpiry  DateTime
+  refreshToken       String   @unique
+  refreshTokenExpiry DateTime
+  deviceId           String   @unique
+  deviceInfo         Json?
+  userAgent          String?
+  ipAddress          String?
+  lastUsedAt         DateTime
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  user                    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime
+  token     String
 
   @@map("session")
+  @@unique([token])
 }
 
 model Plan {
-  id                      String              @id @default(uuid()) @map("_id")
-  name                    String
-  price                   Float
-  package                 Int
-  features                Json
-  isActive                Boolean             @default(true)
-  createdAt               DateTime            @default(now())
-  updatedAt               DateTime            @updatedAt
-  userPlans               UserPlan[]
+  id        String     @id @default(uuid()) @map("_id")
+  name      String
+  price     Float
+  package   Int
+  features  Json
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  userPlans UserPlan[]
 
   @@map("plan")
 }
 
 model UserPlan {
-  id                      Int                 @id @default(autoincrement())
-  userId                  Int
-  planId                  String
-  isActive                Boolean             @default(true)
-  createdAt               DateTime            @default(now())
-  updatedAt               DateTime            @updatedAt
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  planId    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user                    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan                    Plan                @relation(fields: [planId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@map("user_plan")
 }
 
 model Blog {
-  id                      Int                 @id @default(autoincrement())
-  title                   String
-  authorName              String
-  tags                    String[]
-  description             String
-  isActive                Boolean             @default(true)
-  createdAt               DateTime            @default(now())
-  updatedAt               DateTime            @updatedAt
-  media                   Media[]
+  id          Int      @id @default(autoincrement())
+  title       String
+  authorName  String
+  tags        String[]
+  description String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  media       Media[]
 
   @@map("blog")
 }
 
 model Faq {
-  id                      Int                 @id @default(autoincrement())
-  title                   String
-  description             String
-  category                FaqCategory
-  createdAt               DateTime            @default(now())
-  updatedAt               DateTime            @updatedAt
+  id          Int         @id @default(autoincrement())
+  title       String
+  description String
+  category    FaqCategory
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
   @@map("faq")
 }
@@ -165,39 +173,39 @@ enum FaqCategory {
 }
 
 model AppCategory {
-  id                      Int                 @id @default(autoincrement())
-  name                    String              @unique
-  isActive                Boolean             @default(true)
-  createdAt               DateTime            @default(now())
-  updatedAt               DateTime            @updatedAt
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  androidApps             AndroidApp[]
+  androidApps AndroidApp[]
 
   @@map("app_category")
 }
 
 model DashboardAndHub {
-  id                      Int                 @id @default(autoincrement())
-  appId                   Int
-  appOwnerId              Int
-  currentTester           Int
-  totalTester             Int
-  currentDay              Int
-  totalDay                Int
-  instructionsForTester   String?
-  points                  Float?
-  averageTimeTesting      String?
-  status                  DashboardAndHubStatus
-  createdAt               DateTime            @default(now())
-  updatedAt               DateTime            @updatedAt
+  id                    Int                   @id @default(autoincrement())
+  appId                 Int
+  appOwnerId            Int
+  currentTester         Int
+  totalTester           Int
+  currentDay            Int
+  totalDay              Int
+  instructionsForTester String?
+  points                Float?
+  averageTimeTesting    String?
+  status                DashboardAndHubStatus
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
 
-  androidApp              AndroidApp          @relation(fields: [appId], references: [id])
-  appOwner                User                @relation("DashboardAndHubAppOwner", fields: [appOwnerId], references: [id])
-  testers                 User[]              @relation("DashboardAndHubTesters")
-  feedback                Feedback[]
-  activities              UserActivity[]
-  earningHistory          UserEarningHistory[]
-  testerRelations         TesterRelation[]
+  androidApp      AndroidApp           @relation(fields: [appId], references: [id])
+  appOwner        User                 @relation("DashboardAndHubAppOwner", fields: [appOwnerId], references: [id])
+  testers         User[]               @relation("DashboardAndHubTesters")
+  feedback        Feedback[]
+  activities      UserActivity[]
+  earningHistory  UserEarningHistory[]
+  testerRelations TesterRelation[]
 
   @@map("dashboard_and_hub")
 }
@@ -214,47 +222,46 @@ enum DashboardAndHubStatus {
 }
 
 model AndroidApp {
-  id                    Int                     @id @default(autoincrement())
-  appName               String
-  appCategoryId         Int
-  packageName           String
-  description           String?
-  isActive              Boolean                 @default(true)
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime                @updatedAt
+  id            Int      @id @default(autoincrement())
+  appName       String
+  appCategoryId Int
+  packageName   String
+  description   String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  appCategory           AppCategory             @relation(fields: [appCategoryId], references: [id])
-  media                 Media[]
-  ratings               Rating[]
-  activities            UserActivity[]
-  dashboardAndHubs      DashboardAndHub[]
-
+  appCategory      AppCategory       @relation(fields: [appCategoryId], references: [id])
+  media            Media[]
+  ratings          Rating[]
+  activities       UserActivity[]
+  dashboardAndHubs DashboardAndHub[]
 
   @@map("android_app")
 }
 
 model Media {
-  id                            Int                           @id @default(autoincrement())
-  type                          MediaType
-  mime                          String?
-  category                      MediaCategory
-  src                           String
-  appId                         Int?
-  blogId                        Int?
-  feedbackId                    Int?
-  notificationId                Int?
-  supportRequestId              Int?
-  supportMessageId              Int?
-  createdAt                     DateTime                      @default(now())
-  updatedAt                     DateTime                      @updatedAt
+  id               Int           @id @default(autoincrement())
+  type             MediaType
+  mime             String?
+  category         MediaCategory
+  src              String
+  appId            Int?
+  blogId           Int?
+  feedbackId       Int?
+  notificationId   Int?
+  supportRequestId Int?
+  supportMessageId Int?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
-  androidApp                    AndroidApp?                   @relation(fields: [appId], references: [id], onDelete: Cascade)
-  blog                          Blog?                         @relation(fields: [blogId], references: [id], onDelete: Cascade)
-  feedback                      Feedback?                     @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
-  notification                  Notification?                 @relation(fields: [notificationId], references: [id], onDelete: Cascade)
-  supportRequest                SupportRequest?               @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
-  supportMessage                SupportMessage?               @relation(fields: [supportMessageId], references: [id], onDelete: Cascade)
-  websiteFeedbackSuggestions    WebsiteFeedbackSuggestion[]
+  androidApp                 AndroidApp?                 @relation(fields: [appId], references: [id], onDelete: Cascade)
+  blog                       Blog?                       @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  feedback                   Feedback?                   @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  notification               Notification?               @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  supportRequest             SupportRequest?             @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+  supportMessage             SupportMessage?             @relation(fields: [supportMessageId], references: [id], onDelete: Cascade)
+  websiteFeedbackSuggestions WebsiteFeedbackSuggestion[]
 
   @@map("media")
 }
@@ -274,16 +281,16 @@ enum MediaCategory {
 }
 
 model Rating {
-  id          Int          @id @default(autoincrement())
-  rating      Float
-  ratingType  RatingType
-  appId       Int?
-  userId      Int?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id         Int        @id @default(autoincrement())
+  rating     Float
+  ratingType RatingType
+  appId      Int?
+  userId     Int?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
-  androidApp  AndroidApp?   @relation(fields: [appId], references: [id])
-  user        User?         @relation(fields: [userId], references: [id])
+  androidApp AndroidApp? @relation(fields: [appId], references: [id])
+  user       User?       @relation(fields: [userId], references: [id])
 
   @@map("rating")
 }
@@ -294,18 +301,18 @@ enum RatingType {
 }
 
 model Feedback {
-  id                Int              @id @default(autoincrement())
+  id                Int               @id @default(autoincrement())
   message           String
   type              FeedbackType
   priority          FeedbackPriority?
   testerId          Int
   dashboardAndHubId Int
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
-  tester            User             @relation(fields: [testerId], references: [id])
-  dashboardAndHub   DashboardAndHub  @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
-  media             Media[]
+  tester          User            @relation(fields: [testerId], references: [id])
+  dashboardAndHub DashboardAndHub @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
+  media           Media[]
 
   @@map("feedback")
 }
@@ -325,18 +332,18 @@ enum FeedbackPriority {
 }
 
 model Notification {
-  id            Int               @id @default(autoincrement())
-  title         String
-  description   String
-  type          NotificationType  @default(other)
-  url           String?
-  userId        Int?
+  id          Int              @id @default(autoincrement())
+  title       String
+  description String
+  type        NotificationType @default(other)
+  url         String?
+  userId      Int?
 
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user          User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  media         Media[]
+  user  User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media Media[]
 
   @@map("notification")
 }
@@ -351,7 +358,7 @@ enum NotificationType {
 }
 
 model UserActivity {
-  id                Int                 @id @default(autoincrement())
+  id                Int            @id @default(autoincrement())
   userId            Int
   dashboardAndHubId Int?
   androidAppId      Int?
@@ -360,12 +367,12 @@ model UserActivity {
   context           Json?
   ipAddress         String?
   userAgent         String?
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
-  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  dashboardAndHub   DashboardAndHub?    @relation(fields: [dashboardAndHubId], references: [id])
-  androidApp        AndroidApp?         @relation(fields: [androidAppId], references: [id])
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dashboardAndHub DashboardAndHub? @relation(fields: [dashboardAndHubId], references: [id])
+  androidApp      AndroidApp?      @relation(fields: [androidAppId], references: [id])
 
   @@map("user_activity")
 }
@@ -383,17 +390,17 @@ enum UserActionType {
 }
 
 model UserLogs {
-  id            Int          @id @default(autoincrement())
-  userId        Int?
-  logType       LogType
-  severity      LogSeverity
-  description   String
-  context       Json?
-  ipAddress     String?
-  userAgent     String?
-  createdAt     DateTime      @default(now())
+  id          Int         @id @default(autoincrement())
+  userId      Int?
+  logType     LogType
+  severity    LogSeverity
+  description String
+  context     Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime    @default(now())
 
-  user          User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_logs")
 }
@@ -417,18 +424,18 @@ enum LogSeverity {
 }
 
 model WebsiteFeedbackSuggestion {
-  id          Int                   @id @default(autoincrement())
-  userId      Int
-  type        FeedbackSuggestionType
-  title       String?
-  message     String
-  priority    FeedbackPriority?
-  status      FeedbackStatus         @default(pending)
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
+  id        Int                    @id @default(autoincrement())
+  userId    Int
+  type      FeedbackSuggestionType
+  title     String?
+  message   String
+  priority  FeedbackPriority?
+  status    FeedbackStatus         @default(pending)
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
 
-  user        User                   @relation(fields: [userId], references: [id])
-  media       Media[]
+  user  User    @relation(fields: [userId], references: [id])
+  media Media[]
 
   @@map("website_feedback_suggestion")
 }
@@ -448,22 +455,22 @@ enum FeedbackStatus {
 }
 
 model SupportRequest {
-  id                Int                  @id @default(autoincrement())
-  userId            Int?
-  supportAgentId    Int?
-  name              String?
-  email             String?
-  subject           String
-  description       String
-  status            SupportStatus        @default(pending)
-  category          SupportCategory      @default(general)
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
+  id             Int             @id @default(autoincrement())
+  userId         Int?
+  supportAgentId Int?
+  name           String?
+  email          String?
+  subject        String
+  description    String
+  status         SupportStatus   @default(pending)
+  category       SupportCategory @default(general)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
-  user              User?                @relation(fields: [userId], references: [id])
-  messages          SupportMessage[]
-  media             Media[]
-  supportAgent      SupportAgent?        @relation(fields: [supportAgentId], references: [id])
+  user         User?            @relation(fields: [userId], references: [id])
+  messages     SupportMessage[]
+  media        Media[]
+  supportAgent SupportAgent?    @relation(fields: [supportAgentId], references: [id])
 
   @@map("support_request")
 }
@@ -484,17 +491,17 @@ enum SupportCategory {
 }
 
 model SupportMessage {
-  id              Int                 @id @default(autoincrement())
+  id               Int        @id @default(autoincrement())
   supportRequestId Int
-  senderId        Int?
-  senderType      SenderType
-  message         String
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  senderId         Int?
+  senderType       SenderType
+  message          String
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
-  supportRequest  SupportRequest      @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
-  senderUser      User?               @relation(fields: [senderId], references: [id])
-  media           Media[]
+  supportRequest SupportRequest @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+  senderUser     User?          @relation(fields: [senderId], references: [id])
+  media          Media[]
 
   @@map("support_message")
 }
@@ -509,24 +516,24 @@ model SupportAgent {
   userId           Int              @unique
   assignedRequests SupportRequest[]
 
-  user             User             @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@map("support_agent")
 }
 
 model WithdrawalRequest {
-  id          Int                  @id @default(autoincrement())
+  id          Int              @id @default(autoincrement())
   userId      Int
   amount      Float
-  currency    String               @default("USD")
-  status      WithdrawalStatus     @default(pending)
-  requestedAt DateTime             @default(now())
+  currency    String           @default("USD")
+  status      WithdrawalStatus @default(pending)
+  requestedAt DateTime         @default(now())
   processedAt DateTime?
   note        String?
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 
-  user        User                 @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@map("withdrawal_request")
 }
@@ -539,18 +546,18 @@ enum WithdrawalStatus {
 }
 
 model UserEarningHistory {
-  id                  Int                 @id @default(autoincrement())
-  userId              Int
-  userWalletId        Int?
-  dashboardAndHubId   Int
-  action              EarningAction
-  points              Float?              @default(0)
-  amount              Float?              @default(0)
-  createdAt           DateTime            @default(now())
+  id                Int           @id @default(autoincrement())
+  userId            Int
+  userWalletId      Int?
+  dashboardAndHubId Int
+  action            EarningAction
+  points            Float?        @default(0)
+  amount            Float?        @default(0)
+  createdAt         DateTime      @default(now())
 
-  user                User                @relation(fields: [userId], references: [id])
-  dashboardAndHub     DashboardAndHub     @relation(fields: [dashboardAndHubId], references: [id])
-  userWallet          UserWallet?         @relation(fields: [userWalletId], references: [id])
+  user            User            @relation(fields: [userId], references: [id])
+  dashboardAndHub DashboardAndHub @relation(fields: [dashboardAndHubId], references: [id])
+  userWallet      UserWallet?     @relation(fields: [userWalletId], references: [id])
 
   @@map("user_earning_history")
 }
@@ -564,42 +571,39 @@ enum EarningAction {
 }
 
 model UserWallet {
-  id                Int                   @id @default(autoincrement())
-  userId            Int                   @unique
-  totalPoints       Float                 @default(0)
-  totalAmount       Float                 @default(0)
-  currency          String                @default("USD")
-  lastUpdated       DateTime              @updatedAt
-  createdAt         DateTime              @default(now())
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique
+  totalPoints Float    @default(0)
+  totalAmount Float    @default(0)
+  currency    String   @default("USD")
+  lastUpdated DateTime @updatedAt
+  createdAt   DateTime @default(now())
 
-  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  earningHistory    UserEarningHistory[]
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  earningHistory UserEarningHistory[]
 
   @@map("user_wallet")
 }
 
-
-
-
 model Role {
-  id          Int                   @id @default(autoincrement())
-  name        String                @unique
+  id   Int    @id @default(autoincrement())
+  name String @unique
 
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   permissions Permission[]
-  users       User[]                @relation("UserRole")
+  users       User[]       @relation("UserRole")
 
   @@map("role")
 }
 
 model Module {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
+  id   Int    @id @default(autoincrement())
+  name String @unique
 
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   permissions Permission[]
 
@@ -607,20 +611,74 @@ model Module {
 }
 
 model Permission {
-  id                    Int                   @id @default(autoincrement())
-  roleId                Int
-  moduleId              Int
-  canReadList           Boolean               @default(false)
-  canReadSingle         Boolean               @default(false)
-  canCreate             Boolean               @default(false)
-  canUpdate             Boolean               @default(false)
-  canDelete             Boolean               @default(false)
+  id            Int     @id @default(autoincrement())
+  roleId        Int
+  moduleId      Int
+  canReadList   Boolean @default(false)
+  canReadSingle Boolean @default(false)
+  canCreate     Boolean @default(false)
+  canUpdate     Boolean @default(false)
+  canDelete     Boolean @default(false)
 
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  role                  Role                  @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  module                Module                @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
 
   @@map("permission")
+}
+
+model AuditLog {
+  id         Int          @id @default(autoincrement())
+  actorId    Int
+  actorRole  String
+  module     String
+  action     String
+  targetId   Int
+  result     AuditResult
+  reason     String?
+  ip         String
+  ua         String
+  ts         DateTime     @default(now())
+
+  actor      User    @relation(fields: [actorId], references: [id])
+
+  @@map("audit_log")
+}
+
+enum AuditResult {
+  success
+  fail
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                Int
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@map("verification")
 }

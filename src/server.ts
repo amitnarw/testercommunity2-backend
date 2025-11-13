@@ -20,7 +20,7 @@ const app = express();
 app.use(express.json());
 app.use(cors(allowedOrigins));
 
-// app.all("/api/auth/*", toNodeHandler(auth));
+app.all("/api/auth{/*path}", toNodeHandler(auth));
 
 // app.get("/api/profile", async (req, res) => {
 //   const session = await auth.api.getSession({
