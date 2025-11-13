@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import "dotenv/config";
-import { auth } from "./src/lib/auth";
+import { auth } from "../src/lib/auth";
 import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
 
 const PORT = process.env.PORT;
@@ -20,7 +20,7 @@ const app = express();
 app.use(express.json());
 app.use(cors(allowedOrigins));
 
-app.all("/api/auth/*", toNodeHandler(auth));
+// app.all("/api/auth/*", toNodeHandler(auth));
 
 // app.get("/api/profile", async (req, res) => {
 //   const session = await auth.api.getSession({

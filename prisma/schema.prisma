@@ -1,6 +1,6 @@
 generator client {
   provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
+  output   = "../generated/prisma"
 }
 
 datasource db {
@@ -35,7 +35,7 @@ model User {
 
   // Relations
   sessions                    Session[]
-  role                        Role                    @relation(fields: [roleId], references: [id])
+  role                        Role                    @relation("UserRole", fields: [roleId], references: [id])
   ownedDashboardAndHubApps    DashboardAndHub[]       @relation("DashboardAndHubAppOwner")
   testingDashboardAndHubApps  DashboardAndHub[]       @relation("DashboardAndHubTesters")
   activities                  UserActivity[]
@@ -46,6 +46,12 @@ model User {
   withdrawalRequests          WithdrawalRequest[]
   earningHistory              UserEarningHistory[]
   wallet                      UserWallet?
+  testerRelations             TesterRelation[]
+  userPlans                   UserPlan[]
+  ratings                     Rating[]
+  feedbacks                   Feedback[]
+  notifications               Notification[]
+  websiteFeedbackSuggestions  WebsiteFeedbackSuggestion[]
 
   @@map("user")
 }
@@ -165,6 +171,8 @@ model AppCategory {
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt
 
+  androidApps             AndroidApp[]
+
   @@map("app_category")
 }
 
@@ -189,6 +197,7 @@ model DashboardAndHub {
   feedback                Feedback[]
   activities              UserActivity[]
   earningHistory          UserEarningHistory[]
+  testerRelations         TesterRelation[]
 
   @@map("dashboard_and_hub")
 }
@@ -205,44 +214,47 @@ enum DashboardAndHubStatus {
 }
 
 model AndroidApp {
-  id            Int           @id @default(autoincrement())
-  appName       String
-  appCategoryId Int
-  packageName   String
-  description   String?
-  isActive      Boolean        @default(true)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id                    Int                     @id @default(autoincrement())
+  appName               String
+  appCategoryId         Int
+  packageName           String
+  description           String?
+  isActive              Boolean                 @default(true)
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
 
-  appCategory   AppCategory    @relation(fields: [appCategoryId], references: [id])
-  media         Media[]
-  ratings       Rating[]
-  activities    UserActivity[]
+  appCategory           AppCategory             @relation(fields: [appCategoryId], references: [id])
+  media                 Media[]
+  ratings               Rating[]
+  activities            UserActivity[]
+  dashboardAndHubs      DashboardAndHub[]
+
 
   @@map("android_app")
 }
 
 model Media {
-  id                    Int                   @id @default(autoincrement())
-  type                  MediaType
-  mime                  String?
-  category              MediaCategory
-  src                   String
-  appId                 Int?
-  blogId                Int?
-  feedbackId            Int?
-  notificationId        Int?
-  supportRequestId      Int?
-  supportMessageId      Int?
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
+  id                            Int                           @id @default(autoincrement())
+  type                          MediaType
+  mime                          String?
+  category                      MediaCategory
+  src                           String
+  appId                         Int?
+  blogId                        Int?
+  feedbackId                    Int?
+  notificationId                Int?
+  supportRequestId              Int?
+  supportMessageId              Int?
+  createdAt                     DateTime                      @default(now())
+  updatedAt                     DateTime                      @updatedAt
 
-  androidApp            AndroidApp?           @relation(fields: [appId], references: [id], onDelete: Cascade)
-  blog                  Blog?                 @relation(fields: [blogId], references: [id], onDelete: Cascade)
-  feedback              Feedback?             @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
-  notification          Notification?         @relation(fields: [notificationId], references: [id], onDelete: Cascade)
-  supportRequest        SupportRequest?       @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
-  supportMessage        SupportMessage?       @relation(fields: [supportMessageId], references: [id], onDelete: Cascade)
+  androidApp                    AndroidApp?                   @relation(fields: [appId], references: [id], onDelete: Cascade)
+  blog                          Blog?                         @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  feedback                      Feedback?                     @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  notification                  Notification?                 @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  supportRequest                SupportRequest?               @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+  supportMessage                SupportMessage?               @relation(fields: [supportMessageId], references: [id], onDelete: Cascade)
+  websiteFeedbackSuggestions    WebsiteFeedbackSuggestion[]
 
   @@map("media")
 }
@@ -436,20 +448,22 @@ enum FeedbackStatus {
 }
 
 model SupportRequest {
-  id          Int                  @id @default(autoincrement())
-  userId      Int?
-  name        String?
-  email       String?
-  subject     String
-  description String
-  status      SupportStatus        @default(pending)
-  category    SupportCategory      @default(general)
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  id                Int                  @id @default(autoincrement())
+  userId            Int?
+  supportAgentId    Int?
+  name              String?
+  email             String?
+  subject           String
+  description       String
+  status            SupportStatus        @default(pending)
+  category          SupportCategory      @default(general)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
-  user        User?                @relation(fields: [userId], references: [id])
-  messages    SupportMessage[]
-  media       Media[]
+  user              User?                @relation(fields: [userId], references: [id])
+  messages          SupportMessage[]
+  media             Media[]
+  supportAgent      SupportAgent?        @relation(fields: [supportAgentId], references: [id])
 
   @@map("support_request")
 }
@@ -527,6 +541,7 @@ enum WithdrawalStatus {
 model UserEarningHistory {
   id                  Int                 @id @default(autoincrement())
   userId              Int
+  userWalletId        Int?
   dashboardAndHubId   Int
   action              EarningAction
   points              Float?              @default(0)
@@ -535,6 +550,7 @@ model UserEarningHistory {
 
   user                User                @relation(fields: [userId], references: [id])
   dashboardAndHub     DashboardAndHub     @relation(fields: [dashboardAndHubId], references: [id])
+  userWallet          UserWallet?         @relation(fields: [userWalletId], references: [id])
 
   @@map("user_earning_history")
 }
@@ -566,13 +582,14 @@ model UserWallet {
 
 
 model Role {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
+  id          Int                   @id @default(autoincrement())
+  name        String                @unique
 
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
 
   permissions Permission[]
+  users       User[]                @relation("UserRole")
 
   @@map("role")
 }
@@ -583,6 +600,8 @@ model Module {
 
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
+
+  permissions Permission[]
 
   @@map("module")
 }
