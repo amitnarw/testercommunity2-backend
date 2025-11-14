@@ -11,21 +11,14 @@ datasource db {
 
 model User {
   id               Int          @id @default(autoincrement())
-  name             String
-  phone            String       @unique
-  image            String?
+  first_name       String
+  last_name        String
   email            String       @unique
   emailVerified    Boolean
+  phone            String       @unique
+  image            String?
   authType         UserAuthType
   password         String
-  country          String?
-  deviceCompany    String?
-  deviceModel      String?
-  ram              String?
-  os               String?
-  screenResolution String?
-  language         String?
-  network          String?
 
   roleId    Int
   banned    Boolean? @default(false)
@@ -35,6 +28,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relations
+  userDetail                 UserDetail
   sessions                   Session[]
   role                       Role                        @relation("UserRole", fields: [roleId], references: [id])
   ownedDashboardAndHubApps   DashboardAndHub[]           @relation("DashboardAndHubAppOwner")
@@ -71,6 +65,156 @@ enum UserRole {
   super_admin
   moderator
   support
+}
+
+model UserDetail {
+  id                        Int                           @id @default(autoincrement())
+  userId                    Int
+  country                   String?
+  profileType               UserProfileType
+  jobRole                   UserJobRole
+
+  company_name              String?
+  company_size              UserCompanySize?
+  position_in_company       UserCompanyPosition? 
+  company_website           String?
+
+  experience_level          UserExperienceLevel?
+  total_published_apps      UserTotalPublishedApps?
+  platform_development      UserDevelopmentPlatform?
+  publish_frequency         UserPublishFrequency?
+
+  service_usage             UserTestingServiceReason?
+
+  communication_methods     UserCommunicationMethod?
+  notification_preference   NotificationPreference?
+
+  deviceCompany             String?
+  deviceModel               String?
+  ram                       String?
+  os                        String?
+  screenResolution          String?
+  language                  String?
+  network                   String?
+
+  createdAt                 DateTime                       @default(now())
+  updatedAt                 DateTime                       @updatedAt
+
+  user                      User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_detail")
+}
+
+enum UserProfileType {
+  individual
+  company
+  agency
+  client_manager
+}
+
+enum UserJobRole {
+  developer
+  qa_tester
+  product_manager
+  designer
+  business_owner
+  marketing
+  sales
+  project_manager
+  student
+  hobbyist
+  agency
+  other
+}
+
+enum UserCompanySize {
+  1
+  2_10
+  11_50
+  51_200
+  201_500
+  501_1000
+  1001_5000
+  5001_10000
+  10000+
+}
+
+enum UserCompanyPosition {
+  FOUNDER_CEO
+  CTO_TECH_LEAD
+  PRODUCT_MANAGER
+  PROJECT_MANAGER
+  SOFTWARE_ENGINEER
+  QA_TESTER
+  DESIGNER
+  MARKETING
+  SALES_BUSINESS_DEV
+  OPERATIONS_ADMIN
+  CUSTOMER_SUPPORT
+  OTHER
+}
+
+enum UserExperienceLevel {
+  INTERN
+  JUNIOR
+  MID
+  SENIOR
+  LEAD
+  DIRECTOR
+  OTHER
+}
+
+enum UserTotalPublishedApps {
+  0
+  1_5
+  6_10
+  11_20
+  21_50
+  51+
+}
+
+enum UserDevelopmentPlatform {
+  NATIVE_IOS
+  NATIVE_ANDROID
+  FLUTTER
+  REACT_NATIVE
+  UNITY
+  DRAG_AND_DROP
+  OTHER
+}
+
+enum UserPublishFrequency {
+  FIRST_APP
+  OCCASIONAL
+  REGULAR
+  FREQUENT
+  OTHER
+}
+
+enum UserTestingServiceReason {
+  VERIFY_FUNCTIONALITY
+  USER_FEEDBACK
+  COMPLIANCE_GOOGLE_PLAY
+  SAVE_TIME
+  OTHER
+}
+
+enum UserCommunicationMethod {
+  EMAIL
+  PHONE
+  WHATSAPP
+  TELEGRAM
+  SLACK
+  OTHER
+}
+
+enum UserNotificationPreference {
+  APP_SUBMITTED
+  TEST_COMPLETED
+  TEST_ASSIGNED
+  COMMENT_ADDED
+  PROMOTIONS
+  OTHER
 }
 
 model TesterRelation {
