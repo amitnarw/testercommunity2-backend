@@ -10,37 +10,38 @@ datasource db {
 }
 
 model User {
-  id               Int          @id @default(autoincrement())
-  first_name       String
-  last_name        String
-  email            String       @unique
-  emailVerified    Boolean
-  phone            String       @unique
-  image            String?
-  authType         UserAuthType
-  password         String
+  id                         Int                            @id @default(autoincrement())
+  userId                     String                         @unique
+  first_name                 String
+  last_name                  String
+  email                      String                         @unique
+  emailVerified              Boolean
+  phone                      String?                        @unique
+  image                      String?
+  authType                   UserAuthType
+  password                   String
 
-  roleId    Int
-  banned    Boolean? @default(false)
-  banReason String?
+  roleId                     Int
+  banned                     Boolean?                       @default(false)
+  banReason                  String?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt                  DateTime                       @default(now())
+  updatedAt                  DateTime                       @updatedAt
 
   // Relations
-  userDetail                 UserDetail
+  userDetail                 UserDetail?
   sessions                   Session[]
-  role                       Role                        @relation("UserRole", fields: [roleId], references: [id])
-  ownedDashboardAndHubApps   DashboardAndHub[]           @relation("DashboardAndHubAppOwner")
-  testingDashboardAndHubApps DashboardAndHub[]           @relation("DashboardAndHubTesters")
+  role                       Role                           @relation("UserRole", fields: [roleId], references: [id])
+  ownedDashboardAndHubApps   DashboardAndHub[]              @relation("DashboardAndHubAppOwner")
+  testingDashboardAndHubApps DashboardAndHub[]              @relation("DashboardAndHubTesters")
   activities                 UserActivity[]
   logs                       UserLogs[]
   supportRequests            SupportRequest[]
   supportMessages            SupportMessage[]
   supportAgent               SupportAgent?
   withdrawalRequests         WithdrawalRequest[]
-  earningHistory             UserEarningHistory[]
   wallet                     UserWallet?
+  transactions               UserTransactions[]
   testerRelations            TesterRelation[]
   userPlans                  UserPlan[]
   ratings                    Rating[]
@@ -55,28 +56,20 @@ model User {
 }
 
 enum UserAuthType {
-  email_and_password
-  google
-}
-
-enum UserRole {
-  user
-  admin
-  super_admin
-  moderator
-  support
+  EMAIL_PASSWORD
+  GOOGLE
 }
 
 model UserDetail {
   id                        Int                           @id @default(autoincrement())
-  userId                    Int
+  userId                    String                        @unique
   country                   String?
   profileType               UserProfileType
   jobRole                   UserJobRole
 
   company_name              String?
   company_size              UserCompanySize?
-  position_in_company       UserCompanyPosition? 
+  position_in_company       UserCompanyPosition?
   company_website           String?
 
   experience_level          UserExperienceLevel?
@@ -87,7 +80,7 @@ model UserDetail {
   service_usage             UserTestingServiceReason?
 
   communication_methods     UserCommunicationMethod?
-  notification_preference   NotificationPreference?
+  notification_preference   UserNotificationPreference?
 
   deviceCompany             String?
   deviceModel               String?
@@ -100,43 +93,43 @@ model UserDetail {
   createdAt                 DateTime                       @default(now())
   updatedAt                 DateTime                       @updatedAt
 
-  user                      User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                      User?                           @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
   @@map("user_detail")
 }
 
 enum UserProfileType {
-  individual
-  company
-  agency
-  client_manager
+  INDIVIDUAL
+  COMPANY
+  AGENCY
+  CLIENT_MANAGER
 }
 
 enum UserJobRole {
-  developer
-  qa_tester
-  product_manager
-  designer
-  business_owner
-  marketing
-  sales
-  project_manager
-  student
-  hobbyist
-  agency
-  other
+  DEVELOPER
+  QA_TESTER
+  PRODUCT_MANAGER
+  DESIGNER
+  BUSINESS_OWNER
+  MARKETING
+  SALES
+  PROJECT_MANAGER
+  STUDENT
+  HOBBYIST
+  AGENCY
+  OTHER
 }
 
 enum UserCompanySize {
-  1
-  2_10
-  11_50
-  51_200
-  201_500
-  501_1000
-  1001_5000
-  5001_10000
-  10000+
+  SIZE_1
+  SIZE_2_10
+  SIZE_11_50
+  SIZE_51_200
+  SIZE_201_500
+  SIZE_501_1000
+  SIZE_1001_5000
+  SIZE_5001_10000
+  SIZE_10000_PLUS
 }
 
 enum UserCompanyPosition {
@@ -165,12 +158,12 @@ enum UserExperienceLevel {
 }
 
 enum UserTotalPublishedApps {
-  0
-  1_5
-  6_10
-  11_20
-  21_50
-  51+
+  PUB_0
+  PUB_1_5
+  PUB_6_10
+  PUB_11_20
+  PUB_21_50
+  PUB_51_PLUS
 }
 
 enum UserDevelopmentPlatform {
@@ -234,26 +227,21 @@ model TesterRelation {
 
 model Session {
   id                 Int      @id @default(autoincrement())
-  userId             Int
+  userId             String
   accessToken        String   @unique
   accessTokenExpiry  DateTime
   refreshToken       String   @unique
   refreshTokenExpiry DateTime
   deviceId           String   @unique
-  deviceInfo         Json?
   userAgent          String?
   ipAddress          String?
   lastUsedAt         DateTime
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  expiresAt DateTime
-  token     String
+  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
   @@map("session")
-  @@unique([token])
 }
 
 model Plan {
@@ -272,13 +260,13 @@ model Plan {
 
 model UserPlan {
   id        Int      @id @default(autoincrement())
-  userId    Int
+  userId    String
   planId    String
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
   plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@map("user_plan")
@@ -348,21 +336,21 @@ model DashboardAndHub {
   testers         User[]               @relation("DashboardAndHubTesters")
   feedback        Feedback[]
   activities      UserActivity[]
-  earningHistory  UserEarningHistory[]
+  earningHistory  UserTransactions[]
   testerRelations TesterRelation[]
 
   @@map("dashboard_and_hub")
 }
 
 enum DashboardAndHubStatus {
-  in_review
-  draft
-  rejected
-  in_testing
-  completed
-  on_hold
-  requested
-  available
+  IN_REVIEW
+  DRAFT
+  REJECTED
+  IN_TESTING
+  COMPLETED
+  ON_HOLD
+  REQUESTED
+  AVAILABLE
 }
 
 model AndroidApp {
@@ -411,17 +399,17 @@ model Media {
 }
 
 enum MediaType {
-  image
-  video
+  IMAGE
+  VIDEO
 }
 
 enum MediaCategory {
-  app_logo
-  screenshot
-  feedback_media
-  featured_image
-  author_image
-  other
+  APP_LOGO
+  SCREENSHOT
+  FEEDBACK_MEDIA
+  FEATURED_IMAGE
+  AUTHOR_IMAGE
+  OTHER
 }
 
 model Rating {
@@ -429,19 +417,19 @@ model Rating {
   rating     Float
   ratingType RatingType
   appId      Int?
-  userId     Int?
+  userId     String?
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
 
   androidApp AndroidApp? @relation(fields: [appId], references: [id])
-  user       User?       @relation(fields: [userId], references: [id])
+  user       User?       @relation(fields: [userId], references: [userId])
 
   @@map("rating")
 }
 
 enum RatingType {
-  app
-  user
+  APP
+  USER
 }
 
 model Feedback {
@@ -462,48 +450,48 @@ model Feedback {
 }
 
 enum FeedbackType {
-  bug
-  suggestion
-  praise
-  other
+  BUG
+  SUGGESTION
+  PRAISE
+  OTHER
 }
 
 enum FeedbackPriority {
-  critical
-  high
-  medium
-  low
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
 }
 
 model Notification {
   id          Int              @id @default(autoincrement())
   title       String
   description String
-  type        NotificationType @default(other)
+  type        NotificationType @default(OTHER)
   url         String?
-  userId      Int?
+  userId      String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user  User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  User?   @relation(fields: [userId], references: [userId], onDelete: Cascade)
   media Media[]
 
   @@map("notification")
 }
 
 enum NotificationType {
-  new_test
-  feedback_received
-  test_completed
-  bug_report
-  points_awarded
-  other
+  NEW_TEST
+  FEEDBACK_RECEIVED
+  TEST_COMPLETED
+  BUG_REPORT
+  POINTS_AWARDED
+  OTHER
 }
 
 model UserActivity {
   id                Int            @id @default(autoincrement())
-  userId            Int
+  userId            String
   dashboardAndHubId Int?
   androidAppId      Int?
   actionType        UserActionType
@@ -511,10 +499,11 @@ model UserActivity {
   context           Json?
   ipAddress         String?
   userAgent         String?
+  status            AuditResult
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User             @relation(fields: [userId], references: [userId], onDelete: Cascade)
   dashboardAndHub DashboardAndHub? @relation(fields: [dashboardAndHubId], references: [id])
   androidApp      AndroidApp?      @relation(fields: [androidAppId], references: [id])
 
@@ -522,96 +511,100 @@ model UserActivity {
 }
 
 enum UserActionType {
-  submit_app
-  join_test
-  complete_test
-  give_feedback
-  rate_app
-  login
-  logout
-  update_profile
-  other
+  SUBMIT_APP
+  JOIN_TEST
+  COMPLETE_TEST
+  GIVE_FEEDBACK
+  RATE_APP
+  LOGIN
+  LOGOUT
+  UPDATE_PROFILE
+  REGISTER
+  RENEW_TOKENS
+  OTHER
 }
 
 model UserLogs {
-  id          Int         @id @default(autoincrement())
-  userId      Int?
+  id          Int                 @id @default(autoincrement())
+  userId      String
   logType     LogType
-  severity    LogSeverity
+  severity    LogSeverity?
   description String
   context     Json?
   ipAddress   String?
   userAgent   String?
-  createdAt   DateTime    @default(now())
+  createdAt   DateTime            @default(now())
 
-  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User?               @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
   @@map("user_logs")
 }
 
 enum LogType {
-  login
-  logout
-  password_reset
-  error
-  admin_action
-  system_event
-  other
+  LOGIN
+  REGISTER
+  LOGOUT
+  PASSWORD_RESET
+  ERROR
+  ADMIN_ACTION
+  SYSTEM_ACTION
+  OTHER
 }
 
 enum LogSeverity {
-  critical
-  high
-  medium
-  low
-  info
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
 }
 
 model WebsiteFeedbackSuggestion {
   id        Int                    @id @default(autoincrement())
-  userId    Int
+  userId    String
   type      FeedbackSuggestionType
   title     String?
   message   String
   priority  FeedbackPriority?
-  status    FeedbackStatus         @default(pending)
+  status    FeedbackStatus         @default(PENDING)
+  reason    String?
   createdAt DateTime               @default(now())
   updatedAt DateTime               @updatedAt
 
-  user  User    @relation(fields: [userId], references: [id])
+  user  User    @relation(fields: [userId], references: [userId])
   media Media[]
 
   @@map("website_feedback_suggestion")
 }
 
 enum FeedbackSuggestionType {
-  bug
-  suggestion
-  praise
-  other
+  BUG
+  SUGGESTIONS
+  PRAISE
+  OTHER
 }
 
 enum FeedbackStatus {
-  pending
-  reviewed
-  implemented
-  rejected
+  PENDING
+  REVIEWED
+  IMPLEMENTED
+  REJECTED
 }
 
 model SupportRequest {
   id             Int             @id @default(autoincrement())
-  userId         Int?
+  userId         String?
   supportAgentId Int?
   name           String?
   email          String?
   subject        String
   description    String
-  status         SupportStatus   @default(pending)
-  category       SupportCategory @default(general)
+  status         SupportStatus   @default(PENDING)
+  category       SupportCategory @default(GENERAL)
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
-  user         User?            @relation(fields: [userId], references: [id])
+  user         User?            @relation(fields: [userId], references: [userId])
   messages     SupportMessage[]
   media        Media[]
   supportAgent SupportAgent?    @relation(fields: [supportAgentId], references: [id])
@@ -620,18 +613,18 @@ model SupportRequest {
 }
 
 enum SupportStatus {
-  pending
-  in_progress
-  resolved
-  closed
+  PENDING
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
 }
 
 enum SupportCategory {
-  general
-  technical
-  billing
-  account
-  other
+  GENERAL
+  TECHNICAL
+  BILLING
+  ACCOUNT
+  OTHER
 }
 
 model SupportMessage {
@@ -651,80 +644,97 @@ model SupportMessage {
 }
 
 enum SenderType {
-  user
-  agent
+  USER
+  AGENT
 }
 
 model SupportAgent {
   id               Int              @id @default(autoincrement())
-  userId           Int              @unique
+  userId           String           @unique
   assignedRequests SupportRequest[]
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [userId])
 
   @@map("support_agent")
 }
 
 model WithdrawalRequest {
   id          Int              @id @default(autoincrement())
-  userId      Int
+  userId      String
   amount      Float
   currency    String           @default("USD")
-  status      WithdrawalStatus @default(pending)
+  status      WithdrawalStatus @default(PENDING)
   requestedAt DateTime         @default(now())
   processedAt DateTime?
   note        String?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [userId])
 
   @@map("withdrawal_request")
 }
 
 enum WithdrawalStatus {
-  pending
-  approved
-  rejected
-  paid
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
 }
 
-model UserEarningHistory {
-  id                Int           @id @default(autoincrement())
-  userId            Int
-  userWalletId      Int?
-  dashboardAndHubId Int
-  action            EarningAction
-  points            Float?        @default(0)
-  amount            Float?        @default(0)
-  createdAt         DateTime      @default(now())
+model UserTransactions {
+  id                  Int                      @id @default(autoincrement())
+  userId              String
+  userWalletId        Int?
+  dashboardAndHubId   Int?                     // optional if some transactions aren't dashboard-related
+  action              EarningAction?           // keep optional for non-earning transactions
+  points              Float?                   @default(0)
+  amount              Float?                   @default(0)
+  transactionType     UserTransactionType      // NEW: type of transaction
+  status              UserTransactionsStatus
+  createdAt           DateTime                 @default(now())
 
-  user            User            @relation(fields: [userId], references: [id])
-  dashboardAndHub DashboardAndHub @relation(fields: [dashboardAndHubId], references: [id])
-  userWallet      UserWallet?     @relation(fields: [userWalletId], references: [id])
+  user                User                     @relation(fields: [userId], references: [userId])
+  dashboardAndHub     DashboardAndHub?         @relation(fields: [dashboardAndHubId], references: [id])
+  userWallet          UserWallet?              @relation(fields: [userWalletId], references: [id])
 
-  @@map("user_earning_history")
+  @@map("user_transactions")
+}
+
+enum UserTransactionType {
+  EARNING
+  WITHDRAWAL
+  PURCHASE
+  REFUND
+  BONUS
+  OTHER
 }
 
 enum EarningAction {
-  testing
-  feedback
-  referral
-  bonus
-  other
+  TESTING
+  FEEDBACK
+  REFERRAL
+  BONUS
+  OTHER
+}
+
+enum UserTransactionsStatus {
+  CREDIT
+  DEBIT
+  HOLD
 }
 
 model UserWallet {
-  id          Int      @id @default(autoincrement())
-  userId      Int      @unique
-  totalPoints Float    @default(0)
-  totalAmount Float    @default(0)
-  currency    String   @default("USD")
-  lastUpdated DateTime @updatedAt
-  createdAt   DateTime @default(now())
+  id                Int                     @id @default(autoincrement())
+  userId            String                  @unique
+  totalPoints       Float                   @default(0)
+  totalAmount       Float                   @default(0)
+  currency          String                  @default("USD")
+  lastUpdated       DateTime                @updatedAt
+  createdAt         DateTime                @default(now())
 
-  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  earningHistory UserEarningHistory[]
+  user              User                    @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  earningHistory    UserTransactions[]
 
   @@map("user_wallet")
 }
@@ -792,37 +802,37 @@ model AuditLog {
 }
 
 enum AuditResult {
-  success
-  fail
+  SUCCESS
+  FAIL
 }
 
 model Account {
-  id                    String    @id
-  accountId             String
-  providerId            String
-  userId                Int
-  accessToken           String?
-  refreshToken          String?
-  idToken               String?
-  accessTokenExpiresAt  DateTime?
-  refreshTokenExpiresAt DateTime?
-  scope                 String?
-  password              String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  id                        String            @id
+  accountId                 String
+  providerId                String
+  userId                    String            @unique
+  accessToken               String?
+  refreshToken              String?
+  idToken                   String?
+  accessTokenExpiresAt      DateTime?
+  refreshTokenExpiresAt     DateTime?
+  scope                     String?
+  password                  String?
+  createdAt                 DateTime          @default(now())
+  updatedAt                 DateTime          @updatedAt
 
-  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                      User              @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
   @@map("account")
 }
 
 model Verification {
-  id         String   @id
-  identifier String
-  value      String
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @default(now()) @updatedAt
+  id              String           @id
+  identifier      String
+  value           String
+  expiresAt       DateTime
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @default(now()) @updatedAt
 
   @@map("verification")
 }
