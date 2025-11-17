@@ -41,7 +41,7 @@ model User {
   supportAgent               SupportAgent?
   withdrawalRequests         WithdrawalRequest[]
   wallet                     UserWallet?
-  transactions               UserTransactions[]
+  transactions               UserTransaction[]
   testerRelations            TesterRelation[]
   userPlans                  UserPlan[]
   ratings                    Rating[]
@@ -49,8 +49,8 @@ model User {
   notifications              Notification[]
   websiteFeedbackSuggestions WebsiteFeedbackSuggestion[]
   auditLogs                  AuditLog[] 
-
-  accounts Account[]
+  accounts                   Account[]
+  passwordReset              PasswordReset[]
 
   @@map("user")
 }
@@ -336,7 +336,7 @@ model DashboardAndHub {
   testers         User[]               @relation("DashboardAndHubTesters")
   feedback        Feedback[]
   activities      UserActivity[]
-  earningHistory  UserTransactions[]
+  earningHistory  UserTransaction[]
   testerRelations TesterRelation[]
 
   @@map("dashboard_and_hub")
@@ -545,6 +545,7 @@ enum LogType {
   REGISTER
   LOGOUT
   PASSWORD_RESET
+  RENEW_TOKENS
   ERROR
   ADMIN_ACTION
   SYSTEM_ACTION
@@ -682,7 +683,7 @@ enum WithdrawalStatus {
   PAID
 }
 
-model UserTransactions {
+model UserTransaction {
   id                  Int                      @id @default(autoincrement())
   userId              String
   userWalletId        Int?
@@ -691,7 +692,7 @@ model UserTransactions {
   points              Float?                   @default(0)
   amount              Float?                   @default(0)
   transactionType     UserTransactionType      // NEW: type of transaction
-  status              UserTransactionsStatus
+  status              UserTransactionStatus
   createdAt           DateTime                 @default(now())
 
   user                User                     @relation(fields: [userId], references: [userId])
@@ -718,7 +719,7 @@ enum EarningAction {
   OTHER
 }
 
-enum UserTransactionsStatus {
+enum UserTransactionStatus {
   CREDIT
   DEBIT
   HOLD
@@ -734,7 +735,7 @@ model UserWallet {
   createdAt         DateTime                @default(now())
 
   user              User                    @relation(fields: [userId], references: [userId], onDelete: Cascade)
-  earningHistory    UserTransactions[]
+  earningHistory    UserTransaction[]
 
   @@map("user_wallet")
 }
@@ -785,18 +786,18 @@ model Permission {
 
 model AuditLog {
   id         Int          @id @default(autoincrement())
-  actorId    Int
+  actorId    String
   actorRole  String
   module     String
   action     String
-  targetId   Int
+  targetId   String
   result     AuditResult
   reason     String?
   ip         String
   ua         String
   ts         DateTime     @default(now())
 
-  actor      User    @relation(fields: [actorId], references: [id])
+  actor      User    @relation(fields: [actorId], references: [userId])
 
   @@map("audit_log")
 }
@@ -835,4 +836,19 @@ model Verification {
   updatedAt       DateTime         @default(now()) @updatedAt
 
   @@map("verification")
+}
+
+model PasswordReset {
+  id                      Int                   @id @default(autoincrement())
+  password_reset_token    String                @unique
+  userId                  String
+  expireAt                DateTime
+  isActive                Boolean               @default(true)
+
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @default(now()) @updatedAt
+
+  user                    User                  @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@map("password_reset")
 }

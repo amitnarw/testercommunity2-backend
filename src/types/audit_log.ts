@@ -1,9 +1,9 @@
 export interface AuditLogPayload {
-  actorId: number;
+  actorId: string;
   actorRole: string;
   module: string;
   action: string;
-  targetId: number;
+  targetId: string;
   result: string;
   reason?: string;
   ip: string;

@@ -19,7 +19,8 @@ export const getLogs = async (req: Request, res: Response) => {
         actor: {
           select: {
             id: true,
-            name: true,
+            first_name: true,
+            last_name: true,
             role: {
               select: {
                 name: true,
@@ -33,7 +34,7 @@ export const getLogs = async (req: Request, res: Response) => {
       },
     });
 
-    return sendSuccess(res, { payload: { data: logs, total } }, "ok");
+    // return sendSuccess(res, { payload: { data: logs, total } }, "ok");
   } catch (error) {
     return sendError(
       res,
@@ -66,11 +67,11 @@ export const addLog = async (req: Request, res: Response) => {
 };
 
 export const addAuditLog = async (payload: {
-  actorId: ObjectId;
+  actorId: string;
   actorRole: string;
   module: string;
   action: string;
-  targetId: ObjectId;
+  targetId: string;
   result: string;
   reason?: string;
   ip: string;
@@ -96,16 +97,18 @@ export const addAuditLog = async (payload: {
           "Actor id, actor role, module, action, result, ip, ua are required",
       };
     }
-    const log = await AuditLog.create({
-      actorId,
-      actorRole,
-      module,
-      action,
-      targetId,
-      result,
-      reason,
-      ip,
-      ua,
+    const log = await prismaClient?.auditLog?.create({
+      data: {
+        actorId,
+        actorRole,
+        module,
+        action,
+        targetId,
+        result: result as "SUCCESS" | "FAIL",
+        reason,
+        ip,
+        ua,
+      },
     });
     if (!log) {
       return { success: false, message: log };

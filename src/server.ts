@@ -1,8 +1,11 @@
 import express from "express";
 import cors from "cors";
 import "dotenv/config";
-import { auth } from "../src/lib/auth";
-import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
+import routes from "./routes/common";
+import { sendSuccess } from "./utils/response";
+import { toNodeHandler } from "better-auth/node";
+import { auth } from "./lib/auth";
+import { prismaClient } from "./lib/prisma";
 
 const PORT = process.env.PORT;
 const origin = process.env.CORS_ORIGIN;
@@ -17,10 +20,9 @@ const allowedOrigins = {
 
 const app = express();
 
-app.use(express.json());
 app.use(cors(allowedOrigins));
 
-app.all("/api/auth{/*path}", toNodeHandler(auth));
+// app.all("/api/auth{/*path}", toNodeHandler(auth));
 
 // app.get("/api/profile", async (req, res) => {
 //   const session = await auth.api.getSession({
@@ -44,6 +46,21 @@ app.all("/api/auth{/*path}", toNodeHandler(auth));
 
 //   res.json({ message: `Welcome Admin ${session.user.email}` });
 // });
+
+
+// const apiVersion = "/api/v1/";
+// app.use(apiVersion, routes);
+app.all('/api/auth/{*any}', toNodeHandler(auth));
+// app.all('/api/auth/{*any}', async (req, res)=>{
+//   const response = await prismaClient?.user?.findMany();
+//   console.log(response, '11111111111')
+//   res.send(response)
+// });
+app.use(express.json());
+
+app.get("/health", (_, res) => {
+  return sendSuccess(res, 200, "Server is running");
+});
 
 app.listen(PORT, () => {
   console.log(`Server is running on port: ${PORT}`);

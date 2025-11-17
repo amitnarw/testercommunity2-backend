@@ -1,81 +1,114 @@
 -- CreateEnum
-CREATE TYPE "UserAuthType" AS ENUM ('email_and_password', 'google');
+CREATE TYPE "UserAuthType" AS ENUM ('EMAIL_PASSWORD', 'GOOGLE');
 
 -- CreateEnum
-CREATE TYPE "UserRole" AS ENUM ('user', 'admin', 'super_admin', 'moderator', 'support');
+CREATE TYPE "UserProfileType" AS ENUM ('INDIVIDUAL', 'COMPANY', 'AGENCY', 'CLIENT_MANAGER');
+
+-- CreateEnum
+CREATE TYPE "UserJobRole" AS ENUM ('DEVELOPER', 'QA_TESTER', 'PRODUCT_MANAGER', 'DESIGNER', 'BUSINESS_OWNER', 'MARKETING', 'SALES', 'PROJECT_MANAGER', 'STUDENT', 'HOBBYIST', 'AGENCY', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "UserCompanySize" AS ENUM ('SIZE_1', 'SIZE_2_10', 'SIZE_11_50', 'SIZE_51_200', 'SIZE_201_500', 'SIZE_501_1000', 'SIZE_1001_5000', 'SIZE_5001_10000', 'SIZE_10000_PLUS');
+
+-- CreateEnum
+CREATE TYPE "UserCompanyPosition" AS ENUM ('FOUNDER_CEO', 'CTO_TECH_LEAD', 'PRODUCT_MANAGER', 'PROJECT_MANAGER', 'SOFTWARE_ENGINEER', 'QA_TESTER', 'DESIGNER', 'MARKETING', 'SALES_BUSINESS_DEV', 'OPERATIONS_ADMIN', 'CUSTOMER_SUPPORT', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "UserExperienceLevel" AS ENUM ('INTERN', 'JUNIOR', 'MID', 'SENIOR', 'LEAD', 'DIRECTOR', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "UserTotalPublishedApps" AS ENUM ('PUB_0', 'PUB_1_5', 'PUB_6_10', 'PUB_11_20', 'PUB_21_50', 'PUB_51_PLUS');
+
+-- CreateEnum
+CREATE TYPE "UserDevelopmentPlatform" AS ENUM ('NATIVE_IOS', 'NATIVE_ANDROID', 'FLUTTER', 'REACT_NATIVE', 'UNITY', 'DRAG_AND_DROP', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "UserPublishFrequency" AS ENUM ('FIRST_APP', 'OCCASIONAL', 'REGULAR', 'FREQUENT', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "UserTestingServiceReason" AS ENUM ('VERIFY_FUNCTIONALITY', 'USER_FEEDBACK', 'COMPLIANCE_GOOGLE_PLAY', 'SAVE_TIME', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "UserCommunicationMethod" AS ENUM ('EMAIL', 'PHONE', 'WHATSAPP', 'TELEGRAM', 'SLACK', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "UserNotificationPreference" AS ENUM ('APP_SUBMITTED', 'TEST_COMPLETED', 'TEST_ASSIGNED', 'COMMENT_ADDED', 'PROMOTIONS', 'OTHER');
 
 -- CreateEnum
 CREATE TYPE "FaqCategory" AS ENUM ('general', 'community', 'professional', 'homepage');
 
 -- CreateEnum
-CREATE TYPE "DashboardAndHubStatus" AS ENUM ('in_review', 'draft', 'rejected', 'in_testing', 'completed', 'on_hold', 'requested', 'available');
+CREATE TYPE "DashboardAndHubStatus" AS ENUM ('IN_REVIEW', 'DRAFT', 'REJECTED', 'IN_TESTING', 'COMPLETED', 'ON_HOLD', 'REQUESTED', 'AVAILABLE');
 
 -- CreateEnum
-CREATE TYPE "MediaType" AS ENUM ('image', 'video');
+CREATE TYPE "MediaType" AS ENUM ('IMAGE', 'VIDEO');
 
 -- CreateEnum
-CREATE TYPE "MediaCategory" AS ENUM ('app_logo', 'screenshot', 'feedback_media', 'featured_image', 'author_image', 'other');
+CREATE TYPE "MediaCategory" AS ENUM ('APP_LOGO', 'SCREENSHOT', 'FEEDBACK_MEDIA', 'FEATURED_IMAGE', 'AUTHOR_IMAGE', 'OTHER');
 
 -- CreateEnum
-CREATE TYPE "RatingType" AS ENUM ('app', 'user');
+CREATE TYPE "RatingType" AS ENUM ('APP', 'USER');
 
 -- CreateEnum
-CREATE TYPE "FeedbackType" AS ENUM ('bug', 'suggestion', 'praise', 'other');
+CREATE TYPE "FeedbackType" AS ENUM ('BUG', 'SUGGESTION', 'PRAISE', 'OTHER');
 
 -- CreateEnum
-CREATE TYPE "FeedbackPriority" AS ENUM ('critical', 'high', 'medium', 'low');
+CREATE TYPE "FeedbackPriority" AS ENUM ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW');
 
 -- CreateEnum
-CREATE TYPE "NotificationType" AS ENUM ('new_test', 'feedback_received', 'test_completed', 'bug_report', 'points_awarded', 'other');
+CREATE TYPE "NotificationType" AS ENUM ('NEW_TEST', 'FEEDBACK_RECEIVED', 'TEST_COMPLETED', 'BUG_REPORT', 'POINTS_AWARDED', 'OTHER');
 
 -- CreateEnum
-CREATE TYPE "UserActionType" AS ENUM ('submit_app', 'join_test', 'complete_test', 'give_feedback', 'rate_app', 'login', 'logout', 'update_profile', 'other');
+CREATE TYPE "UserActionType" AS ENUM ('SUBMIT_APP', 'JOIN_TEST', 'COMPLETE_TEST', 'GIVE_FEEDBACK', 'RATE_APP', 'LOGIN', 'LOGOUT', 'UPDATE_PROFILE', 'REGISTER', 'RENEW_TOKENS', 'OTHER');
 
 -- CreateEnum
-CREATE TYPE "LogType" AS ENUM ('login', 'logout', 'password_reset', 'error', 'admin_action', 'system_event', 'other');
+CREATE TYPE "LogType" AS ENUM ('LOGIN', 'REGISTER', 'LOGOUT', 'PASSWORD_RESET', 'RENEW_TOKENS', 'ERROR', 'ADMIN_ACTION', 'SYSTEM_ACTION', 'OTHER');
 
 -- CreateEnum
-CREATE TYPE "LogSeverity" AS ENUM ('critical', 'high', 'medium', 'low', 'info');
+CREATE TYPE "LogSeverity" AS ENUM ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO');
 
 -- CreateEnum
-CREATE TYPE "FeedbackSuggestionType" AS ENUM ('bug', 'suggestion', 'praise', 'other');
+CREATE TYPE "FeedbackSuggestionType" AS ENUM ('BUG', 'SUGGESTIONS', 'PRAISE', 'OTHER');
 
 -- CreateEnum
-CREATE TYPE "FeedbackStatus" AS ENUM ('pending', 'reviewed', 'implemented', 'rejected');
+CREATE TYPE "FeedbackStatus" AS ENUM ('PENDING', 'REVIEWED', 'IMPLEMENTED', 'REJECTED');
 
 -- CreateEnum
-CREATE TYPE "SupportStatus" AS ENUM ('pending', 'in_progress', 'resolved', 'closed');
+CREATE TYPE "SupportStatus" AS ENUM ('PENDING', 'IN_PROGRESS', 'RESOLVED', 'CLOSED');
 
 -- CreateEnum
-CREATE TYPE "SupportCategory" AS ENUM ('general', 'technical', 'billing', 'account', 'other');
+CREATE TYPE "SupportCategory" AS ENUM ('GENERAL', 'TECHNICAL', 'BILLING', 'ACCOUNT', 'OTHER');
 
 -- CreateEnum
-CREATE TYPE "SenderType" AS ENUM ('user', 'agent');
+CREATE TYPE "SenderType" AS ENUM ('USER', 'AGENT');
 
 -- CreateEnum
-CREATE TYPE "WithdrawalStatus" AS ENUM ('pending', 'approved', 'rejected', 'paid');
+CREATE TYPE "WithdrawalStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'PAID');
 
 -- CreateEnum
-CREATE TYPE "EarningAction" AS ENUM ('testing', 'feedback', 'referral', 'bonus', 'other');
+CREATE TYPE "UserTransactionType" AS ENUM ('EARNING', 'WITHDRAWAL', 'PURCHASE', 'REFUND', 'BONUS', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "EarningAction" AS ENUM ('TESTING', 'FEEDBACK', 'REFERRAL', 'BONUS', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "UserTransactionStatus" AS ENUM ('CREDIT', 'DEBIT', 'HOLD');
+
+-- CreateEnum
+CREATE TYPE "AuditResult" AS ENUM ('SUCCESS', 'FAIL');
 
 -- CreateTable
 CREATE TABLE "user" (
     "id" SERIAL NOT NULL,
-    "name" TEXT NOT NULL,
-    "phone" TEXT NOT NULL,
-    "image" TEXT,
+    "userId" TEXT NOT NULL,
+    "first_name" TEXT NOT NULL,
+    "last_name" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "emailVerified" BOOLEAN NOT NULL,
+    "phone" TEXT,
+    "image" TEXT,
     "authType" "UserAuthType" NOT NULL,
     "password" TEXT NOT NULL,
-    "country" TEXT,
-    "deviceCompany" TEXT,
-    "deviceModel" TEXT,
-    "ram" TEXT,
-    "os" TEXT,
-    "screenResolution" TEXT,
-    "language" TEXT,
-    "network" TEXT,
     "roleId" INTEGER NOT NULL,
     "banned" BOOLEAN DEFAULT false,
     "banReason" TEXT,
@@ -83,6 +116,37 @@ CREATE TABLE "user" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "user_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "user_detail" (
+    "id" SERIAL NOT NULL,
+    "userId" TEXT NOT NULL,
+    "country" TEXT,
+    "profileType" "UserProfileType" NOT NULL,
+    "jobRole" "UserJobRole" NOT NULL,
+    "company_name" TEXT,
+    "company_size" "UserCompanySize",
+    "position_in_company" "UserCompanyPosition",
+    "company_website" TEXT,
+    "experience_level" "UserExperienceLevel",
+    "total_published_apps" "UserTotalPublishedApps",
+    "platform_development" "UserDevelopmentPlatform",
+    "publish_frequency" "UserPublishFrequency",
+    "service_usage" "UserTestingServiceReason",
+    "communication_methods" "UserCommunicationMethod",
+    "notification_preference" "UserNotificationPreference",
+    "deviceCompany" TEXT,
+    "deviceModel" TEXT,
+    "ram" TEXT,
+    "os" TEXT,
+    "screenResolution" TEXT,
+    "language" TEXT,
+    "network" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "user_detail_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -101,13 +165,12 @@ CREATE TABLE "tester_relation" (
 -- CreateTable
 CREATE TABLE "session" (
     "id" SERIAL NOT NULL,
-    "userId" INTEGER NOT NULL,
+    "userId" TEXT NOT NULL,
     "accessToken" TEXT NOT NULL,
     "accessTokenExpiry" TIMESTAMP(3) NOT NULL,
     "refreshToken" TEXT NOT NULL,
     "refreshTokenExpiry" TIMESTAMP(3) NOT NULL,
     "deviceId" TEXT NOT NULL,
-    "deviceInfo" JSONB,
     "userAgent" TEXT,
     "ipAddress" TEXT,
     "lastUsedAt" TIMESTAMP(3) NOT NULL,
@@ -134,7 +197,7 @@ CREATE TABLE "plan" (
 -- CreateTable
 CREATE TABLE "user_plan" (
     "id" SERIAL NOT NULL,
-    "userId" INTEGER NOT NULL,
+    "userId" TEXT NOT NULL,
     "planId" TEXT NOT NULL,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -238,7 +301,7 @@ CREATE TABLE "rating" (
     "rating" DOUBLE PRECISION NOT NULL,
     "ratingType" "RatingType" NOT NULL,
     "appId" INTEGER,
-    "userId" INTEGER,
+    "userId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -264,9 +327,9 @@ CREATE TABLE "notification" (
     "id" SERIAL NOT NULL,
     "title" TEXT NOT NULL,
     "description" TEXT NOT NULL,
-    "type" "NotificationType" NOT NULL DEFAULT 'other',
+    "type" "NotificationType" NOT NULL DEFAULT 'OTHER',
     "url" TEXT,
-    "userId" INTEGER,
+    "userId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -276,7 +339,7 @@ CREATE TABLE "notification" (
 -- CreateTable
 CREATE TABLE "user_activity" (
     "id" SERIAL NOT NULL,
-    "userId" INTEGER NOT NULL,
+    "userId" TEXT NOT NULL,
     "dashboardAndHubId" INTEGER,
     "androidAppId" INTEGER,
     "actionType" "UserActionType" NOT NULL,
@@ -284,6 +347,7 @@ CREATE TABLE "user_activity" (
     "context" JSONB,
     "ipAddress" TEXT,
     "userAgent" TEXT,
+    "status" "AuditResult" NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -293,9 +357,9 @@ CREATE TABLE "user_activity" (
 -- CreateTable
 CREATE TABLE "user_logs" (
     "id" SERIAL NOT NULL,
-    "userId" INTEGER,
+    "userId" TEXT NOT NULL,
     "logType" "LogType" NOT NULL,
-    "severity" "LogSeverity" NOT NULL,
+    "severity" "LogSeverity",
     "description" TEXT NOT NULL,
     "context" JSONB,
     "ipAddress" TEXT,
@@ -308,12 +372,13 @@ CREATE TABLE "user_logs" (
 -- CreateTable
 CREATE TABLE "website_feedback_suggestion" (
     "id" SERIAL NOT NULL,
-    "userId" INTEGER NOT NULL,
+    "userId" TEXT NOT NULL,
     "type" "FeedbackSuggestionType" NOT NULL,
     "title" TEXT,
     "message" TEXT NOT NULL,
     "priority" "FeedbackPriority",
-    "status" "FeedbackStatus" NOT NULL DEFAULT 'pending',
+    "status" "FeedbackStatus" NOT NULL DEFAULT 'PENDING',
+    "reason" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -323,14 +388,14 @@ CREATE TABLE "website_feedback_suggestion" (
 -- CreateTable
 CREATE TABLE "support_request" (
     "id" SERIAL NOT NULL,
-    "userId" INTEGER,
+    "userId" TEXT,
     "supportAgentId" INTEGER,
     "name" TEXT,
     "email" TEXT,
     "subject" TEXT NOT NULL,
     "description" TEXT NOT NULL,
-    "status" "SupportStatus" NOT NULL DEFAULT 'pending',
-    "category" "SupportCategory" NOT NULL DEFAULT 'general',
+    "status" "SupportStatus" NOT NULL DEFAULT 'PENDING',
+    "category" "SupportCategory" NOT NULL DEFAULT 'GENERAL',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -353,7 +418,7 @@ CREATE TABLE "support_message" (
 -- CreateTable
 CREATE TABLE "support_agent" (
     "id" SERIAL NOT NULL,
-    "userId" INTEGER NOT NULL,
+    "userId" TEXT NOT NULL,
 
     CONSTRAINT "support_agent_pkey" PRIMARY KEY ("id")
 );
@@ -361,10 +426,10 @@ CREATE TABLE "support_agent" (
 -- CreateTable
 CREATE TABLE "withdrawal_request" (
     "id" SERIAL NOT NULL,
-    "userId" INTEGER NOT NULL,
+    "userId" TEXT NOT NULL,
     "amount" DOUBLE PRECISION NOT NULL,
     "currency" TEXT NOT NULL DEFAULT 'USD',
-    "status" "WithdrawalStatus" NOT NULL DEFAULT 'pending',
+    "status" "WithdrawalStatus" NOT NULL DEFAULT 'PENDING',
     "requestedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "processedAt" TIMESTAMP(3),
     "note" TEXT,
@@ -375,23 +440,25 @@ CREATE TABLE "withdrawal_request" (
 );
 
 -- CreateTable
-CREATE TABLE "user_earning_history" (
+CREATE TABLE "user_transactions" (
     "id" SERIAL NOT NULL,
-    "userId" INTEGER NOT NULL,
+    "userId" TEXT NOT NULL,
     "userWalletId" INTEGER,
-    "dashboardAndHubId" INTEGER NOT NULL,
-    "action" "EarningAction" NOT NULL,
+    "dashboardAndHubId" INTEGER,
+    "action" "EarningAction",
     "points" DOUBLE PRECISION DEFAULT 0,
     "amount" DOUBLE PRECISION DEFAULT 0,
+    "transactionType" "UserTransactionType" NOT NULL,
+    "status" "UserTransactionStatus" NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "user_earning_history_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "user_transactions_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "user_wallet" (
     "id" SERIAL NOT NULL,
-    "userId" INTEGER NOT NULL,
+    "userId" TEXT NOT NULL,
     "totalPoints" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "totalAmount" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "currency" TEXT NOT NULL DEFAULT 'USD',
@@ -438,6 +505,67 @@ CREATE TABLE "permission" (
 );
 
 -- CreateTable
+CREATE TABLE "audit_log" (
+    "id" SERIAL NOT NULL,
+    "actorId" TEXT NOT NULL,
+    "actorRole" TEXT NOT NULL,
+    "module" TEXT NOT NULL,
+    "action" TEXT NOT NULL,
+    "targetId" TEXT NOT NULL,
+    "result" "AuditResult" NOT NULL,
+    "reason" TEXT,
+    "ip" TEXT NOT NULL,
+    "ua" TEXT NOT NULL,
+    "ts" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "audit_log_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "account" (
+    "id" TEXT NOT NULL,
+    "accountId" TEXT NOT NULL,
+    "providerId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "accessToken" TEXT,
+    "refreshToken" TEXT,
+    "idToken" TEXT,
+    "accessTokenExpiresAt" TIMESTAMP(3),
+    "refreshTokenExpiresAt" TIMESTAMP(3),
+    "scope" TEXT,
+    "password" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "account_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "verification" (
+    "id" TEXT NOT NULL,
+    "identifier" TEXT NOT NULL,
+    "value" TEXT NOT NULL,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "verification_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "password_reset" (
+    "id" SERIAL NOT NULL,
+    "password_reset_token" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "expireAt" TIMESTAMP(3) NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "password_reset_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "_DashboardAndHubTesters" (
     "A" INTEGER NOT NULL,
     "B" INTEGER NOT NULL,
@@ -454,10 +582,16 @@ CREATE TABLE "_MediaToWebsiteFeedbackSuggestion" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "user_phone_key" ON "user"("phone");
+CREATE UNIQUE INDEX "user_userId_key" ON "user"("userId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "user_email_key" ON "user"("email");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "user_phone_key" ON "user"("phone");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "user_detail_userId_key" ON "user_detail"("userId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "session_accessToken_key" ON "session"("accessToken");
@@ -484,6 +618,12 @@ CREATE UNIQUE INDEX "role_name_key" ON "role"("name");
 CREATE UNIQUE INDEX "module_name_key" ON "module"("name");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "account_userId_key" ON "account"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "password_reset_password_reset_token_key" ON "password_reset"("password_reset_token");
+
+-- CreateIndex
 CREATE INDEX "_DashboardAndHubTesters_B_index" ON "_DashboardAndHubTesters"("B");
 
 -- CreateIndex
@@ -493,16 +633,19 @@ CREATE INDEX "_MediaToWebsiteFeedbackSuggestion_B_index" ON "_MediaToWebsiteFeed
 ALTER TABLE "user" ADD CONSTRAINT "user_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "role"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "user_detail" ADD CONSTRAINT "user_detail_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "tester_relation" ADD CONSTRAINT "tester_relation_testerId_fkey" FOREIGN KEY ("testerId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "tester_relation" ADD CONSTRAINT "tester_relation_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "session" ADD CONSTRAINT "session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "session" ADD CONSTRAINT "session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_plan" ADD CONSTRAINT "user_plan_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_plan" ADD CONSTRAINT "user_plan_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "user_plan" ADD CONSTRAINT "user_plan_planId_fkey" FOREIGN KEY ("planId") REFERENCES "plan"("_id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -538,7 +681,7 @@ ALTER TABLE "media" ADD CONSTRAINT "media_supportMessageId_fkey" FOREIGN KEY ("s
 ALTER TABLE "rating" ADD CONSTRAINT "rating_appId_fkey" FOREIGN KEY ("appId") REFERENCES "android_app"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "rating" ADD CONSTRAINT "rating_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "rating" ADD CONSTRAINT "rating_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "feedback" ADD CONSTRAINT "feedback_testerId_fkey" FOREIGN KEY ("testerId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -547,10 +690,10 @@ ALTER TABLE "feedback" ADD CONSTRAINT "feedback_testerId_fkey" FOREIGN KEY ("tes
 ALTER TABLE "feedback" ADD CONSTRAINT "feedback_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "notification" ADD CONSTRAINT "notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "notification" ADD CONSTRAINT "notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -559,13 +702,13 @@ ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_dashboardAndHubId_fkey
 ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_androidAppId_fkey" FOREIGN KEY ("androidAppId") REFERENCES "android_app"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_logs" ADD CONSTRAINT "user_logs_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_logs" ADD CONSTRAINT "user_logs_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "website_feedback_suggestion" ADD CONSTRAINT "website_feedback_suggestion_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "website_feedback_suggestion" ADD CONSTRAINT "website_feedback_suggestion_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "support_request" ADD CONSTRAINT "support_request_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "support_request" ADD CONSTRAINT "support_request_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "support_request" ADD CONSTRAINT "support_request_supportAgentId_fkey" FOREIGN KEY ("supportAgentId") REFERENCES "support_agent"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -577,28 +720,37 @@ ALTER TABLE "support_message" ADD CONSTRAINT "support_message_supportRequestId_f
 ALTER TABLE "support_message" ADD CONSTRAINT "support_message_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "support_agent" ADD CONSTRAINT "support_agent_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "support_agent" ADD CONSTRAINT "support_agent_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "withdrawal_request" ADD CONSTRAINT "withdrawal_request_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "withdrawal_request" ADD CONSTRAINT "withdrawal_request_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_earning_history" ADD CONSTRAINT "user_earning_history_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "user_transactions" ADD CONSTRAINT "user_transactions_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_earning_history" ADD CONSTRAINT "user_earning_history_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "user_transactions" ADD CONSTRAINT "user_transactions_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_earning_history" ADD CONSTRAINT "user_earning_history_userWalletId_fkey" FOREIGN KEY ("userWalletId") REFERENCES "user_wallet"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "user_transactions" ADD CONSTRAINT "user_transactions_userWalletId_fkey" FOREIGN KEY ("userWalletId") REFERENCES "user_wallet"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_wallet" ADD CONSTRAINT "user_wallet_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_wallet" ADD CONSTRAINT "user_wallet_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "permission" ADD CONSTRAINT "permission_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "role"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "permission" ADD CONSTRAINT "permission_moduleId_fkey" FOREIGN KEY ("moduleId") REFERENCES "module"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "audit_log" ADD CONSTRAINT "audit_log_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "user"("userId") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "account" ADD CONSTRAINT "account_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "password_reset" ADD CONSTRAINT "password_reset_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "_DashboardAndHubTesters" ADD CONSTRAINT "_DashboardAndHubTesters_A_fkey" FOREIGN KEY ("A") REFERENCES "dashboard_and_hub"("id") ON DELETE CASCADE ON UPDATE CASCADE;
