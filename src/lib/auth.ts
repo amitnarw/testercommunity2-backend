@@ -6,11 +6,26 @@ export const auth = betterAuth({
   database: prismaAdapter(prismaClient, {
     provider: "postgresql",
   }),
+
   emailAndPassword: {
     enabled: true,
   },
+
   session: {
-    expiresIn: 60 * 60 * 24 * 7, // 7 days
-    updateAge: 60 * 60 * 24, // 1 day
+    expiresIn: 60 * 60 * 24 * 7,
+  },
+
+  trustedOrigins: [process.env.CORS_ORIGIN ?? "http://localhost:3000"],
+
+  secret: process.env.BETTER_AUTH_SECRET,
+
+  user: {
+    additionalFields: {
+      role: {
+        type: "string",
+        required: true,
+        defaultValue: "user",
+      },
+    },
   },
 });

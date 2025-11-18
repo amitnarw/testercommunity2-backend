@@ -3,9 +3,6 @@ import cors from "cors";
 import "dotenv/config";
 import routes from "./routes/common";
 import { sendSuccess } from "./utils/response";
-import { toNodeHandler } from "better-auth/node";
-import { auth } from "./lib/auth";
-import { prismaClient } from "./lib/prisma";
 
 const PORT = process.env.PORT;
 const origin = process.env.CORS_ORIGIN;
@@ -48,15 +45,10 @@ app.use(cors(allowedOrigins));
 // });
 
 
-// const apiVersion = "/api/v1/";
-// app.use(apiVersion, routes);
-app.all('/api/auth/{*any}', toNodeHandler(auth));
-// app.all('/api/auth/{*any}', async (req, res)=>{
-//   const response = await prismaClient?.user?.findMany();
-//   console.log(response, '11111111111')
-//   res.send(response)
-// });
 app.use(express.json());
+const apiVersion = "/api/";
+app.use(apiVersion, routes);
+// app.all('/api/auth/{*any}', toNodeHandler(auth));
 
 app.get("/health", (_, res) => {
   return sendSuccess(res, 200, "Server is running");

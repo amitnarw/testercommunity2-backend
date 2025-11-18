@@ -4,6 +4,7 @@ import Router from "express";
 
 const router = Router();
 
-router.all("/*splat", toNodeHandler(auth));
+router.all("/{*any}", toNodeHandler(auth));
+// router.all("/{*any}", (_, res)=>res.send('test'));
 
 export default router;
