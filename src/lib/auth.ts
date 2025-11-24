@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prismaClient } from "./prisma";
+import { sendEmail } from "@/services/resend";
 
 export const auth = betterAuth({
   database: prismaAdapter(prismaClient, {
@@ -9,6 +10,7 @@ export const auth = betterAuth({
 
   emailAndPassword: {
     enabled: true,
+    requireEmailVerification: true,
   },
 
   session: {
@@ -19,13 +21,19 @@ export const auth = betterAuth({
 
   secret: process.env.BETTER_AUTH_SECRET,
 
-  user: {
-    additionalFields: {
-      role: {
-        type: "string",
-        required: true,
-        defaultValue: "user",
-      },
+  emailVerification: {
+    sendOnSignUp: true,
+    sendVerificationEmail: async ({ user, url, token }, request) => {
+      await sendEmail({
+        from: "Acme <onboarding@resend.dev>",
+        to: user.email,
+        subject: "Verify your email address",
+        html: `Click the link to verify your email: ${url}`,
+      });
+    },
+    async afterEmailVerification(user, request) {
+      // Your custom logic here, e.g., grant access to premium features
+      console.log(`${user.email} has been successfully verified!`);
     },
   },
 });

@@ -25,6 +25,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "jose": "^6.1.1",
+    "resend": "^6.5.2",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

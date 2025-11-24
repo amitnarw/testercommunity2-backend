@@ -10,20 +10,11 @@ datasource db {
 }
 
 model User {
-  id                         Int                            @id @default(autoincrement())
-  userId                     String                         @unique
-  first_name                 String
-  last_name                  String
+  id                         String                         @id
+  name                       String
   email                      String                         @unique
   emailVerified              Boolean
-  phone                      String?                        @unique
   image                      String?
-  authType                   UserAuthType
-  password                   String
-
-  roleId                     Int
-  banned                     Boolean?                       @default(false)
-  banReason                  String?
 
   createdAt                  DateTime                       @default(now())
   updatedAt                  DateTime                       @updatedAt
@@ -31,7 +22,6 @@ model User {
   // Relations
   userDetail                 UserDetail?
   sessions                   Session[]
-  role                       Role                           @relation("UserRole", fields: [roleId], references: [id])
   ownedDashboardAndHubApps   DashboardAndHub[]              @relation("DashboardAndHubAppOwner")
   testingDashboardAndHubApps DashboardAndHub[]              @relation("DashboardAndHubTesters")
   activities                 UserActivity[]
@@ -63,6 +53,15 @@ enum UserAuthType {
 model UserDetail {
   id                        Int                           @id @default(autoincrement())
   userId                    String                        @unique
+  first_name                String
+  last_name                 String
+  phone                     String?                       @unique
+  authType                  UserAuthType
+
+  roleId                    Int
+  banned                    Boolean?                      @default(false)
+  banReason                 String?
+
   country                   String?
   profileType               UserProfileType
   jobRole                   UserJobRole
@@ -93,7 +92,8 @@ model UserDetail {
   createdAt                 DateTime                       @default(now())
   updatedAt                 DateTime                       @updatedAt
 
-  user                      User?                           @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  role                      Role                           @relation("UserRole", fields: [roleId], references: [id])
+  user                      User?                          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_detail")
 }
@@ -212,7 +212,7 @@ enum UserNotificationPreference {
 
 model TesterRelation {
   id                Int      @id @default(autoincrement())
-  testerId          Int
+  testerId          String
   dashboardAndHubId Int?
   isActive          Boolean  @default(true)
   joinedAt          DateTime @default(now())
@@ -226,20 +226,16 @@ model TesterRelation {
 }
 
 model Session {
-  id                 Int      @id @default(autoincrement())
+  id                 String   @id
   userId             String
-  accessToken        String   @unique
-  accessTokenExpiry  DateTime
-  refreshToken       String   @unique
-  refreshTokenExpiry DateTime
-  deviceId           String   @unique
-  userAgent          String?
+  token              String   @unique
+  expiresAt          DateTime
   ipAddress          String?
-  lastUsedAt         DateTime
+  userAgent          String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("session")
 }
@@ -266,7 +262,7 @@ model UserPlan {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@map("user_plan")
@@ -319,7 +315,7 @@ model AppCategory {
 model DashboardAndHub {
   id                    Int                   @id @default(autoincrement())
   appId                 Int
-  appOwnerId            Int
+  appOwnerId            String
   currentTester         Int
   totalTester           Int
   currentDay            Int
@@ -422,7 +418,7 @@ model Rating {
   updatedAt  DateTime   @updatedAt
 
   androidApp AndroidApp? @relation(fields: [appId], references: [id])
-  user       User?       @relation(fields: [userId], references: [userId])
+  user       User?       @relation(fields: [userId], references: [id])
 
   @@map("rating")
 }
@@ -437,7 +433,7 @@ model Feedback {
   message           String
   type              FeedbackType
   priority          FeedbackPriority?
-  testerId          Int
+  testerId          String
   dashboardAndHubId Int
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
@@ -474,7 +470,7 @@ model Notification {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user  User?   @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  user  User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
   media Media[]
 
   @@map("notification")
@@ -503,7 +499,7 @@ model UserActivity {
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
-  user            User             @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   dashboardAndHub DashboardAndHub? @relation(fields: [dashboardAndHubId], references: [id])
   androidApp      AndroidApp?      @relation(fields: [androidAppId], references: [id])
 
@@ -535,7 +531,7 @@ model UserLogs {
   userAgent   String?
   createdAt   DateTime            @default(now())
 
-  user        User?               @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  user        User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_logs")
 }
@@ -572,7 +568,7 @@ model WebsiteFeedbackSuggestion {
   createdAt DateTime               @default(now())
   updatedAt DateTime               @updatedAt
 
-  user  User    @relation(fields: [userId], references: [userId])
+  user  User    @relation(fields: [userId], references: [id])
   media Media[]
 
   @@map("website_feedback_suggestion")
@@ -605,7 +601,7 @@ model SupportRequest {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
-  user         User?            @relation(fields: [userId], references: [userId])
+  user         User?            @relation(fields: [userId], references: [id])
   messages     SupportMessage[]
   media        Media[]
   supportAgent SupportAgent?    @relation(fields: [supportAgentId], references: [id])
@@ -631,7 +627,7 @@ enum SupportCategory {
 model SupportMessage {
   id               Int        @id @default(autoincrement())
   supportRequestId Int
-  senderId         Int?
+  senderId         String?
   senderType       SenderType
   message          String
   createdAt        DateTime   @default(now())
@@ -654,7 +650,7 @@ model SupportAgent {
   userId           String           @unique
   assignedRequests SupportRequest[]
 
-  user User @relation(fields: [userId], references: [userId])
+  user User @relation(fields: [userId], references: [id])
 
   @@map("support_agent")
 }
@@ -671,7 +667,7 @@ model WithdrawalRequest {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  user User @relation(fields: [userId], references: [userId])
+  user User @relation(fields: [userId], references: [id])
 
   @@map("withdrawal_request")
 }
@@ -695,7 +691,7 @@ model UserTransaction {
   status              UserTransactionStatus
   createdAt           DateTime                 @default(now())
 
-  user                User                     @relation(fields: [userId], references: [userId])
+  user                User                     @relation(fields: [userId], references: [id])
   dashboardAndHub     DashboardAndHub?         @relation(fields: [dashboardAndHubId], references: [id])
   userWallet          UserWallet?              @relation(fields: [userWalletId], references: [id])
 
@@ -734,21 +730,21 @@ model UserWallet {
   lastUpdated       DateTime                @updatedAt
   createdAt         DateTime                @default(now())
 
-  user              User                    @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  user              User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   earningHistory    UserTransaction[]
 
   @@map("user_wallet")
 }
 
 model Role {
-  id   Int    @id @default(autoincrement())
-  name String @unique
+  id                Int    @id @default(autoincrement())
+  name              String @unique
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  permissions Permission[]
-  users       User[]       @relation("UserRole")
+  permissions       Permission[]
+  usersDetail       UserDetail[]       @relation("UserRole")
 
   @@map("role")
 }
@@ -797,7 +793,7 @@ model AuditLog {
   ua         String
   ts         DateTime     @default(now())
 
-  actor      User    @relation(fields: [actorId], references: [userId])
+  actor      User    @relation(fields: [actorId], references: [id])
 
   @@map("audit_log")
 }
@@ -809,20 +805,20 @@ enum AuditResult {
 
 model Account {
   id                        String            @id
+  userId                    String
   accountId                 String
   providerId                String
-  userId                    String            @unique
   accessToken               String?
   refreshToken              String?
-  idToken                   String?
   accessTokenExpiresAt      DateTime?
   refreshTokenExpiresAt     DateTime?
   scope                     String?
+  idToken                   String?
   password                  String?
   createdAt                 DateTime          @default(now())
   updatedAt                 DateTime          @updatedAt
 
-  user                      User              @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  user                      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("account")
 }
@@ -848,7 +844,7 @@ model PasswordReset {
   createdAt               DateTime              @default(now())
   updatedAt               DateTime              @default(now()) @updatedAt
 
-  user                    User                  @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  user                    User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("password_reset")
 }

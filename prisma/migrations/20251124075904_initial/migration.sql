@@ -99,19 +99,11 @@ CREATE TYPE "AuditResult" AS ENUM ('SUCCESS', 'FAIL');
 
 -- CreateTable
 CREATE TABLE "user" (
-    "id" SERIAL NOT NULL,
-    "userId" TEXT NOT NULL,
-    "first_name" TEXT NOT NULL,
-    "last_name" TEXT NOT NULL,
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "emailVerified" BOOLEAN NOT NULL,
-    "phone" TEXT,
     "image" TEXT,
-    "authType" "UserAuthType" NOT NULL,
-    "password" TEXT NOT NULL,
-    "roleId" INTEGER NOT NULL,
-    "banned" BOOLEAN DEFAULT false,
-    "banReason" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -122,6 +114,13 @@ CREATE TABLE "user" (
 CREATE TABLE "user_detail" (
     "id" SERIAL NOT NULL,
     "userId" TEXT NOT NULL,
+    "first_name" TEXT NOT NULL,
+    "last_name" TEXT NOT NULL,
+    "phone" TEXT,
+    "authType" "UserAuthType" NOT NULL,
+    "roleId" INTEGER NOT NULL,
+    "banned" BOOLEAN DEFAULT false,
+    "banReason" TEXT,
     "country" TEXT,
     "profileType" "UserProfileType" NOT NULL,
     "jobRole" "UserJobRole" NOT NULL,
@@ -152,7 +151,7 @@ CREATE TABLE "user_detail" (
 -- CreateTable
 CREATE TABLE "tester_relation" (
     "id" SERIAL NOT NULL,
-    "testerId" INTEGER NOT NULL,
+    "testerId" TEXT NOT NULL,
     "dashboardAndHubId" INTEGER,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "joinedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -164,16 +163,12 @@ CREATE TABLE "tester_relation" (
 
 -- CreateTable
 CREATE TABLE "session" (
-    "id" SERIAL NOT NULL,
+    "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "accessToken" TEXT NOT NULL,
-    "accessTokenExpiry" TIMESTAMP(3) NOT NULL,
-    "refreshToken" TEXT NOT NULL,
-    "refreshTokenExpiry" TIMESTAMP(3) NOT NULL,
-    "deviceId" TEXT NOT NULL,
-    "userAgent" TEXT,
+    "token" TEXT NOT NULL,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
     "ipAddress" TEXT,
-    "lastUsedAt" TIMESTAMP(3) NOT NULL,
+    "userAgent" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -247,7 +242,7 @@ CREATE TABLE "app_category" (
 CREATE TABLE "dashboard_and_hub" (
     "id" SERIAL NOT NULL,
     "appId" INTEGER NOT NULL,
-    "appOwnerId" INTEGER NOT NULL,
+    "appOwnerId" TEXT NOT NULL,
     "currentTester" INTEGER NOT NULL,
     "totalTester" INTEGER NOT NULL,
     "currentDay" INTEGER NOT NULL,
@@ -314,7 +309,7 @@ CREATE TABLE "feedback" (
     "message" TEXT NOT NULL,
     "type" "FeedbackType" NOT NULL,
     "priority" "FeedbackPriority",
-    "testerId" INTEGER NOT NULL,
+    "testerId" TEXT NOT NULL,
     "dashboardAndHubId" INTEGER NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -406,7 +401,7 @@ CREATE TABLE "support_request" (
 CREATE TABLE "support_message" (
     "id" SERIAL NOT NULL,
     "supportRequestId" INTEGER NOT NULL,
-    "senderId" INTEGER,
+    "senderId" TEXT,
     "senderType" "SenderType" NOT NULL,
     "message" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -524,15 +519,15 @@ CREATE TABLE "audit_log" (
 -- CreateTable
 CREATE TABLE "account" (
     "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
     "accountId" TEXT NOT NULL,
     "providerId" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
     "accessToken" TEXT,
     "refreshToken" TEXT,
-    "idToken" TEXT,
     "accessTokenExpiresAt" TIMESTAMP(3),
     "refreshTokenExpiresAt" TIMESTAMP(3),
     "scope" TEXT,
+    "idToken" TEXT,
     "password" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -568,7 +563,7 @@ CREATE TABLE "password_reset" (
 -- CreateTable
 CREATE TABLE "_DashboardAndHubTesters" (
     "A" INTEGER NOT NULL,
-    "B" INTEGER NOT NULL,
+    "B" TEXT NOT NULL,
 
     CONSTRAINT "_DashboardAndHubTesters_AB_pkey" PRIMARY KEY ("A","B")
 );
@@ -582,25 +577,16 @@ CREATE TABLE "_MediaToWebsiteFeedbackSuggestion" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "user_userId_key" ON "user"("userId");
-
--- CreateIndex
 CREATE UNIQUE INDEX "user_email_key" ON "user"("email");
-
--- CreateIndex
-CREATE UNIQUE INDEX "user_phone_key" ON "user"("phone");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "user_detail_userId_key" ON "user_detail"("userId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "session_accessToken_key" ON "session"("accessToken");
+CREATE UNIQUE INDEX "user_detail_phone_key" ON "user_detail"("phone");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "session_refreshToken_key" ON "session"("refreshToken");
-
--- CreateIndex
-CREATE UNIQUE INDEX "session_deviceId_key" ON "session"("deviceId");
+CREATE UNIQUE INDEX "session_token_key" ON "session"("token");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "app_category_name_key" ON "app_category"("name");
@@ -618,9 +604,6 @@ CREATE UNIQUE INDEX "role_name_key" ON "role"("name");
 CREATE UNIQUE INDEX "module_name_key" ON "module"("name");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "account_userId_key" ON "account"("userId");
-
--- CreateIndex
 CREATE UNIQUE INDEX "password_reset_password_reset_token_key" ON "password_reset"("password_reset_token");
 
 -- CreateIndex
@@ -630,10 +613,10 @@ CREATE INDEX "_DashboardAndHubTesters_B_index" ON "_DashboardAndHubTesters"("B")
 CREATE INDEX "_MediaToWebsiteFeedbackSuggestion_B_index" ON "_MediaToWebsiteFeedbackSuggestion"("B");
 
 -- AddForeignKey
-ALTER TABLE "user" ADD CONSTRAINT "user_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "role"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "user_detail" ADD CONSTRAINT "user_detail_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "role"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_detail" ADD CONSTRAINT "user_detail_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_detail" ADD CONSTRAINT "user_detail_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "tester_relation" ADD CONSTRAINT "tester_relation_testerId_fkey" FOREIGN KEY ("testerId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -642,10 +625,10 @@ ALTER TABLE "tester_relation" ADD CONSTRAINT "tester_relation_testerId_fkey" FOR
 ALTER TABLE "tester_relation" ADD CONSTRAINT "tester_relation_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "session" ADD CONSTRAINT "session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "session" ADD CONSTRAINT "session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_plan" ADD CONSTRAINT "user_plan_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_plan" ADD CONSTRAINT "user_plan_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "user_plan" ADD CONSTRAINT "user_plan_planId_fkey" FOREIGN KEY ("planId") REFERENCES "plan"("_id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -681,7 +664,7 @@ ALTER TABLE "media" ADD CONSTRAINT "media_supportMessageId_fkey" FOREIGN KEY ("s
 ALTER TABLE "rating" ADD CONSTRAINT "rating_appId_fkey" FOREIGN KEY ("appId") REFERENCES "android_app"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "rating" ADD CONSTRAINT "rating_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "rating" ADD CONSTRAINT "rating_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "feedback" ADD CONSTRAINT "feedback_testerId_fkey" FOREIGN KEY ("testerId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -690,10 +673,10 @@ ALTER TABLE "feedback" ADD CONSTRAINT "feedback_testerId_fkey" FOREIGN KEY ("tes
 ALTER TABLE "feedback" ADD CONSTRAINT "feedback_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "notification" ADD CONSTRAINT "notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "notification" ADD CONSTRAINT "notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -702,13 +685,13 @@ ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_dashboardAndHubId_fkey
 ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_androidAppId_fkey" FOREIGN KEY ("androidAppId") REFERENCES "android_app"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_logs" ADD CONSTRAINT "user_logs_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_logs" ADD CONSTRAINT "user_logs_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "website_feedback_suggestion" ADD CONSTRAINT "website_feedback_suggestion_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "website_feedback_suggestion" ADD CONSTRAINT "website_feedback_suggestion_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "support_request" ADD CONSTRAINT "support_request_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "support_request" ADD CONSTRAINT "support_request_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "support_request" ADD CONSTRAINT "support_request_supportAgentId_fkey" FOREIGN KEY ("supportAgentId") REFERENCES "support_agent"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -720,13 +703,13 @@ ALTER TABLE "support_message" ADD CONSTRAINT "support_message_supportRequestId_f
 ALTER TABLE "support_message" ADD CONSTRAINT "support_message_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "support_agent" ADD CONSTRAINT "support_agent_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "support_agent" ADD CONSTRAINT "support_agent_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "withdrawal_request" ADD CONSTRAINT "withdrawal_request_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "withdrawal_request" ADD CONSTRAINT "withdrawal_request_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_transactions" ADD CONSTRAINT "user_transactions_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "user_transactions" ADD CONSTRAINT "user_transactions_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "user_transactions" ADD CONSTRAINT "user_transactions_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -735,7 +718,7 @@ ALTER TABLE "user_transactions" ADD CONSTRAINT "user_transactions_dashboardAndHu
 ALTER TABLE "user_transactions" ADD CONSTRAINT "user_transactions_userWalletId_fkey" FOREIGN KEY ("userWalletId") REFERENCES "user_wallet"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_wallet" ADD CONSTRAINT "user_wallet_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_wallet" ADD CONSTRAINT "user_wallet_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "permission" ADD CONSTRAINT "permission_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "role"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -744,13 +727,13 @@ ALTER TABLE "permission" ADD CONSTRAINT "permission_roleId_fkey" FOREIGN KEY ("r
 ALTER TABLE "permission" ADD CONSTRAINT "permission_moduleId_fkey" FOREIGN KEY ("moduleId") REFERENCES "module"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "audit_log" ADD CONSTRAINT "audit_log_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "user"("userId") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "audit_log" ADD CONSTRAINT "audit_log_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "account" ADD CONSTRAINT "account_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "account" ADD CONSTRAINT "account_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "password_reset" ADD CONSTRAINT "password_reset_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "password_reset" ADD CONSTRAINT "password_reset_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "_DashboardAndHubTesters" ADD CONSTRAINT "_DashboardAndHubTesters_A_fkey" FOREIGN KEY ("A") REFERENCES "dashboard_and_hub"("id") ON DELETE CASCADE ON UPDATE CASCADE;

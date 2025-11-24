@@ -20,25 +20,30 @@ const checkUser = async (req: Request) => {
 
   const checkUser = await prismaClient?.user?.findFirst({
     where: {
-      userId,
+      id: userId,
     },
     select: {
-      userId: true,
+      id: true,
       email: true,
-      banned: true,
-      banReason: true,
-      role: true,
+      userDetail: {
+        select: {
+          userId: true,
+          banned: true,
+          banReason: true,
+          role: true,
+        },
+      },
     },
   });
   if (!checkUser) {
     return { success: false, code: 404, error: "User not found" };
   }
-  if (checkUser?.banned) {
+  if (checkUser?.userDetail?.banned) {
     return {
       success: false,
       code: 403,
-      error: checkUser?.banReason
-        ? checkUser?.banReason
+      error: checkUser?.userDetail?.banReason
+        ? checkUser?.userDetail?.banReason
         : "Account is banned. Please contact support for more information.",
     };
   }
@@ -106,8 +111,25 @@ export const register = async (req: Request, res: Response) => {
     }
 
     const hashedPassword = await hashPassword(password);
-
-    const uniqueUuid = uuidv4();
+    if (!hashedPassword) {
+      const auditLogPayloadFail: AuditLogPayload = {
+        actorId: req?.userId || "",
+        actorRole: req?.role as string,
+        module: "auth",
+        action: "register",
+        targetId: req?.userId || "",
+        result: "fail",
+        reason: "Failed to hash the password",
+        ip: ipAddress || "",
+        ua: userAgent || "",
+      };
+      return sendError(
+        res,
+        409,
+        "Failed to hash the password",
+        auditLogPayloadFail
+      );
+    }
 
     const checkUser = await prismaClient.user.findFirst({
       where: {
@@ -133,19 +155,23 @@ export const register = async (req: Request, res: Response) => {
 
     const response = await prismaClient?.user?.create({
       data: {
-        userId: `userId-${uniqueUuid}`,
-        first_name,
-        last_name,
         email,
         emailVerified: authType === "GOOGLE",
-        phone,
-        authType,
-        password: hashedPassword,
 
         roleId,
 
+        accounts: {
+          create: {
+            password: hashedPassword,
+          },
+        },
+
         userDetail: {
           create: {
+            phone,
+            authType,
+            first_name,
+            last_name,
             country,
             profileType,
             jobRole,
