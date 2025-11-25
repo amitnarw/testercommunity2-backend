@@ -24,11 +24,12 @@ export const auth = betterAuth({
   emailVerification: {
     sendOnSignUp: true,
     sendVerificationEmail: async ({ user, url, token }, request) => {
+      const frontendUrl = `${process.env.CORS_ORIGIN}/auth/verification?token=${token}`;
       await sendEmail({
         from: "Acme <onboarding@resend.dev>",
         to: user.email,
         subject: "Verify your email address",
-        html: `Click the link to verify your email: ${url}`,
+        html: `Click the link to verify your email: ${frontendUrl}`,
       });
     },
     async afterEmailVerification(user, request) {
