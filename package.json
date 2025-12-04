@@ -10,8 +10,7 @@
     "db:validate": "prisma validate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "seed:admin": "ts-node prisma/seeds/seedSuperAdmin.ts",
-    "seed:permission": "ts-node prisma/seeds/seedPermissions.ts"
+    "seed": "prisma db seed"
   },
   "keywords": [],
   "author": "",
@@ -21,7 +20,7 @@
     "@prisma/adapter-pg": "^7.0.0",
     "@prisma/client": "^7.0.0",
     "bcrypt": "^6.0.0",
-    "better-auth": "^1.3.34",
+    "better-auth": "^1.4.5",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",

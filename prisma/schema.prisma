@@ -62,8 +62,8 @@ model UserDetail {
   banReason                 String?
 
   country                   String?
-  profileType               UserProfileType
-  jobRole                   UserJobRole
+  profileType               UserProfileType?
+  jobRole                   UserJobRole?
 
   company_name              String?
   company_size              UserCompanySize?
