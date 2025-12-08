@@ -301,19 +301,25 @@ export const login = async (req: Request, res: Response) => {
       },
       select: {
         id: true,
-        userId: true,
-        first_name: true,
-        last_name: true,
+        name: true,
         email: true,
-        password: true,
-        phone: true,
+        emailVerified: true,
         image: true,
-        authType: true,
-        banned: true,
-        banReason: true,
-        role: true,
+        accounts: true,
         sessions: true,
-        userDetail: true,
+        userDetail: {
+          select: {
+            first_name: true,
+            last_name: true,
+            phone: true,
+            banned: true,
+            banReason: true,
+            authType: true,
+            createdAt: true,
+            updatedAt: true,
+            role: true,
+          },
+        },
       },
     });
 
@@ -337,7 +343,7 @@ export const login = async (req: Request, res: Response) => {
       );
     }
 
-    if (checkUser?.banned) {
+    if (checkUser?.userDetail?.banned) {
       const auditLogPayloadFail: AuditLogPayload = {
         actorId: req?.userId || "",
         actorRole: req?.role as string,
@@ -345,21 +351,24 @@ export const login = async (req: Request, res: Response) => {
         action: "login",
         targetId: req?.userId || "",
         result: "fail",
-        reason: "Account is banned.",
+        reason: checkUser?.userDetail?.banReason || "Account is banned.",
         ip: ipAddress || "",
         ua: userAgent || "",
       };
       return sendError(
         res,
         403,
-        checkUser?.banReason
-          ? checkUser?.banReason
+        checkUser?.userDetail?.banReason
+          ? checkUser?.userDetail?.banReason
           : "Account is banned. Please contact support for more information.",
         auditLogPayloadFail
       );
     }
 
-    const checkPassword = verifyPassword(password, checkUser?.password);
+    const checkPassword = verifyPassword(
+      password,
+      checkUser?.accounts?.[0]?.password || ""
+    );
     if (!checkPassword) {
       const auditLogPayloadFail: AuditLogPayload = {
         actorId: req?.userId || "",
@@ -368,7 +377,7 @@ export const login = async (req: Request, res: Response) => {
         action: "login",
         targetId: req?.userId || "",
         result: "fail",
-        reason: "Account is banned.",
+        reason: "Invalid password",
         ip: ipAddress || "",
         ua: userAgent || "",
       };
@@ -376,20 +385,24 @@ export const login = async (req: Request, res: Response) => {
     }
 
     const payload = {
-      userId: checkUser?.userId,
+      userId: checkUser?.id,
       email: checkUser?.email,
-      role: checkUser?.role?.name,
+      role: checkUser?.userDetail?.role?.name,
     };
     const access_token = await createToken(payload, "access_token");
     const refresh_token = await createToken(payload, "refresh_token");
 
     const checkSession = await prismaClient?.session?.findFirst({
       where: {
-        userId: checkUser?.userId,
+        userId: checkUser?.id,
       },
     });
 
-    const uniqueUuid = uuidv4();
+    const checkAccount = await prismaClient?.account?.findFirst({
+      where: {
+        userId: checkUser?.id,
+      },
+    });
 
     const accessExpiryMs = parseTimeString(
       process.env.ACCESS_TOKEN_EXPIRY || "1h"
@@ -401,36 +414,33 @@ export const login = async (req: Request, res: Response) => {
     const accessTokenExpiry = new Date(Date.now() + accessExpiryMs);
     const refreshTokenExpiry = new Date(Date.now() + refreshExpiryMs);
 
-    await prismaClient?.session?.upsert({
+    await prismaClient?.session?.update({
       where: {
         id: checkSession?.id,
       },
-      create: {
-        userId: checkUser?.userId,
-        accessToken: access_token?.data || "",
-        accessTokenExpiry: accessTokenExpiry,
-        refreshToken: refresh_token?.data || "",
-        refreshTokenExpiry: refreshTokenExpiry,
-        deviceId: uniqueUuid,
-        userAgent: userAgent,
+      data: {
+        token: access_token?.data || "",
+        expiresAt: accessTokenExpiry,
         ipAddress: ipAddress,
-        lastUsedAt: Date(),
+        userAgent: userAgent,
       },
-      update: {
+    });
+
+    await prismaClient?.account?.update({
+      where: {
+        id: checkAccount?.id,
+      },
+      data: {
         accessToken: access_token?.data || "",
-        accessTokenExpiry: accessTokenExpiry,
+        accessTokenExpiresAt: accessTokenExpiry,
         refreshToken: refresh_token?.data || "",
-        refreshTokenExpiry: refreshTokenExpiry,
-        deviceId: uniqueUuid,
-        userAgent: userAgent,
-        ipAddress: ipAddress,
-        lastUsedAt: Date(),
+        refreshTokenExpiresAt: refreshTokenExpiry,
       },
     });
 
     await prismaClient?.userActivity?.create({
       data: {
-        userId: checkUser?.userId,
+        userId: checkUser?.id,
         actionType: "LOGIN",
         ipAddress: ipAddress,
         userAgent: userAgent,
@@ -440,7 +450,7 @@ export const login = async (req: Request, res: Response) => {
 
     await prismaClient?.userLogs?.create({
       data: {
-        userId: checkUser?.userId,
+        userId: checkUser?.id,
         logType: "LOGIN",
         description: "user logged in",
         ipAddress,
@@ -449,13 +459,13 @@ export const login = async (req: Request, res: Response) => {
     });
 
     const responsePayload = {
-      userId: checkUser?.userId,
-      first_name: checkUser?.first_name,
-      last_name: checkUser?.last_name,
-      phone: checkUser?.phone,
+      userId: checkUser?.id,
+      first_name: checkUser?.userDetail?.first_name || "",
+      last_name: checkUser?.userDetail?.last_name || "",
+      phone: checkUser?.userDetail?.phone || "",
       image: checkUser?.image,
-      authType: checkUser?.authType,
-      role: checkUser?.role?.name,
+      authType: checkUser?.userDetail?.authType || "",
+      role: checkUser?.userDetail?.role?.name || "",
       userDetails: checkUser?.userDetail
         ? {
             ...checkUser?.userDetail,
@@ -524,20 +534,24 @@ export const renewTokens = async (req: Request, res: Response) => {
     }
 
     const payload = {
-      userId: checkUserData?.userId,
+      userId: checkUserData?.id,
       email: checkUserData?.email,
-      role: checkUserData?.role?.name,
+      role: checkUserData?.userDetail?.role?.name,
     };
     const access_token = await createToken(payload, "access_token");
     const refresh_token = await createToken(payload, "refresh_token");
 
     const checkSession = await prismaClient?.session?.findFirst({
       where: {
-        userId: checkUserData?.userId,
+        userId: checkUserData?.id,
       },
     });
 
-    const uniqueUuid = uuidv4();
+    const checkAccount = await prismaClient?.account?.findFirst({
+      where: {
+        userId: checkUser?.id,
+      },
+    });
 
     const ipAddress = extractIpAddress(req);
     const userAgent = extractUserAgent(req);
@@ -552,36 +566,33 @@ export const renewTokens = async (req: Request, res: Response) => {
     const accessTokenExpiry = new Date(Date.now() + accessExpiryMs);
     const refreshTokenExpiry = new Date(Date.now() + refreshExpiryMs);
 
-    await prismaClient?.session?.upsert({
+    await prismaClient?.session?.update({
       where: {
         id: checkSession?.id,
       },
-      create: {
-        userId: checkUserData?.userId || "",
-        accessToken: access_token?.data || "",
-        accessTokenExpiry: accessTokenExpiry,
-        refreshToken: refresh_token?.data || "",
-        refreshTokenExpiry: refreshTokenExpiry,
-        deviceId: uniqueUuid,
-        userAgent: userAgent,
+      data: {
+        token: access_token?.data || "",
+        expiresAt: accessTokenExpiry,
         ipAddress: ipAddress,
-        lastUsedAt: Date(),
+        userAgent: userAgent,
       },
-      update: {
+    });
+
+    await prismaClient?.account?.update({
+      where: {
+        id: checkAccount?.id,
+      },
+      data: {
         accessToken: access_token?.data || "",
-        accessTokenExpiry: accessTokenExpiry,
+        accessTokenExpiresAt: accessTokenExpiry,
         refreshToken: refresh_token?.data || "",
-        refreshTokenExpiry: refreshTokenExpiry,
-        deviceId: uniqueUuid,
-        userAgent: userAgent,
-        ipAddress: ipAddress,
-        lastUsedAt: Date(),
+        refreshTokenExpiresAt: refreshTokenExpiry,
       },
     });
 
     await prismaClient?.userActivity?.create({
       data: {
-        userId: checkUserData?.userId || "",
+        userId: checkUserData?.id || "",
         actionType: "RENEW_TOKENS",
         ipAddress: ipAddress,
         userAgent: userAgent,
@@ -591,7 +602,7 @@ export const renewTokens = async (req: Request, res: Response) => {
 
     await prismaClient?.userLogs?.create({
       data: {
-        userId: checkUserData?.userId,
+        userId: checkUserData?.id,
         logType: "RENEW_TOKENS",
         description: "access and refresh tokens renewed",
         ipAddress,
@@ -606,23 +617,6 @@ export const renewTokens = async (req: Request, res: Response) => {
       maxAge: 60 * 1000,
       path: "/",
     });
-
-    // const responsePayload = {
-    //   userId: checkUser?.userId,
-    //   first_name: checkUser?.first_name,
-    //   last_name: checkUser?.last_name,
-    //   phone: checkUser?.phone,
-    //   image: checkUser?.image,
-    //   authType: checkUser?.authType,
-    //   role: checkUser?.role?.name,
-    //   userDetails: checkUser?.userDetail
-    //     ? {
-    //         ...checkUser?.userDetail,
-    //         createdAt: checkUser?.userDetail?.createdAt?.toString(),
-    //         updatedAt: checkUser?.userDetail?.updatedAt?.toString(),
-    //       }
-    //     : null,
-    // };
 
     const auditLogPayloadSuccess: AuditLogPayload = {
       actorId: req?.userId || "",
@@ -676,7 +670,7 @@ export const passwordResetCreate = async (req: Request, res: Response) => {
 
     await prismaClient?.passwordReset?.updateMany({
       where: {
-        userId: checkUserData?.userId,
+        userId: checkUserData?.id,
         isActive: true,
       },
       data: {
@@ -685,9 +679,9 @@ export const passwordResetCreate = async (req: Request, res: Response) => {
     });
 
     const payload = {
-      userId: checkUserData?.userId,
+      userId: checkUserData?.id,
       email: checkUserData?.email,
-      role: checkUserData?.role?.name,
+      role: checkUserData?.userDetail?.role?.name,
     };
     const password_reset_token = await createToken(payload, "password_reset");
 
@@ -702,7 +696,7 @@ export const passwordResetCreate = async (req: Request, res: Response) => {
     await prismaClient?.passwordReset?.create({
       data: {
         password_reset_token: password_reset_token?.data || "",
-        userId: checkUserData?.userId || "",
+        userId: checkUserData?.id || "",
         expireAt: accessTokenExpiry,
         isActive: true,
       },
@@ -808,7 +802,7 @@ export const passwordResetVerify = async (req: Request, res: Response) => {
 
     await prismaClient?.user?.update({
       where: {
-        userId: checkId?.userId,
+        id: checkId?.userId,
       },
       data: {
         password: hashedPassword,

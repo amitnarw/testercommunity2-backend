@@ -44,14 +44,12 @@ app.use(cors(allowedOrigins));
 //   res.json({ message: `Welcome Admin ${session.user.email}` });
 // });
 
-
 app.use(express.json());
 const apiVersion = "/api/";
 app.use(apiVersion, routes);
-// app.all('/api/auth/{*any}', toNodeHandler(auth));
 
 app.get("/health", (_, res) => {
-  return sendSuccess(res, 200, "Server is running");
+  return sendSuccess(res, null, "Server is running");
 });
 
 app.listen(PORT, () => {

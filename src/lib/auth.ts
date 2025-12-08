@@ -4,8 +4,9 @@ import { prismaClient } from "./prisma";
 import { sendEmail } from "@/services/resend";
 import { customSession } from "better-auth/plugins";
 import type { UserAuthType } from "prisma/generated/prisma";
+import { SignJWT } from "jose";
 
-const rolePlugin = customSession(async ({ user, session }) => {
+const rolePlugin = customSession(async ({ user, session }, ctx) => {
   const role = await prismaClient?.userDetail?.findUnique({
     where: {
       userId: session?.userId,
@@ -19,12 +20,49 @@ const rolePlugin = customSession(async ({ user, session }) => {
       },
     },
   });
+  await setRoleCookie(ctx, role?.role);
   return {
-    role,
+    ...role,
     user,
     session,
   };
 });
+
+async function setRoleCookie(
+  ctx: any,
+  role?: {
+    name: string;
+    permissions: {
+      id: number;
+      createdAt: Date;
+      updatedAt: Date;
+      roleId: number;
+      moduleId: number;
+      canReadList: boolean;
+      canReadSingle: boolean;
+      canCreate: boolean;
+      canUpdate: boolean;
+      canDelete: boolean;
+    }[];
+  }
+) {
+  if (role) {
+    const secret = process.env.BETTER_AUTH_SECRET!;
+    const payload = { role };
+    const token = await new SignJWT(payload)
+      .setProtectedHeader({ alg: "HS256" })
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode(secret));
+
+    const cookieName = "better-auth.role_cache";
+    ctx.setCookie(cookieName, token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+      path: "/",
+    });
+  }
+}
 
 export const auth = betterAuth({
   database: prismaAdapter(prismaClient, {
@@ -40,10 +78,24 @@ export const auth = betterAuth({
     expiresIn: 60 * 60 * 24 * 7,
     cookieCache: {
       enabled: true,
-      maxAge: 5 * 60, // Cache duration in seconds (5 minutes)
+      maxAge: 5 * 60,
     },
   },
   plugins: [rolePlugin],
+
+  advanced: {
+    cookies: {
+      role_cache: {
+        name: "role_cache",
+        attributes: {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+        },
+      },
+    },
+  },
 
   trustedOrigins: [process.env.CORS_ORIGIN ?? "http://localhost:3000"],
 

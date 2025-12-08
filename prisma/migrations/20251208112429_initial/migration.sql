@@ -142,6 +142,7 @@ CREATE TABLE "user_detail" (
     "screenResolution" TEXT,
     "language" TEXT,
     "network" TEXT,
+    "initial" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

@@ -6,7 +6,7 @@ async function seedRolesModulesPermissions() {
   console.log("Seeding roles, modules, and permissions...");
 
   // 1️⃣ Roles
-  const roles = ["super_admin", "admin", "moderator", "support", "user"];
+  const roles = ["super_admin", "admin", "moderator", "support", "user", "tester"];
   for (const roleName of roles) {
     await prisma.role.upsert({
       where: { name: roleName },
