@@ -1,14 +1,24 @@
 import express from "express";
-import cors from "cors";
+import cors, { type CorsOptions } from "cors";
 import "dotenv/config";
 import routes from "./routes/common";
 import { sendSuccess } from "./utils/response";
 
 const PORT = process.env.PORT;
-const origin = process.env.CORS_ORIGIN;
+const allowedOrigins = process.env.CORS_ORIGIN?.split(",") || [];
 
-const allowedOrigins = {
-  origin: origin,
+const corsOptions: CorsOptions = {
+  origin: (origin: string | undefined, callback) => {
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(
+      new Error(`CORS policy error: Origin '${origin}' not allowed`)
+    );
+  },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
   exposedHeaders: ["Set-Cookie"],
@@ -17,7 +27,7 @@ const allowedOrigins = {
 
 const app = express();
 
-app.use(cors(allowedOrigins));
+app.use(cors(corsOptions));
 
 // app.all("/api/auth{/*path}", toNodeHandler(auth));
 

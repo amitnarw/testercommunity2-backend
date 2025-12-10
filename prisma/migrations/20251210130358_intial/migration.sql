@@ -120,9 +120,9 @@ CREATE TABLE "user_detail" (
     "authType" "UserAuthType" NOT NULL,
     "roleId" INTEGER NOT NULL,
     "banned" BOOLEAN DEFAULT false,
-    "banReason" TEXT,
+    "ban_reason" TEXT,
     "country" TEXT,
-    "profileType" "UserProfileType",
+    "profile_type" "UserProfileType",
     "jobRole" "UserJobRole",
     "company_name" TEXT,
     "company_size" "UserCompanySize",
@@ -135,14 +135,14 @@ CREATE TABLE "user_detail" (
     "service_usage" "UserTestingServiceReason",
     "communication_methods" "UserCommunicationMethod",
     "notification_preference" "UserNotificationPreference",
-    "deviceCompany" TEXT,
-    "deviceModel" TEXT,
+    "device_company" TEXT,
+    "device_model" TEXT,
     "ram" TEXT,
     "os" TEXT,
-    "screenResolution" TEXT,
+    "screen_resolution" TEXT,
     "language" TEXT,
     "network" TEXT,
-    "initial" BOOLEAN NOT NULL DEFAULT false,
+    "initial" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -559,6 +559,18 @@ CREATE TABLE "password_reset" (
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "password_reset_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "control_room" (
+    "id" SERIAL NOT NULL,
+    "profileSurveyPoints" INTEGER,
+    "pointsWithdrawalLimit" INTEGER,
+    "pointsWithdrawalThreshold" INTEGER,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "control_room_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable

@@ -26,8 +26,8 @@ export const getUserProfileData = async (req: Request, res: Response) => {
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
-      module: "auth",
-      action: "passwordResetVerify",
+      module: "user",
+      action: "getUserProfileData",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
@@ -58,7 +58,7 @@ export const saveInitialProfileData = async (req: Request, res: Response) => {
         id: response?.id,
       },
       data: {
-        initial: true,
+        initial: false,
       },
     });
 
@@ -67,8 +67,8 @@ export const saveInitialProfileData = async (req: Request, res: Response) => {
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
-      module: "auth",
-      action: "passwordResetVerify",
+      module: "user",
+      action: "saveInitialProfileData",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
@@ -83,3 +83,4 @@ export const saveInitialProfileData = async (req: Request, res: Response) => {
     );
   }
 };
+

@@ -97,14 +97,14 @@ export const auth = betterAuth({
     },
   },
 
-  trustedOrigins: [process.env.CORS_ORIGIN ?? "http://localhost:3000"],
+  trustedOrigins: process.env.CORS_ORIGIN?.split(",") ?? ["http://localhost:3000"],
 
   secret: process.env.BETTER_AUTH_SECRET,
 
   emailVerification: {
     sendOnSignUp: true,
     sendVerificationEmail: async ({ user, url, token }, request) => {
-      const frontendUrl = `${process.env.CORS_ORIGIN}/auth/verification?token=${token}`;
+      const frontendUrl = `${process.env.CORS_ORIGIN?.split(",")[0]}/auth/verification?token=${token}`;
       await sendEmail({
         from: "Acme <onboarding@resend.dev>",
         to: user.email,
