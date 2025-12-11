@@ -48,11 +48,17 @@ export async function createToken(
   }
 }
 
+interface AccessTokenPayload {
+  userId: string;
+  role?: string;
+  [key: string]: any;
+}
+
 // Function to verify token
-export async function verifyToken(
+export async function verifyToken<T extends AccessTokenPayload>(
   token: string,
   type: "access_token" | "refresh_token" | "password_reset"
-) {
+): Promise<{ success: boolean; data?: T; error?: string }> {
   try {
     const secretKey =
       type === "access_token"
@@ -64,12 +70,11 @@ export async function verifyToken(
       return { success: false, error: "Secret key not found" };
     }
 
-    // Convert string secret → Uint8Array
     const encoder = new TextEncoder();
     const encodedKey = encoder.encode(secretKey);
 
     const { payload } = await jwtVerify(token, encodedKey);
-    return { success: true, data: payload };
+    return { success: true, data: payload as T };
   } catch (err) {
     return { success: false, error: "Error while verifying token" };
   }

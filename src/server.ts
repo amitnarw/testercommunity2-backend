@@ -3,6 +3,7 @@ import cors, { type CorsOptions } from "cors";
 import "dotenv/config";
 import routes from "./routes/common";
 import { sendSuccess } from "./utils/response";
+import cookieParser from "cookie-parser";
 
 const PORT = process.env.PORT;
 const allowedOrigins = process.env.CORS_ORIGIN?.split(",") || [];
@@ -28,6 +29,7 @@ const corsOptions: CorsOptions = {
 const app = express();
 
 app.use(cors(corsOptions));
+app.use(cookieParser());
 
 // app.all("/api/auth{/*path}", toNodeHandler(auth));
 

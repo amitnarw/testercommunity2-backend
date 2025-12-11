@@ -1,49 +1,27 @@
+import { auth } from "@/lib/auth";
 import { sendError } from "@/utils/response";
-import { verifyToken } from "@/utils/tokenUtils";
 import { type NextFunction, type Request, type Response } from "express";
 
-export const checkAuthenticationAccess = async (
+export const checkAuthentication = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const accessToken = req.cookies.accessToken;
+    const session_token =
+      req.cookies["better-auth.session_token"] ||
+      req.cookies["better-auth_session_token"];
 
-    if (!accessToken) {
+    const session = await auth.api.getSession({
+      headers: { cookie: `better-auth.session_token=${session_token}` },
+    });
+
+    if (!session) {
       return sendError(res, 401, "Unauthorized");
     }
-    const result = await verifyToken(accessToken, "access_token");
-    if (!result.success) {
-      return sendError(res, 401, "Invalid access token");
-    }
 
-    req.userId = result?.data?.userId;
-    req.role = result?.data?.role;
-    next();
-  } catch (error) {
-    return sendError(res, 401, "Unauthorized");
-  }
-};
-
-export const checkAuthenticationRefresh = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const refreshToken = req.cookies.refreshToken;
-
-    if (!refreshToken) {
-      return sendError(res, 401, "Unauthorized");
-    }
-    const result = await verifyToken(refreshToken, "refresh_token");
-    if (!result.success) {
-      return sendError(res, 401, "Invalid refresh token");
-    }
-
-    req.userId = result?.data?.userId;
-    req.role = result?.data?.role;
+    req.userId = session?.user?.id;
+    req.role = session?.role?.name;
     next();
   } catch (error) {
     return sendError(res, 401, "Unauthorized");

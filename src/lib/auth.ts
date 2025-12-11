@@ -97,14 +97,18 @@ export const auth = betterAuth({
     },
   },
 
-  trustedOrigins: process.env.CORS_ORIGIN?.split(",") ?? ["http://localhost:3000"],
+  trustedOrigins: process.env.CORS_ORIGIN?.split(",") ?? [
+    "http://localhost:3000",
+  ],
 
   secret: process.env.BETTER_AUTH_SECRET,
 
   emailVerification: {
     sendOnSignUp: true,
     sendVerificationEmail: async ({ user, url, token }, request) => {
-      const frontendUrl = `${process.env.CORS_ORIGIN?.split(",")[0]}/auth/verification?token=${token}`;
+      const frontendUrl = `${
+        process.env.CORS_ORIGIN?.split(",")[0]
+      }/auth/verification?token=${token}`;
       await sendEmail({
         from: "Acme <onboarding@resend.dev>",
         to: user.email,
@@ -113,7 +117,6 @@ export const auth = betterAuth({
       });
     },
     async afterEmailVerification(user, request) {
-      // Your custom logic here, e.g., grant access to premium features
       console.log(`${user.email} has been successfully verified!`);
     },
   },
@@ -152,9 +155,9 @@ export const auth = betterAuth({
             updatedAt: Date;
             name: string;
           };
-          const authType = (ctx?.body?.authType as string) ?? "user";
-          const firstName = ctx?.body?.firstName as string;
-          const lastName = ctx?.body?.lastName as string;
+          const auth_type = ctx?.body?.auth_type as string;
+          const first_name = ctx?.body?.first_name as string;
+          const last_name = ctx?.body?.last_name as string;
 
           await prismaClient?.userDetail?.upsert({
             where: {
@@ -165,9 +168,9 @@ export const auth = betterAuth({
             },
             create: {
               userId: user?.id,
-              first_name: firstName,
-              last_name: lastName,
-              authType: authType as UserAuthType,
+              first_name: first_name,
+              last_name: last_name,
+              auth_type: auth_type as UserAuthType,
               roleId: roleRecord?.id,
             },
           });

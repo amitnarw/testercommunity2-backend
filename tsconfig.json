@@ -11,13 +11,15 @@
 		  "@/*": ["./src/*"]
 		},
 		"outDir": "./dist",
-		"types": [
-        "node"
-    ],
-	  "composite": true,
+	  	"composite": true,
 		"jsx": "react-jsx"
 	},
 	"tsc-alias": {
 		"resolveFullPaths": true
-	}
+	},
+	"include": [
+  		"src",
+	  	"types/**/*.d.ts"
+	]
+
 }
