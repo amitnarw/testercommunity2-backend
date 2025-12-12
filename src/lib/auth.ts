@@ -103,7 +103,7 @@ export const auth = betterAuth({
         name: "role_cache",
         attributes: {
           httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
+          secure: true,
           sameSite: "lax",
           path: "/",
         },
