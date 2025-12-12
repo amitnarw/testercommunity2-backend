@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth";
+import { auth, type SessionWithRole } from "@/lib/auth";
 import { sendError } from "@/utils/response";
 import { type NextFunction, type Request, type Response } from "express";
 
@@ -12,7 +12,7 @@ export const checkAuthentication = async (
       req.cookies["better-auth.session_token"] ||
       req.cookies["better-auth_session_token"];
 
-    const session = await auth.api.getSession({
+    const session: SessionWithRole | null = await auth.api.getSession({
       headers: { cookie: `better-auth.session_token=${session_token}` },
     });
 

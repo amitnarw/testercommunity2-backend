@@ -1,33 +1,45 @@
+import { auth, type SessionWithRole } from "@/lib/auth";
 import { prismaClient } from "@/lib/prisma";
 import { sendError } from "@/utils/response";
-import { verifyToken } from "@/utils/tokenUtils";
 import { type NextFunction, type Request, type Response } from "express";
 
-export const checkAuthorizationAccess =
+export const checkAuthorization =
   ({ module, action }: { module: string; action: string }) =>
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const accessToken = req.cookies.accessToken;
+      const session_token =
+        req.cookies["better-auth.session_token"] ||
+        req.cookies["better-auth_session_token"];
 
-      if (!accessToken) {
-        return sendError(res, 401, "Unauthorized");
-      }
-      const result = await verifyToken(accessToken, "access_token");
-      if (!result.success) {
-        return sendError(res, 401, "Invalid access token");
-      }
+      const session: SessionWithRole | null = await auth.api.getSession({
+        headers: { cookie: `better-auth.session_token=${session_token}` },
+      });
 
-      const authorizedRole = result?.data?.role;
-      if (!authorizedRole) {
+      if (!session) {
         return sendError(res, 401, "Unauthorized");
       }
 
-      if (authorizedRole === "SUPER_ADMIN") {
+      if (session?.role?.name === "SUPER_ADMIN") {
         next();
       } else {
         const checkRole = await prismaClient?.role.findFirst({
           where: {
-            name: authorizedRole,
+            name: session?.role?.name,
+          },
+          select: {
+            permissions: {
+              select: {
+                id: true,
+                roleId: true,
+                moduleId: true,
+                canReadList: true,
+                canReadSingle: true,
+                canCreate: true,
+                canUpdate: true,
+                canDelete: true,
+                module: true,
+              },
+            },
           },
         });
         if (!checkRole) {
@@ -35,7 +47,7 @@ export const checkAuthorizationAccess =
         }
 
         if (
-          role.permissions.some(
+          checkRole?.permissions.some(
             (permission) =>
               permission.module === module &&
               permission.actions.includes(action)
@@ -50,26 +62,3 @@ export const checkAuthorizationAccess =
       return sendError(res, 401, "Unauthorized");
     }
   };
-
-export const checkAuthenticationRefresh = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const refreshToken = req.cookies.refreshToken;
-
-    if (!refreshToken) {
-      return sendError(res, 401, "Unauthorized");
-    }
-    const result = await verifyRefreshToken({ token: refreshToken });
-    if (!result.success) {
-      return sendError(res, 401, "Invalid refresh token");
-    }
-
-    req.userId = result?.data?.userId;
-    next();
-  } catch (error) {
-    return sendError(res, 401, "Unauthorized");
-  }
-};

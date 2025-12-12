@@ -90,6 +90,7 @@ export const saveProfileDate = async (req: Request, res: Response) => {
   const userAgent = extractUserAgent(req);
   try {
     const { payload }: { payload: UserDetail } = await req.body;
+
     const {
       profile_type,
       job_role,
@@ -112,7 +113,7 @@ export const saveProfileDate = async (req: Request, res: Response) => {
       language,
       network,
     } = payload;
-console.log(req?.userId, ';;;;;;;;;;')
+
     await prismaClient?.userDetail?.update({
       where: {
         userId: req?.userId,

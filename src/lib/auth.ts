@@ -1,8 +1,9 @@
+import "better-auth";
 import { APIError, betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prismaClient } from "./prisma";
 import { sendEmail } from "@/services/resend";
-import { customSession } from "better-auth/plugins";
+import { createAuthMiddleware, customSession } from "better-auth/plugins";
 import type { UserAuthType } from "prisma/generated/prisma";
 import { SignJWT } from "jose";
 
@@ -79,9 +80,22 @@ export const auth = betterAuth({
     cookieCache: {
       enabled: true,
       maxAge: 5 * 60,
+      strategy: "compact",
     },
   },
   plugins: [rolePlugin],
+  hooks: {
+    after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === "/sign-out") {
+        ctx.setCookie("better-auth.role_cache", "", {
+          maxAge: 0,
+          path: "/",
+          secure: true,
+          sameSite: "lax",
+        });
+      }
+    }),
+  },
 
   advanced: {
     cookies: {
@@ -179,3 +193,6 @@ export const auth = betterAuth({
     },
   },
 });
+
+
+export type SessionWithRole = typeof auth.$Infer.Session;

@@ -17,6 +17,11 @@ router.get(
   getUserProfileData
 );
 router.get("/initial-user-profile", saveInitialProfileData);
-router.post("/save-profile-data", decryptPayload, saveProfileDate);
+router.post(
+  "/save-profile-data",
+  checkAuthentication,
+  decryptPayload,
+  saveProfileDate
+);
 
 export default router;

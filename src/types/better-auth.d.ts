@@ -1,4 +1,6 @@
-declare module 'better-auth' {
+import "better-auth";
+
+declare module "better-auth" {
   interface Session {
     role?: {
       name: string;
