@@ -1,15 +1,28 @@
 import {
+  getUserData,
   getUserProfileData,
   saveInitialProfileData,
-  saveProfileDate,
+  saveProfileData,
 } from "@/controllers/user.controller";
 import { checkAuthentication } from "@/middlewares/checkAuthentication";
-import { checkAuthorizationAccess } from "@/middlewares/checkAuthorization";
+// import { checkAuthorizationAccess } from "@/middlewares/checkAuthorization";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 import Router from "express";
 
 const router = Router();
 
+router.get(
+  "/get-user-data",
+  checkAuthentication,
+  // checkAuthorizationAccess,
+  getUserData
+);
+router.put(
+  "/save-user-data",
+  checkAuthentication,
+  // checkAuthorizationAccess,
+  getUserData
+);
 router.get(
   "/get-user-profile-data",
   checkAuthentication,
@@ -21,7 +34,7 @@ router.post(
   "/save-profile-data",
   checkAuthentication,
   decryptPayload,
-  saveProfileDate
+  saveProfileData
 );
 
 export default router;

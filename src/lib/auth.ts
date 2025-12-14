@@ -111,9 +111,7 @@ export const auth = betterAuth({
     },
   },
 
-  trustedOrigins: process.env.CORS_ORIGIN?.split(",") ?? [
-    "http://localhost:3000",
-  ],
+  trustedOrigins: process.env.CORS_ORIGIN?.split(","),
 
   secret: process.env.BETTER_AUTH_SECRET,
 

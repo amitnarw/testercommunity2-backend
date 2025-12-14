@@ -5,6 +5,84 @@ import { extractIpAddress, extractUserAgent } from "@/utils/helperFunctions";
 import { prismaClient } from "@/lib/prisma";
 import type { UserDetail } from "prisma/generated/prisma";
 
+export const getUserData = async (req: Request, res: Response) => {
+  const ipAddress = extractIpAddress(req);
+  const userAgent = extractUserAgent(req);
+  try {
+    const response = await prismaClient?.user?.findFirst({
+      where: {
+        id: req?.userId,
+      },
+    });
+    if (!response) {
+      return sendError(res, 404, "User not found");
+    }
+    const responseData = {
+      ...response,
+      createdAt: response?.createdAt?.toISOString(),
+      updatedAt: response?.updatedAt?.toISOString(),
+    };
+    return sendSuccess(res, responseData, "ok");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getUserData",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: ipAddress || "",
+      ua: userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};
+
+export const saveUserData = async (req: Request, res: Response) => {
+  const ipAddress = extractIpAddress(req);
+  const userAgent = extractUserAgent(req);
+  try {
+    const response = await prismaClient?.user?.findFirst({
+      where: {
+        id: req?.userId,
+      },
+    });
+    if (!response) {
+      return sendError(res, 404, "User not found");
+    }
+
+    const { payload } = await req.body;
+
+    const { first_name, last_name, phone, country, image } = payload;
+
+    // return sendSuccess(res, responseData, "ok");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getUserData",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: ipAddress || "",
+      ua: userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};
+
 export const getUserProfileData = async (req: Request, res: Response) => {
   const ipAddress = extractIpAddress(req);
   const userAgent = extractUserAgent(req);
@@ -15,7 +93,7 @@ export const getUserProfileData = async (req: Request, res: Response) => {
       },
     });
     if (!response) {
-      return sendError(res, 400, "Error while getting User detail.");
+      return sendError(res, 404, "User not found");
     }
     const responseData = {
       ...response,
@@ -85,7 +163,7 @@ export const saveInitialProfileData = async (req: Request, res: Response) => {
   }
 };
 
-export const saveProfileDate = async (req: Request, res: Response) => {
+export const saveProfileData = async (req: Request, res: Response) => {
   const ipAddress = extractIpAddress(req);
   const userAgent = extractUserAgent(req);
   try {
@@ -139,6 +217,7 @@ export const saveProfileDate = async (req: Request, res: Response) => {
         screen_resolution,
         language,
         network,
+        initial: false,
       },
     });
 
