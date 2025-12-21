@@ -13,6 +13,7 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
       userId: session?.userId,
     },
     select: {
+      initial: true,
       role: {
         select: {
           name: true,
@@ -21,7 +22,7 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
       },
     },
   });
-  await setRoleCookie(ctx, role?.role);
+  await setRoleCookie(ctx, role?.role, role?.initial || false);
   return {
     ...role,
     user,
@@ -45,11 +46,12 @@ async function setRoleCookie(
       canUpdate: boolean;
       canDelete: boolean;
     }[];
-  }
+  },
+  initial?: boolean
 ) {
   if (role) {
     const secret = process.env.BETTER_AUTH_SECRET!;
-    const payload = { role };
+    const payload = { role, initial };
     const token = await new SignJWT(payload)
       .setProtectedHeader({ alg: "HS256" })
       .setExpirationTime("5m")
@@ -58,8 +60,8 @@ async function setRoleCookie(
     const cookieName = "better-auth.role_cache";
     ctx.setCookie(cookieName, token, {
       httpOnly: true,
-      secure: true,
-      sameSite: "none",
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       path: "/",
     });
   }
@@ -103,8 +105,8 @@ export const auth = betterAuth({
         name: "role_cache",
         attributes: {
           httpOnly: true,
-          secure: true,
-          sameSite: "lax",
+          secure: process.env.NODE_ENV === "production",
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
           path: "/",
         },
       },
@@ -191,6 +193,5 @@ export const auth = betterAuth({
     },
   },
 });
-
 
 export type SessionWithRole = typeof auth.$Infer.Session;
