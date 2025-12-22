@@ -2,11 +2,7 @@ import { type Request, type Response } from "express";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient } from "@/lib/prisma";
 import { hashPassword, verifyPassword } from "@/utils/passwordUtils";
-import {
-  extractIpAddress,
-  extractUserAgent,
-  parseTimeString,
-} from "@/utils/helperFunctions";
+import { parseTimeString } from "@/utils/helperFunctions";
 import { createToken } from "@/utils/tokenUtils";
 import { v4 as uuidv4 } from "uuid";
 import type { AuditLogPayload } from "@/types/audit_log";
@@ -29,7 +25,7 @@ const checkUser = async (req: Request) => {
         select: {
           userId: true,
           banned: true,
-          banReason: true,
+          ban_reason: true,
           role: true,
         },
       },
@@ -42,8 +38,8 @@ const checkUser = async (req: Request) => {
     return {
       success: false,
       code: 403,
-      error: checkUser?.userDetail?.banReason
-        ? checkUser?.userDetail?.banReason
+      error: checkUser?.userDetail?.ban_reason
+        ? checkUser?.userDetail?.ban_reason
         : "Account is banned. Please contact support for more information.",
     };
   }
@@ -51,478 +47,7 @@ const checkUser = async (req: Request) => {
   return { success: true, code: 200, data: checkUser };
 };
 
-export const register = async (req: Request, res: Response) => {
-  const ipAddress = extractIpAddress(req);
-  const userAgent = extractUserAgent(req);
-  try {
-    const {
-      first_name,
-      last_name,
-      email,
-      emailVerified,
-      phone,
-      image,
-      authType,
-      password,
-
-      roleId,
-
-      country,
-      profileType,
-      jobRole,
-      company: {
-        company_name,
-        company_size,
-        position_in_company,
-        company_website,
-      },
-      experience: {
-        experience_level,
-        total_published_apps,
-        platform_development,
-        publish_frequency,
-      },
-      service_usage,
-      communication: { communication_methods, notification_preference },
-      device: {
-        deviceCompany,
-        deviceModel,
-        ram,
-        os,
-        screenResolution,
-        language,
-        network,
-      },
-    } = req.body;
-
-    if (
-      !first_name ||
-      !last_name ||
-      !email ||
-      !password ||
-      !roleId ||
-      !profileType
-    ) {
-      return sendError(
-        res,
-        404,
-        "First name, last name, email, password, role Id and user type are required"
-      );
-    }
-
-    const hashedPassword = await hashPassword(password);
-    if (!hashedPassword) {
-      const auditLogPayloadFail: AuditLogPayload = {
-        actorId: req?.userId || "",
-        actorRole: req?.role as string,
-        module: "auth",
-        action: "register",
-        targetId: req?.userId || "",
-        result: "fail",
-        reason: "Failed to hash the password",
-        ip: ipAddress || "",
-        ua: userAgent || "",
-      };
-      return sendError(
-        res,
-        409,
-        "Failed to hash the password",
-        auditLogPayloadFail
-      );
-    }
-
-    const checkUser = await prismaClient.user.findFirst({
-      where: {
-        OR: [email && email, phone && phone].filter(
-          Boolean
-        ) as Prisma.UserWhereInput[],
-      },
-    });
-    if (checkUser) {
-      const auditLogPayloadFail: AuditLogPayload = {
-        actorId: req?.userId || "",
-        actorRole: req?.role as string,
-        module: "auth",
-        action: "register",
-        targetId: req?.userId || "",
-        result: "fail",
-        reason: "User already exist",
-        ip: ipAddress || "",
-        ua: userAgent || "",
-      };
-      return sendError(res, 409, "User already exist", auditLogPayloadFail);
-    }
-
-    const response = await prismaClient?.user?.create({
-      data: {
-        email,
-        emailVerified: authType === "GOOGLE",
-
-        roleId,
-
-        accounts: {
-          create: {
-            password: hashedPassword,
-          },
-        },
-
-        userDetail: {
-          create: {
-            phone,
-            authType,
-            first_name,
-            last_name,
-            country,
-            profileType,
-            jobRole,
-            company_name,
-            company_size,
-            position_in_company,
-            company_website,
-
-            experience_level,
-            total_published_apps,
-            platform_development,
-            publish_frequency,
-
-            service_usage,
-
-            communication_methods,
-            notification_preference,
-
-            deviceCompany,
-            deviceModel,
-            ram,
-            os,
-            screenResolution,
-            language,
-            network,
-          },
-        },
-
-        activities: {
-          create: {
-            actionType: "REGISTER",
-            description: "user registering for the first time",
-            ipAddress,
-            userAgent,
-            status: "SUCCESS",
-          },
-        },
-
-        logs: {
-          create: {
-            logType: "REGISTER",
-            description: "user registering for the first time",
-            ipAddress,
-            userAgent,
-          },
-        },
-
-        wallet: {
-          create: {
-            totalPoints: 0,
-            totalAmount: 0,
-            currency: "INR",
-          },
-        },
-      },
-    });
-
-    if (!response) {
-      const auditLogPayloadFail: AuditLogPayload = {
-        actorId: req?.userId || "",
-        actorRole: req?.role as string,
-        module: "auth",
-        action: "register",
-        targetId: req?.userId || "",
-        result: "fail",
-        reason: "ERROR while registering new user",
-        ip: ipAddress || "",
-        ua: userAgent || "",
-      };
-      return sendError(
-        res,
-        400,
-        "ERROR while registering new user",
-        auditLogPayloadFail
-      );
-    }
-
-    const auditLogPayloadSuccess: AuditLogPayload = {
-      actorId: req?.userId || "",
-      actorRole: req?.role as string,
-      module: "auth",
-      action: "register",
-      targetId: req?.userId || "",
-      result: "success",
-      ip: ipAddress || "",
-      ua: userAgent || "",
-    };
-    return sendSuccess(
-      res,
-      null,
-      "Registered successfully",
-      auditLogPayloadSuccess
-    );
-  } catch (error) {
-    const auditLogPayloadFail: AuditLogPayload = {
-      actorId: req?.userId || "",
-      actorRole: req?.role as string,
-      module: "auth",
-      action: "register",
-      targetId: req?.userId || "",
-      result: "fail",
-      reason: error instanceof Error ? error.message : "Unknown error",
-      ip: ipAddress || "",
-      ua: userAgent || "",
-    };
-    return sendError(
-      res,
-      400,
-      error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
-    );
-  }
-};
-
-export const login = async (req: Request, res: Response) => {
-  const ipAddress = extractIpAddress(req);
-  const userAgent = extractUserAgent(req);
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return sendError(res, 400, "email and password are required");
-    }
-
-    const checkUser = await prismaClient?.user?.findFirst({
-      where: {
-        email,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        emailVerified: true,
-        image: true,
-        accounts: true,
-        sessions: true,
-        userDetail: {
-          select: {
-            first_name: true,
-            last_name: true,
-            phone: true,
-            banned: true,
-            banReason: true,
-            authType: true,
-            createdAt: true,
-            updatedAt: true,
-            role: true,
-          },
-        },
-      },
-    });
-
-    if (!checkUser) {
-      const auditLogPayloadFail: AuditLogPayload = {
-        actorId: req?.userId || "",
-        actorRole: req?.role as string,
-        module: "auth",
-        action: "login",
-        targetId: req?.userId || "",
-        result: "fail",
-        reason: "Email address not found",
-        ip: ipAddress || "",
-        ua: userAgent || "",
-      };
-      return sendError(
-        res,
-        404,
-        "Email address not found",
-        auditLogPayloadFail
-      );
-    }
-
-    if (checkUser?.userDetail?.banned) {
-      const auditLogPayloadFail: AuditLogPayload = {
-        actorId: req?.userId || "",
-        actorRole: req?.role as string,
-        module: "auth",
-        action: "login",
-        targetId: req?.userId || "",
-        result: "fail",
-        reason: checkUser?.userDetail?.banReason || "Account is banned.",
-        ip: ipAddress || "",
-        ua: userAgent || "",
-      };
-      return sendError(
-        res,
-        403,
-        checkUser?.userDetail?.banReason
-          ? checkUser?.userDetail?.banReason
-          : "Account is banned. Please contact support for more information.",
-        auditLogPayloadFail
-      );
-    }
-
-    const checkPassword = verifyPassword(
-      password,
-      checkUser?.accounts?.[0]?.password || ""
-    );
-    if (!checkPassword) {
-      const auditLogPayloadFail: AuditLogPayload = {
-        actorId: req?.userId || "",
-        actorRole: req?.role as string,
-        module: "auth",
-        action: "login",
-        targetId: req?.userId || "",
-        result: "fail",
-        reason: "Invalid password",
-        ip: ipAddress || "",
-        ua: userAgent || "",
-      };
-      return sendError(res, 401, "Invalid password", auditLogPayloadFail);
-    }
-
-    const payload = {
-      userId: checkUser?.id,
-      email: checkUser?.email,
-      role: checkUser?.userDetail?.role?.name,
-    };
-    const access_token = await createToken(payload, "access_token");
-    const refresh_token = await createToken(payload, "refresh_token");
-
-    const checkSession = await prismaClient?.session?.findFirst({
-      where: {
-        userId: checkUser?.id,
-      },
-    });
-
-    const checkAccount = await prismaClient?.account?.findFirst({
-      where: {
-        userId: checkUser?.id,
-      },
-    });
-
-    const accessExpiryMs = parseTimeString(
-      process.env.ACCESS_TOKEN_EXPIRY || "1h"
-    );
-    const refreshExpiryMs = parseTimeString(
-      process.env.REFRESH_TOKEN_EXPIRY || "30d"
-    );
-
-    const accessTokenExpiry = new Date(Date.now() + accessExpiryMs);
-    const refreshTokenExpiry = new Date(Date.now() + refreshExpiryMs);
-
-    await prismaClient?.session?.update({
-      where: {
-        id: checkSession?.id,
-      },
-      data: {
-        token: access_token?.data || "",
-        expiresAt: accessTokenExpiry,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-      },
-    });
-
-    await prismaClient?.account?.update({
-      where: {
-        id: checkAccount?.id,
-      },
-      data: {
-        accessToken: access_token?.data || "",
-        accessTokenExpiresAt: accessTokenExpiry,
-        refreshToken: refresh_token?.data || "",
-        refreshTokenExpiresAt: refreshTokenExpiry,
-      },
-    });
-
-    await prismaClient?.userActivity?.create({
-      data: {
-        userId: checkUser?.id,
-        actionType: "LOGIN",
-        ipAddress: ipAddress,
-        userAgent: userAgent,
-        status: "SUCCESS",
-      },
-    });
-
-    await prismaClient?.userLogs?.create({
-      data: {
-        userId: checkUser?.id,
-        logType: "LOGIN",
-        description: "user logged in",
-        ipAddress,
-        userAgent,
-      },
-    });
-
-    const responsePayload = {
-      userId: checkUser?.id,
-      first_name: checkUser?.userDetail?.first_name || "",
-      last_name: checkUser?.userDetail?.last_name || "",
-      phone: checkUser?.userDetail?.phone || "",
-      image: checkUser?.image,
-      authType: checkUser?.userDetail?.authType || "",
-      role: checkUser?.userDetail?.role?.name || "",
-      userDetails: checkUser?.userDetail
-        ? {
-            ...checkUser?.userDetail,
-            createdAt: checkUser?.userDetail?.createdAt?.toString(),
-            updatedAt: checkUser?.userDetail?.updatedAt?.toString(),
-          }
-        : null,
-    };
-
-    res.cookie("access_token", access_token?.data, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "strict",
-      maxAge: 60 * 1000,
-      path: "/",
-    });
-
-    const auditLogPayloadSuccess: AuditLogPayload = {
-      actorId: req?.userId || "",
-      actorRole: req?.role as string,
-      module: "auth",
-      action: "login",
-      targetId: req?.userId || "",
-      result: "success",
-      ip: ipAddress || "",
-      ua: userAgent || "",
-    };
-    return sendSuccess(
-      res,
-      responsePayload,
-      "Successfully logged in",
-      auditLogPayloadSuccess
-    );
-  } catch (error) {
-    const auditLogPayloadFail: AuditLogPayload = {
-      actorId: req?.userId || "",
-      actorRole: req?.role as string,
-      module: "auth",
-      action: "login",
-      targetId: req?.userId || "",
-      result: "fail",
-      reason: error instanceof Error ? error.message : "Unknown error",
-      ip: ipAddress || "",
-      ua: userAgent || "",
-    };
-    return sendError(
-      res,
-      400,
-      error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
-    );
-  }
-};
-
 export const renewTokens = async (req: Request, res: Response) => {
-  const ipAddress = extractIpAddress(req);
-  const userAgent = extractUserAgent(req);
   try {
     const {
       success: checkUserSuccess,
@@ -549,12 +74,9 @@ export const renewTokens = async (req: Request, res: Response) => {
 
     const checkAccount = await prismaClient?.account?.findFirst({
       where: {
-        userId: checkUser?.id,
+        userId: checkUserData?.id,
       },
     });
-
-    const ipAddress = extractIpAddress(req);
-    const userAgent = extractUserAgent(req);
 
     const accessExpiryMs = parseTimeString(
       process.env.ACCESS_TOKEN_EXPIRY || "1h"
@@ -573,8 +95,8 @@ export const renewTokens = async (req: Request, res: Response) => {
       data: {
         token: access_token?.data || "",
         expiresAt: accessTokenExpiry,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
+        ipAddress: req?.userIpAddress,
+        userAgent: req?.userAgent,
       },
     });
 
@@ -594,8 +116,8 @@ export const renewTokens = async (req: Request, res: Response) => {
       data: {
         userId: checkUserData?.id || "",
         actionType: "RENEW_TOKENS",
-        ipAddress: ipAddress,
-        userAgent: userAgent,
+        ipAddress: req?.userIpAddress,
+        userAgent: req?.userAgent,
         status: "SUCCESS",
       },
     });
@@ -605,8 +127,8 @@ export const renewTokens = async (req: Request, res: Response) => {
         userId: checkUserData?.id,
         logType: "RENEW_TOKENS",
         description: "access and refresh tokens renewed",
-        ipAddress,
-        userAgent,
+        ipAddress: req?.userIpAddress,
+        userAgent: req?.userAgent,
       },
     });
 
@@ -625,8 +147,8 @@ export const renewTokens = async (req: Request, res: Response) => {
       action: "renewTokens",
       targetId: req?.userId || "",
       result: "success",
-      ip: ipAddress || "",
-      ua: userAgent || "",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
     };
     return sendSuccess(
       res,
@@ -643,8 +165,8 @@ export const renewTokens = async (req: Request, res: Response) => {
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
-      ip: ipAddress || "",
-      ua: userAgent || "",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
     };
     return sendError(
       res,
@@ -656,8 +178,6 @@ export const renewTokens = async (req: Request, res: Response) => {
 };
 
 export const passwordResetCreate = async (req: Request, res: Response) => {
-  const ipAddress = extractIpAddress(req);
-  const userAgent = extractUserAgent(req);
   try {
     const {
       success: checkUserSuccess,
@@ -709,8 +229,8 @@ export const passwordResetCreate = async (req: Request, res: Response) => {
       action: "passwordResetCreate",
       targetId: req?.userId || "",
       result: "success",
-      ip: ipAddress || "",
-      ua: userAgent || "",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
     };
     return sendSuccess(
       res,
@@ -727,124 +247,8 @@ export const passwordResetCreate = async (req: Request, res: Response) => {
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
-      ip: ipAddress || "",
-      ua: userAgent || "",
-    };
-    return sendError(
-      res,
-      400,
-      error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
-    );
-  }
-};
-
-export const passwordResetVerify = async (req: Request, res: Response) => {
-  const ipAddress = extractIpAddress(req);
-  const userAgent = extractUserAgent(req);
-  try {
-    const { token, password, confirm_password } = req.body;
-    if (!token || !password || !confirm_password) {
-      return sendError(
-        res,
-        404,
-        "Token, password and confirm_password are required"
-      );
-    }
-
-    if (password !== confirm_password) {
-      const auditLogPayloadFail: AuditLogPayload = {
-        actorId: req?.userId || "",
-        actorRole: req?.role as string,
-        module: "auth",
-        action: "passwordResetVerify",
-        targetId: req?.userId || "",
-        result: "fail",
-        reason: "Confirm password is invalid.",
-        ip: ipAddress || "",
-        ua: userAgent || "",
-      };
-      return sendError(
-        res,
-        400,
-        "Confirm password is invalid.",
-        auditLogPayloadFail
-      );
-    }
-
-    const checkId = await prismaClient?.passwordReset?.findFirst({
-      where: {
-        password_reset_token: token,
-        isActive: true,
-      },
-    });
-    if (!checkId) {
-      const auditLogPayloadFail: AuditLogPayload = {
-        actorId: req?.userId || "",
-        actorRole: req?.role as string,
-        module: "auth",
-        action: "passwordResetVerify",
-        targetId: req?.userId || "",
-        result: "fail",
-        reason: "Password reset request not found",
-        ip: ipAddress || "",
-        ua: userAgent || "",
-      };
-      return sendError(
-        res,
-        404,
-        "Password reset request not found",
-        auditLogPayloadFail
-      );
-    }
-
-    const hashedPassword = await hashPassword(password);
-
-    await prismaClient?.user?.update({
-      where: {
-        id: checkId?.userId,
-      },
-      data: {
-        password: hashedPassword,
-      },
-    });
-
-    await prismaClient?.passwordReset?.update({
-      where: {
-        id: checkId?.id,
-      },
-      data: {
-        isActive: false,
-      },
-    });
-
-    const auditLogPayloadSuccess: AuditLogPayload = {
-      actorId: req?.userId || "",
-      actorRole: req?.role as string,
-      module: "auth",
-      action: "passwordResetVerify",
-      targetId: req?.userId || "",
-      result: "success",
-      ip: ipAddress || "",
-      ua: userAgent || "",
-    };
-    return sendSuccess(
-      res,
-      null,
-      "Password reset successfully",
-      auditLogPayloadSuccess
-    );
-  } catch (error) {
-    const auditLogPayloadFail: AuditLogPayload = {
-      actorId: req?.userId || "",
-      actorRole: req?.role as string,
-      module: "auth",
-      action: "passwordResetVerify",
-      targetId: req?.userId || "",
-      result: "fail",
-      reason: error instanceof Error ? error.message : "Unknown error",
-      ip: ipAddress || "",
-      ua: userAgent || "",
+      ip: req.userIpAddress || "",
+      ua: req?.userAgent || "",
     };
     return sendError(
       res,

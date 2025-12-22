@@ -4,6 +4,7 @@ import "dotenv/config";
 import routes from "./routes/common";
 import { sendSuccess } from "./utils/response";
 import cookieParser from "cookie-parser";
+import extractInfo from "./middlewares/extractInfo";
 
 const PORT = process.env.PORT;
 const allowedOrigins = process.env.CORS_ORIGIN?.split(",") || [];
@@ -59,6 +60,8 @@ app.use(cookieParser());
 app.use(express.json());
 const apiVersion = "/api/";
 app.use(apiVersion, routes);
+
+app.use(extractInfo);
 
 app.get("/health", (_, res) => {
   return sendSuccess(res, null, "Server is running");

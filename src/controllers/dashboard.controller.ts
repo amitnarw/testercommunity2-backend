@@ -1,23 +1,17 @@
-import { prismaClient } from "@/lib/prisma";
+import { type Request, type Response } from "express";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
-import { type Request, type Response } from "express";
+import { extractIpAddress, extractUserAgent } from "@/utils/helperFunctions";
+import { prismaClient } from "@/lib/prisma";
 
-export const getControlRoomData = async (req: Request, res: Response) => {
+const getDashboardStats = async (req: Request, res: Response) => {
   try {
-    const response = await prismaClient?.controlRoom?.findFirst();
-    const responseData = {
-      ...response,
-      createdAt: response?.createdAt?.toISOString() || "",
-      updatedAt: response?.updatedAt?.toISOString() || "",
-    };
-    return sendSuccess(res, responseData, "ok");
   } catch (error) {
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
-      module: "admin",
-      action: "getControlRoomData",
+      module: "user",
+      action: "getUserData",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",

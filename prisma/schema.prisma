@@ -687,7 +687,7 @@ model UserTransaction {
   dashboardAndHubId   Int?                     // optional if some transactions aren't dashboard-related
   action              EarningAction?           // keep optional for non-earning transactions
   points              Float?                   @default(0)
-  amount              Float?                   @default(0)
+  package             Float?                   @default(0)
   transactionType     UserTransactionType      // NEW: type of transaction
   status              UserTransactionStatus
   createdAt           DateTime                 @default(now())
@@ -726,8 +726,7 @@ model UserWallet {
   id                Int                     @id @default(autoincrement())
   userId            String                  @unique
   totalPoints       Float                   @default(0)
-  totalAmount       Float                   @default(0)
-  currency          String                  @default("USD")
+  totalPackages     Float                   @default(0)
   lastUpdated       DateTime                @updatedAt
   createdAt         DateTime                @default(now())
 
