@@ -443,7 +443,7 @@ CREATE TABLE "user_transactions" (
     "dashboardAndHubId" INTEGER,
     "action" "EarningAction",
     "points" DOUBLE PRECISION DEFAULT 0,
-    "amount" DOUBLE PRECISION DEFAULT 0,
+    "package" DOUBLE PRECISION DEFAULT 0,
     "transactionType" "UserTransactionType" NOT NULL,
     "status" "UserTransactionStatus" NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -456,8 +456,7 @@ CREATE TABLE "user_wallet" (
     "id" SERIAL NOT NULL,
     "userId" TEXT NOT NULL,
     "totalPoints" DOUBLE PRECISION NOT NULL DEFAULT 0,
-    "totalAmount" DOUBLE PRECISION NOT NULL DEFAULT 0,
-    "currency" TEXT NOT NULL DEFAULT 'USD',
+    "totalPackages" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "lastUpdated" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

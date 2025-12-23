@@ -1,4 +1,5 @@
 import {
+  getNotifications,
   getUserData,
   getUserProfileData,
   saveInitialProfileData,
@@ -29,12 +30,18 @@ router.get(
   // checkAuthorizationAccess,
   getUserProfileData
 );
-router.get("/initial-user-profile", saveInitialProfileData);
+router.get(
+  "/initial-user-profile",
+  checkAuthentication,
+  saveInitialProfileData
+);
 router.post(
   "/save-profile-data",
   checkAuthentication,
   decryptPayload,
   saveProfileData
 );
+
+router.get("/get-notifications", checkAuthentication, getNotifications);
 
 export default router;

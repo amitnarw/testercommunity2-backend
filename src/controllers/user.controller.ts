@@ -231,3 +231,52 @@ export const saveProfileData = async (req: Request, res: Response) => {
     );
   }
 };
+
+export const getNotifications = async (req: Request, res: Response) => {
+  try {
+    const response = await prismaClient?.userDetail?.findFirst({
+      where: {
+        userId: req?.userId,
+      },
+    });
+    if (!response) {
+      return sendError(res, 404, "User not found");
+    }
+
+    const result = await prismaClient?.notification?.findMany({
+      where: {
+        userId: req?.userId,
+      },
+    });
+
+    const totalNotifications = await prismaClient?.notification?.count({
+      where: {
+        userId: req?.userId,
+      },
+    });
+
+    return sendSuccess(
+      res,
+      { notifications: result, totalNotifications },
+      "ok"
+    );
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getNotifications",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};

@@ -10,7 +10,7 @@ if (!secretKeyBase64) {
 // Convert base64 string to Uint8Array
 const secretKey = Uint8Array.from(Buffer.from(secretKeyBase64, "base64"));
 
-export type JSONValue = string | number | boolean | null | { [key: string]: JSONValue } | JSONValue[];
+export type JSONValue = string | number | boolean | null | Date | { [key: string]: JSONValue } | JSONValue[];
 
 export async function encryptData<T extends JSONValue>(data: T): Promise<string> {
   const encoder = new TextEncoder();

@@ -317,7 +317,7 @@ model DashboardAndHub {
   id                    Int                   @id @default(autoincrement())
   appId                 Int
   appOwnerId            String
-  currentTester         Int
+  currentTester         String
   totalTester           Int
   currentDay            Int
   totalDay              Int
@@ -328,13 +328,13 @@ model DashboardAndHub {
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
-  androidApp      AndroidApp           @relation(fields: [appId], references: [id])
-  appOwner        User                 @relation("DashboardAndHubAppOwner", fields: [appOwnerId], references: [id])
-  testers         User[]               @relation("DashboardAndHubTesters")
-  feedback        Feedback[]
-  activities      UserActivity[]
-  earningHistory  UserTransaction[]
-  testerRelations TesterRelation[]
+  androidApp            AndroidApp            @relation(fields: [appId], references: [id])
+  appOwner              User                  @relation("DashboardAndHubAppOwner", fields: [appOwnerId], references: [id])
+  testers               User[]                @relation("DashboardAndHubTesters")
+  feedback              Feedback[]
+  activities            UserActivity[]
+  earningHistory        UserTransaction[]
+  testerRelations       TesterRelation[]
 
   @@map("dashboard_and_hub")
 }
@@ -461,18 +461,19 @@ enum FeedbackPriority {
 }
 
 model Notification {
-  id          Int              @id @default(autoincrement())
-  title       String
-  description String
-  type        NotificationType @default(OTHER)
-  url         String?
-  userId      String?
+  id            Int               @id @default(autoincrement())
+  title         String
+  description   String
+  type          NotificationType  @default(OTHER)
+  url           String?
+  userId        String?
+  isActive      Boolean
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
-  user  User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  media Media[]
+  user          User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media         Media[]
 
   @@map("notification")
 }
