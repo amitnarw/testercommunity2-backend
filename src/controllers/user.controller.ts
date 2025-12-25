@@ -280,3 +280,32 @@ export const getNotifications = async (req: Request, res: Response) => {
     );
   }
 };
+
+export const getAllPricingPlans = async (req: Request, res: Response) => {
+  try {
+    const plans = await prismaClient?.plans?.findMany({
+      where: {
+        isActive: true,
+      },
+    });
+    return sendSuccess(res, plans, "ok");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getAllPricingPlans",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};

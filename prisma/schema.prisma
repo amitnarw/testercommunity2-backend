@@ -241,7 +241,7 @@ model Session {
   @@map("session")
 }
 
-model Plan {
+model Plans {
   id        String     @id @default(uuid()) @map("_id")
   name      String
   price     Float
@@ -252,7 +252,7 @@ model Plan {
   updatedAt DateTime   @updatedAt
   userPlans UserPlan[]
 
-  @@map("plan")
+  @@map("plans")
 }
 
 model UserPlan {
@@ -264,7 +264,7 @@ model UserPlan {
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  plan Plans @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@map("user_plan")
 }
