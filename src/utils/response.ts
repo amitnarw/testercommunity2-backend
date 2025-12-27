@@ -2,9 +2,8 @@ import type { AuditLogPayload } from "@/types/audit_log";
 import { type Response } from "express";
 import { encryptData, type JSONValue } from "./encryptDecryptPayload";
 import { addAuditLog } from "@/controllers/audit_log.controller";
-// import { addAuditLog } from '../controllers/audit_logs.controller';
 
-interface ApiResponse<T> {
+interface ApiResponse {
   success: boolean;
   message?: string;
   data: string | null;
@@ -26,7 +25,7 @@ export async function sendSuccess<T extends JSONValue>(
     }
   }
 
-  const response: ApiResponse<string> = {
+  const response: ApiResponse = {
     success: true,
     data: encryptedData ?? null,
     message,
@@ -45,7 +44,7 @@ export async function sendError(
     await addAuditLog(auditLogPayload);
   }
 
-  const response: ApiResponse<null> = {
+  const response: ApiResponse = {
     success: false,
     data: null,
     message,

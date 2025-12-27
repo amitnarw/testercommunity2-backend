@@ -1,5 +1,6 @@
 import {
   getAllPricingPlans,
+  getAllSessions,
   getNotifications,
   getUserData,
   getUserProfileData,
@@ -45,5 +46,6 @@ router.post(
 
 router.get("/get-notifications", checkAuthentication, getNotifications);
 router.get("/get-all-pricing-plans", getAllPricingPlans);
+router.get("/get-all-sessions", checkAuthentication, getAllSessions);
 
 export default router;

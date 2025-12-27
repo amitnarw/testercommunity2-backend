@@ -177,7 +177,7 @@ CREATE TABLE "session" (
 );
 
 -- CreateTable
-CREATE TABLE "plan" (
+CREATE TABLE "plans" (
     "_id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "price" DOUBLE PRECISION NOT NULL,
@@ -187,7 +187,7 @@ CREATE TABLE "plan" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "plan_pkey" PRIMARY KEY ("_id")
+    CONSTRAINT "plans_pkey" PRIMARY KEY ("_id")
 );
 
 -- CreateTable
@@ -244,7 +244,7 @@ CREATE TABLE "dashboard_and_hub" (
     "id" SERIAL NOT NULL,
     "appId" INTEGER NOT NULL,
     "appOwnerId" TEXT NOT NULL,
-    "currentTester" INTEGER NOT NULL,
+    "currentTester" TEXT NOT NULL,
     "totalTester" INTEGER NOT NULL,
     "currentDay" INTEGER NOT NULL,
     "totalDay" INTEGER NOT NULL,
@@ -326,6 +326,7 @@ CREATE TABLE "notification" (
     "type" "NotificationType" NOT NULL DEFAULT 'OTHER',
     "url" TEXT,
     "userId" TEXT,
+    "isActive" BOOLEAN NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -643,7 +644,7 @@ ALTER TABLE "session" ADD CONSTRAINT "session_userId_fkey" FOREIGN KEY ("userId"
 ALTER TABLE "user_plan" ADD CONSTRAINT "user_plan_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_plan" ADD CONSTRAINT "user_plan_planId_fkey" FOREIGN KEY ("planId") REFERENCES "plan"("_id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_plan" ADD CONSTRAINT "user_plan_planId_fkey" FOREIGN KEY ("planId") REFERENCES "plans"("_id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "dashboard_and_hub" ADD CONSTRAINT "dashboard_and_hub_appId_fkey" FOREIGN KEY ("appId") REFERENCES "android_app"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

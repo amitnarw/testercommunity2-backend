@@ -39,7 +39,7 @@ async function main() {
   console.log(`Start seeding ...`);
 
   for (const planData of plans) {
-    const plan = await prisma.plan.upsert({
+    const plan = await prisma.plans.upsert({
       where: { id: planData.id },
       update: {},
       create: {

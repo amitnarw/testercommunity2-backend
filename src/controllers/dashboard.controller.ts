@@ -9,14 +9,13 @@ export const getDashboardStats = async (req: Request, res: Response) => {
     if (!userId) {
       return sendError(res, 400, "UserId not found");
     }
-
     const response = await prismaClient.user.findUnique({
       where: { id: userId },
       select: {
         wallet: { select: { totalPackages: true } },
       },
     });
-
+    
     const statusCounts = await prismaClient.dashboardAndHub.groupBy({
       by: ["status"],
       where: { appOwnerId: userId },

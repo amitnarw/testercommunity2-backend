@@ -3,6 +3,40 @@ import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient } from "@/lib/prisma";
 import type { UserDetail } from "prisma/generated/prisma";
+import DeviceDetector from "device-detector-js";
+import geoip from "geoip-lite";
+import { auth } from "@/lib/auth";
+
+function getLocation(ip: string | null) {
+  if (!ip) return { city: "Unknown", region: "Unknown", country: "Unknown" };
+
+  const geo = geoip.lookup(ip);
+  if (!geo) return { city: "Unknown", region: "Unknown", country: "Unknown" };
+
+  return {
+    city: geo.city || "Unknown",
+    region: geo.region || "Unknown",
+    country: geo.country || "Unknown",
+  };
+}
+
+function parseDeviceInfo(userAgent: string | null) {
+  if (!userAgent)
+    return { browser: "Unknown", os: "Unknown", device: "Unknown" };
+
+  const dd = new DeviceDetector();
+  const result = dd.parse(userAgent);
+
+  return {
+    deviceType: result.device?.type,
+    deviceBrand: result.device?.brand || "",
+    deviceModel: result.device?.model || "",
+    browser: result.client?.name || "",
+    browserVersion: result.client?.version || "",
+    os: result.os?.name || "",
+    osVersion: result.os?.version || "",
+  };
+}
 
 export const getUserData = async (req: Request, res: Response) => {
   try {
@@ -288,13 +322,84 @@ export const getAllPricingPlans = async (req: Request, res: Response) => {
         isActive: true,
       },
     });
-    return sendSuccess(res, plans, "ok");
+    const responseData = plans.map((item) => {
+      return {
+        ...item,
+        features: JSON.parse(JSON.stringify(item?.features)),
+        createdAt: item?.createdAt?.toString(),
+        updatedAt: item?.updatedAt,
+      };
+    });
+
+    return sendSuccess(res, responseData, "ok");
   } catch (error) {
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
       module: "user",
       action: "getAllPricingPlans",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};
+
+export const getAllSessions = async (req: Request, res: Response) => {
+  try {
+    const sessions = await prismaClient?.session?.findMany({
+      where: {
+        userId: req?.userId,
+      },
+    });
+
+    const headers: Record<string, string> = {};
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (typeof value === "string") {
+        headers[key] = value;
+      } else if (Array.isArray(value)) {
+        headers[key] = value.join(";");
+      }
+    }
+
+    const session = await auth.api.getSession({ headers });
+
+    const responseData = sessions.map((item) => {
+      const info = parseDeviceInfo(item?.userAgent);
+      const location = getLocation(item?.ipAddress);
+      return {
+        ...item,
+        token: "",
+        isCurrent: session?.session?.token === item?.token,
+        city: location?.city,
+        region: location?.region,
+        country: location?.country,
+        browser: info.browser,
+        browserVersion: info.browserVersion || "",
+        os: info.os,
+        osVersion: info.osVersion || "",
+        deviceBrand: info.deviceBrand || "",
+        deviceModel: info.deviceModel || "",
+        deviceType: info?.deviceType || "",
+        lastLogin: new Date(item.updatedAt).toUTCString(),
+      };
+    });
+
+    return sendSuccess(res, responseData, "ok");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getAllSessions",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
