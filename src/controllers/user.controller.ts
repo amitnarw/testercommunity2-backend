@@ -6,6 +6,7 @@ import type { UserDetail } from "prisma/generated/prisma";
 import DeviceDetector from "device-detector-js";
 import geoip from "geoip-lite";
 import { auth } from "@/lib/auth";
+import { fromNodeHeaders } from "better-auth/node";
 
 function getLocation(ip: string | null) {
   if (!ip) return { city: "Unknown", region: "Unknown", country: "Unknown" };
@@ -400,6 +401,106 @@ export const getAllSessions = async (req: Request, res: Response) => {
       actorRole: req?.role as string,
       module: "user",
       action: "getAllSessions",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};
+
+export const logOutFromSession = async (req: Request, res: Response) => {
+  try {
+    const { payload } = await req.body;
+
+    if (!payload) {
+      return sendError(res, 400, "Payload is required");
+    }
+
+    const { session_id } = payload;
+
+    if (!session_id) {
+      return sendError(res, 400, "session_id is required");
+    }
+
+    const session = await prismaClient?.session?.findFirst({
+      where: {
+        id: session_id,
+      },
+    });
+    if (!session) {
+      return sendError(res, 404, "Session not found");
+    }
+
+    await prismaClient?.session?.delete({
+      where: {
+        id: session?.id,
+      },
+    });
+
+    return sendSuccess(res, null, "Session logged out successfully");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "logOutFromSession",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};
+
+export const logOutFromAllSession = async (req: Request, res: Response) => {
+  try {
+    const sessions = await prismaClient?.session?.findMany({
+      where: {
+        userId: req?.userId,
+      },
+    });
+    if (!sessions || !sessions?.length) {
+      return sendError(res, 404, "No session found");
+    }
+
+    await auth.api.signOut({
+      returnHeaders: true,
+      headers: fromNodeHeaders(req.headers),
+    });
+
+    await prismaClient?.session?.deleteMany({
+      where: {
+        userId: req?.userId,
+      },
+    });
+
+    res.clearCookie("better-auth.dont_remember");
+    res.clearCookie("better-auth.role_cache");
+    res.clearCookie("better-auth.session_data");
+    res.clearCookie("better-auth.session_token");
+
+    return sendSuccess(res, null, "All Sessions are logged out successfully");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "logOutFromSession",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",

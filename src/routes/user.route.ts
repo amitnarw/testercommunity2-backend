@@ -4,6 +4,8 @@ import {
   getNotifications,
   getUserData,
   getUserProfileData,
+  logOutFromAllSession,
+  logOutFromSession,
   saveInitialProfileData,
   saveProfileData,
 } from "@/controllers/user.controller";
@@ -47,5 +49,7 @@ router.post(
 router.get("/get-notifications", checkAuthentication, getNotifications);
 router.get("/get-all-pricing-plans", getAllPricingPlans);
 router.get("/get-all-sessions", checkAuthentication, getAllSessions);
+router.post("/logout-single-session", checkAuthentication, decryptPayload, logOutFromSession);
+router.post("/logout-all-sessions", checkAuthentication, logOutFromAllSession);
 
 export default router;
