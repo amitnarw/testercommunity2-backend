@@ -515,3 +515,71 @@ export const logOutFromAllSession = async (req: Request, res: Response) => {
     );
   }
 };
+
+export const getFullWalletData = async (req: Request, res: Response) => {
+  try {
+    // const userId = req?.userId;
+    // if (!userId) {
+    //   return sendError(res, 401, "Unauthorized");
+    // }
+    // const wallet = await prismaClient?.userWallet?.findFirst({
+    //   where: {
+    //     userId,
+    //   },
+    // });
+    // return sendSuccess(res, wallet, "ok");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getFullWalletData",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};
+
+export const getWalletData = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    if (!userId) {
+      return sendError(res, 401, "Unauthorized");
+    }
+
+    const wallet = await prismaClient?.userWallet?.findFirst({
+      where: {
+        userId,
+      },
+    });
+
+    return sendSuccess(res, wallet, "ok");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getWalletData",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};

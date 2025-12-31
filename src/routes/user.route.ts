@@ -4,6 +4,7 @@ import {
   getNotifications,
   getUserData,
   getUserProfileData,
+  getWalletData,
   logOutFromAllSession,
   logOutFromSession,
   saveInitialProfileData,
@@ -51,5 +52,6 @@ router.get("/get-all-pricing-plans", getAllPricingPlans);
 router.get("/get-all-sessions", checkAuthentication, getAllSessions);
 router.post("/logout-single-session", checkAuthentication, decryptPayload, logOutFromSession);
 router.post("/logout-all-sessions", checkAuthentication, logOutFromAllSession);
+router.get("/get-user-wallet", checkAuthentication, getWalletData);
 
 export default router;
