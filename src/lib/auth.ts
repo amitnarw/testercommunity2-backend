@@ -60,8 +60,10 @@ async function setRoleCookie(
     const cookieName = "better-auth.role_cache";
     ctx.setCookie(cookieName, token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      // secure: process.env.NODE_ENV === "production",
+      // sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      secure: true,
+      sameSite: "none",
       path: "/",
     });
   }
@@ -92,8 +94,10 @@ export const auth = betterAuth({
         ctx.setCookie("better-auth.role_cache", "", {
           maxAge: 0,
           path: "/",
+          // secure: true,
+          // sameSite: "lax",
           secure: true,
-          sameSite: "lax",
+          sameSite: "none",
         });
       }
     }),
@@ -105,8 +109,49 @@ export const auth = betterAuth({
         name: "role_cache",
         attributes: {
           httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+          // secure: process.env.NODE_ENV === "production",
+          // sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+          secure: true,
+          sameSite: "none",
+          path: "/",
+        },
+      },
+      session: {
+        name: "better-auth.session",
+        attributes: {
+          httpOnly: true,
+          secure: true,
+          sameSite: "none",
+          path: "/",
+        },
+      },
+
+      session_token: {
+        name: "better-auth.session_token",
+        attributes: {
+          httpOnly: true,
+          secure: true,
+          sameSite: "none",
+          path: "/",
+        },
+      },
+
+      dont_remember: {
+        name: "better-auth.dont_remember",
+        attributes: {
+          httpOnly: true,
+          secure: true,
+          sameSite: "none",
+          path: "/",
+        },
+      },
+
+      session_data: {
+        name: "better-auth.session_data",
+        attributes: {
+          httpOnly: true,
+          secure: true,
+          sameSite: "none",
           path: "/",
         },
       },
