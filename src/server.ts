@@ -11,9 +11,16 @@ const allowedOrigins = process.env.CORS_ORIGIN?.split(",") || [];
 
 const corsOptions: CorsOptions = {
   origin: (origin: string | undefined, callback) => {
+    // Allow requests with no origin (server-to-server, like Vercel Edge Runtime middleware)
     if (!origin) return callback(null, true);
 
     if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // In development, be more permissive
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(`CORS: Allowing origin '${origin}' in development mode`);
       return callback(null, true);
     }
 

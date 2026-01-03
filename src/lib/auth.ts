@@ -33,10 +33,12 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
 const isProduction = process.env.NODE_ENV === "production";
 
 // Cookie config based on environment
+// Since we use a proxy for auth requests, sameSite can be 'lax' in most cases
+// Use 'none' only if you need true cross-origin cookie sharing
 const getCookieConfig = () => ({
   httpOnly: true,
   secure: isProduction,
-  sameSite: isProduction ? ("none" as const) : ("lax" as const),
+  sameSite: "lax" as const, // 'lax' works with same-origin proxy
   path: "/",
 });
 
