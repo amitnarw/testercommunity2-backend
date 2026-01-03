@@ -32,13 +32,10 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
 
 const isProduction = process.env.NODE_ENV === "production";
 
-// Cookie config based on environment
-// Since we use a proxy for auth requests, sameSite can be 'lax' in most cases
-// Use 'none' only if you need true cross-origin cookie sharing
 const getCookieConfig = () => ({
   httpOnly: true,
   secure: isProduction,
-  sameSite: (isProduction ? "none" : "lax") as "none" | "lax",
+  sameSite: (isProduction ? "strict" : "none") as "strict" | "lax" | "none",
   path: "/",
 });
 
@@ -64,7 +61,7 @@ async function setRoleCookie(
   if (role) {
     const secret = process.env.BETTER_AUTH_SECRET!;
     const payload = { role, initial };
-    // Match session expiration (7 days) instead of 5 minutes
+
     const token = await new SignJWT(payload)
       .setProtectedHeader({ alg: "HS256" })
       .setExpirationTime("7d")
@@ -86,10 +83,10 @@ export const auth = betterAuth({
   },
 
   session: {
-    expiresIn: 60 * 60 * 24 * 7, // 7 days
+    expiresIn: 60 * 60 * 24 * 7,
     cookieCache: {
       enabled: true,
-      maxAge: 60 * 60, // 1 hour (was 5 minutes - too short)
+      maxAge: 60 * 60,
       strategy: "compact",
     },
   },
@@ -136,12 +133,11 @@ export const auth = betterAuth({
   trustedOrigins: (request) => {
     const origin = request.headers.get("origin");
     const allowedOrigins = process.env.CORS_ORIGIN?.split(",") || [];
-    
-    // Allow requests from mobile apps or tools that don't send an Origin header
+
     if (!origin || origin === "null") {
-      return ["*"]; 
+      return ["*"];
     }
-    
+
     return allowedOrigins;
   },
 
