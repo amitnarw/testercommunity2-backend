@@ -38,7 +38,7 @@ const isProduction = process.env.NODE_ENV === "production";
 const getCookieConfig = () => ({
   httpOnly: true,
   secure: isProduction,
-  sameSite: "lax" as const, // 'lax' works with same-origin proxy
+  sameSite: (isProduction ? "none" : "lax") as "none" | "lax",
   path: "/",
 });
 
@@ -133,7 +133,17 @@ export const auth = betterAuth({
     },
   },
 
-  trustedOrigins: process.env.CORS_ORIGIN?.split(","),
+  trustedOrigins: (request) => {
+    const origin = request.headers.get("origin");
+    const allowedOrigins = process.env.CORS_ORIGIN?.split(",") || [];
+    
+    // Allow requests from mobile apps or tools that don't send an Origin header
+    if (!origin || origin === "null") {
+      return ["*"]; 
+    }
+    
+    return allowedOrigins;
+  },
 
   secret: process.env.BETTER_AUTH_SECRET,
 

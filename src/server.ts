@@ -11,7 +11,6 @@ const allowedOrigins = process.env.CORS_ORIGIN?.split(",") || [];
 
 const corsOptions: CorsOptions = {
   origin: (origin: string | undefined, callback) => {
-    // Allow requests with no origin (server-to-server, like Vercel Edge Runtime middleware)
     if (!origin) return callback(null, true);
 
     if (allowedOrigins.includes(origin)) {
@@ -38,20 +37,6 @@ const app = express();
 
 app.use(cors(corsOptions));
 app.use(cookieParser());
-
-// app.all("/api/auth{/*path}", toNodeHandler(auth));
-
-// app.get("/api/profile", async (req, res) => {
-//   const session = await auth.api.getSession({
-//     headers: fromNodeHeaders(req.headers),
-//   });
-
-//   if (!session) {
-//     return res.status(401).json({ error: "Not logged in" });
-//   }
-
-//   res.json({ user: session.user });
-// });
 
 // app.get("/api/admin", async (req, res) => {
 //   const session = await auth.api.getSession({
