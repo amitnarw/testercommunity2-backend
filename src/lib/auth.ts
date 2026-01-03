@@ -30,6 +30,16 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
   };
 });
 
+const isProduction = process.env.NODE_ENV === "production";
+
+// Cookie config based on environment
+const getCookieConfig = () => ({
+  httpOnly: true,
+  secure: isProduction,
+  sameSite: isProduction ? ("none" as const) : ("lax" as const),
+  path: "/",
+});
+
 async function setRoleCookie(
   ctx: any,
   role?: {
@@ -52,20 +62,14 @@ async function setRoleCookie(
   if (role) {
     const secret = process.env.BETTER_AUTH_SECRET!;
     const payload = { role, initial };
+    // Match session expiration (7 days) instead of 5 minutes
     const token = await new SignJWT(payload)
       .setProtectedHeader({ alg: "HS256" })
-      .setExpirationTime("5m")
+      .setExpirationTime("7d")
       .sign(new TextEncoder().encode(secret));
 
     const cookieName = "better-auth.role_cache";
-    ctx.setCookie(cookieName, token, {
-      httpOnly: true,
-      // secure: process.env.NODE_ENV === "production",
-      // sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-      secure: true,
-      sameSite: "none",
-      path: "/",
-    });
+    ctx.setCookie(cookieName, token, getCookieConfig());
   }
 }
 
@@ -80,10 +84,10 @@ export const auth = betterAuth({
   },
 
   session: {
-    expiresIn: 60 * 60 * 24 * 7,
+    expiresIn: 60 * 60 * 24 * 7, // 7 days
     cookieCache: {
       enabled: true,
-      maxAge: 5 * 60,
+      maxAge: 60 * 60, // 1 hour (was 5 minutes - too short)
       strategy: "compact",
     },
   },
@@ -93,11 +97,7 @@ export const auth = betterAuth({
       if (ctx.path === "/sign-out") {
         ctx.setCookie("better-auth.role_cache", "", {
           maxAge: 0,
-          path: "/",
-          // secure: true,
-          // sameSite: "lax",
-          secure: true,
-          sameSite: "none",
+          ...getCookieConfig(),
         });
       }
     }),
@@ -107,53 +107,26 @@ export const auth = betterAuth({
     cookies: {
       role_cache: {
         name: "role_cache",
-        attributes: {
-          httpOnly: true,
-          // secure: process.env.NODE_ENV === "production",
-          // sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-          secure: true,
-          sameSite: "none",
-          path: "/",
-        },
+        attributes: getCookieConfig(),
       },
       session: {
         name: "better-auth.session",
-        attributes: {
-          httpOnly: true,
-          secure: true,
-          sameSite: "none",
-          path: "/",
-        },
+        attributes: getCookieConfig(),
       },
 
       session_token: {
         name: "better-auth.session_token",
-        attributes: {
-          httpOnly: true,
-          secure: true,
-          sameSite: "none",
-          path: "/",
-        },
+        attributes: getCookieConfig(),
       },
 
       dont_remember: {
         name: "better-auth.dont_remember",
-        attributes: {
-          httpOnly: true,
-          secure: true,
-          sameSite: "none",
-          path: "/",
-        },
+        attributes: getCookieConfig(),
       },
 
       session_data: {
         name: "better-auth.session_data",
-        attributes: {
-          httpOnly: true,
-          secure: true,
-          sameSite: "none",
-          path: "/",
-        },
+        attributes: getCookieConfig(),
       },
     },
   },
