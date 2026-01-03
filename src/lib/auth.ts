@@ -34,7 +34,7 @@ const isProduction = process.env.NODE_ENV === "production";
 
 const getCookieConfig = () => ({
   httpOnly: true,
-  secure: isProduction,
+  secure: true,
   sameSite: (isProduction ? "strict" : "none") as "strict" | "lax" | "none",
   path: "/",
 });
