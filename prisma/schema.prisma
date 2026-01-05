@@ -314,27 +314,28 @@ model AppCategory {
 }
 
 model DashboardAndHub {
-  id                    Int                   @id @default(autoincrement())
-  appId                 Int
-  appOwnerId            String
-  currentTester         String
-  totalTester           Int
-  currentDay            Int
-  totalDay              Int
-  instructionsForTester String?
-  points                Float?
-  averageTimeTesting    String?
-  status                DashboardAndHubStatus
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
+  id                          Int                       @id @default(autoincrement())
+  appId                       Int
+  appOwnerId                  String
+  currentTester               Int
+  totalTester                 Int
+  currentDay                  Int
+  totalDay                    Int
+  instructionsForTester       String?
+  points                      Float?
+  averageTimeTesting          String?
+  minimumAndroidVersion       Int
+  status                      DashboardAndHubStatus
+  createdAt                   DateTime                  @default(now())
+  updatedAt                   DateTime                  @updatedAt
 
-  androidApp            AndroidApp            @relation(fields: [appId], references: [id])
-  appOwner              User                  @relation("DashboardAndHubAppOwner", fields: [appOwnerId], references: [id])
-  testers               User[]                @relation("DashboardAndHubTesters")
-  feedback              Feedback[]
-  activities            UserActivity[]
-  earningHistory        UserTransaction[]
-  testerRelations       TesterRelation[]
+  androidApp                  AndroidApp                @relation(fields: [appId], references: [id])
+  appOwner                    User                      @relation("DashboardAndHubAppOwner", fields: [appOwnerId], references: [id])
+  testers                     User[]                    @relation("DashboardAndHubTesters")
+  feedback                    Feedback[]
+  activities                  UserActivity[]
+  earningHistory              UserTransaction[]
+  testerRelations             TesterRelation[]
 
   @@map("dashboard_and_hub")
 }
@@ -351,20 +352,23 @@ enum DashboardAndHubStatus {
 }
 
 model AndroidApp {
-  id            Int      @id @default(autoincrement())
-  appName       String
-  appCategoryId Int
-  packageName   String
-  description   String?
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                  Int      @id @default(autoincrement())
+  appName             String
+  appLogoUrl          String
+  appScreenshotUrl1   String
+  appScreenshotUrl2   String
+  appCategoryId       Int
+  packageName         String
+  description         String?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  appCategory      AppCategory       @relation(fields: [appCategoryId], references: [id])
-  media            Media[]
-  ratings          Rating[]
-  activities       UserActivity[]
-  dashboardAndHubs DashboardAndHub[]
+  appCategory         AppCategory       @relation(fields: [appCategoryId], references: [id])
+  media               Media[]
+  ratings             Rating[]
+  activities          UserActivity[]
+  dashboardAndHubs    DashboardAndHub[]
 
   @@map("android_app")
 }

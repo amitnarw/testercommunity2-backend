@@ -245,6 +245,81 @@ export const saveProfileData = async (req: Request, res: Response) => {
       },
     });
 
+    const checkAllValues = await prismaClient?.userDetail?.findFirst({
+      where: {
+        userId: req?.userId,
+      },
+    });
+
+    if (
+      checkAllValues?.first_name &&
+      checkAllValues?.last_name &&
+      checkAllValues?.phone &&
+      checkAllValues?.auth_type &&
+      checkAllValues?.roleId &&
+      checkAllValues?.country &&
+      checkAllValues?.profile_type &&
+      checkAllValues?.job_role &&
+      checkAllValues?.company_name &&
+      checkAllValues?.company_size &&
+      checkAllValues?.position_in_company &&
+      checkAllValues?.company_website &&
+      checkAllValues?.experience_level &&
+      checkAllValues?.total_published_apps &&
+      checkAllValues?.platform_development &&
+      checkAllValues?.publish_frequency &&
+      checkAllValues?.service_usage &&
+      checkAllValues?.communication_methods &&
+      checkAllValues?.notification_preference &&
+      checkAllValues?.device_company &&
+      checkAllValues?.device_model &&
+      checkAllValues?.ram &&
+      checkAllValues?.os &&
+      checkAllValues?.screen_resolution &&
+      checkAllValues?.language &&
+      checkAllValues?.network
+    ) {
+      const controlData = await prismaClient?.controlRoom?.findFirst();
+      const checkUserTransaction =
+        await prismaClient?.userTransaction?.findFirst({
+          where: {
+            userId: req?.userId,
+            action: "BONUS",
+            points: controlData?.profileSurveyPoints || 200,
+            transactionType: "BONUS",
+            status: "CREDIT",
+          },
+        });
+
+      if (!checkUserTransaction?.id) {
+        const userWalletSave = await prismaClient?.userWallet?.upsert({
+          where: {
+            userId: req?.userId,
+          },
+          create: {
+            userId: req?.userId || "",
+            totalPoints: controlData?.profileSurveyPoints || 200,
+            totalPackages: 0,
+          },
+          update: {
+            totalPoints: {
+              increment: 200,
+            },
+          },
+        });
+
+        await prismaClient?.userTransaction?.create({
+          data: {
+            userId: req?.userId || "",
+            userWalletId: userWalletSave?.id,
+            action: "BONUS",
+            points: controlData?.profileSurveyPoints || 200,
+            transactionType: "BONUS",
+            status: "CREDIT",
+          },
+        });
+      }
+    }
     return sendSuccess(res, null, "User profile data saved successfully");
   } catch (error) {
     const auditLogPayloadFail: AuditLogPayload = {
