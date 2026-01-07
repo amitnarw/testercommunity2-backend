@@ -194,6 +194,8 @@ export const saveProfileData = async (req: Request, res: Response) => {
     const { payload }: { payload: UserDetail } = await req.body;
 
     const {
+      phone,
+      country,
       profile_type,
       job_role,
       company_name,
@@ -221,6 +223,8 @@ export const saveProfileData = async (req: Request, res: Response) => {
         userId: req?.userId,
       },
       data: {
+        phone,
+        country,
         profile_type,
         job_role,
         company_name,
