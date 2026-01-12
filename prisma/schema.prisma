@@ -315,8 +315,9 @@ model AppCategory {
 
 model DashboardAndHub {
   id                          Int                       @id @default(autoincrement())
-  appId                       Int
+  appId                       Int                       @unique
   appOwnerId                  String
+  appType                     DashboardAndHubAppType
   currentTester               Int
   totalTester                 Int
   currentDay                  Int
@@ -340,6 +341,11 @@ model DashboardAndHub {
   @@map("dashboard_and_hub")
 }
 
+enum DashboardAndHubAppType {
+  PAID
+  FREE
+}
+
 enum DashboardAndHubStatus {
   IN_REVIEW
   DRAFT
@@ -353,12 +359,12 @@ enum DashboardAndHubStatus {
 
 model AndroidApp {
   id                  Int      @id @default(autoincrement())
-  appName             String
-  appLogoUrl          String
+  appName             String   @unique
+  appLogoUrl          String   @unique
   appScreenshotUrl1   String
   appScreenshotUrl2   String
   appCategoryId       Int
-  packageName         String
+  packageName         String   @unique
   description         String?
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now())

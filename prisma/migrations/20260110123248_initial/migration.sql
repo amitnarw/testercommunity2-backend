@@ -38,6 +38,9 @@ CREATE TYPE "UserNotificationPreference" AS ENUM ('APP_SUBMITTED', 'TEST_COMPLET
 CREATE TYPE "FaqCategory" AS ENUM ('general', 'community', 'professional', 'homepage');
 
 -- CreateEnum
+CREATE TYPE "DashboardAndHubAppType" AS ENUM ('PAID', 'FREE');
+
+-- CreateEnum
 CREATE TYPE "DashboardAndHubStatus" AS ENUM ('IN_REVIEW', 'DRAFT', 'REJECTED', 'IN_TESTING', 'COMPLETED', 'ON_HOLD', 'REQUESTED', 'AVAILABLE');
 
 -- CreateEnum
@@ -244,6 +247,7 @@ CREATE TABLE "dashboard_and_hub" (
     "id" SERIAL NOT NULL,
     "appId" INTEGER NOT NULL,
     "appOwnerId" TEXT NOT NULL,
+    "appType" "DashboardAndHubAppType" NOT NULL,
     "currentTester" INTEGER NOT NULL,
     "totalTester" INTEGER NOT NULL,
     "currentDay" INTEGER NOT NULL,
@@ -607,6 +611,18 @@ CREATE UNIQUE INDEX "session_token_key" ON "session"("token");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "app_category_name_key" ON "app_category"("name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "dashboard_and_hub_appId_key" ON "dashboard_and_hub"("appId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "android_app_appName_key" ON "android_app"("appName");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "android_app_appLogoUrl_key" ON "android_app"("appLogoUrl");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "android_app_packageName_key" ON "android_app"("packageName");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "support_agent_userId_key" ON "support_agent"("userId");

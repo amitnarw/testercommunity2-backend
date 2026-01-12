@@ -2,6 +2,7 @@ import { type Request, type Response } from "express";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient } from "@/lib/prisma";
+import type { DashboardAndHubStatus } from "prisma/generated/prisma";
 
 function extractPackageName(url: string): string | null {
   try {
@@ -92,67 +93,111 @@ export const addHubApp = async (req: Request, res: Response) => {
     }
 
     const {
-      app_url,
       app_name,
+      app_url,
       app_logo_url,
       app_screenshot_url_1,
       app_screenshot_url_2,
-      app_category_id,
+      category_id,
       app_description,
       instruction_for_tester,
       minimum_android_version,
       total_tester,
       total_days,
+      points_cost,
     } = payload;
     if (
-      !app_url ||
       !app_name ||
+      !app_url ||
       !app_logo_url ||
       !app_screenshot_url_1 ||
       !app_screenshot_url_2 ||
-      !app_category_id ||
+      !category_id ||
       !app_description ||
-      !instruction_for_tester ||
       !minimum_android_version ||
       !total_tester ||
-      !total_days
+      !total_days ||
+      !points_cost
     ) {
       return sendError(
         res,
         400,
-        "app_url, app_name, app_logo_url, app_screenshot_url_1, app_screenshot_url_2, app_category_id, app_description, instruction_for_tester, minimum_android_version, total_tester, total_days are required"
+        "app_url, app_name, app_logo_url, app_screenshot_url_1, app_screenshot_url_2, category_id, app_description, minimum_android_version, total_tester, total_days and points_cost are required"
       );
     }
 
     const package_name = extractPackageName(app_url);
 
-    const androidAppData = await prismaClient?.androidApp?.create({
-      data: {
-        appName: app_name,
-        appLogoUrl: app_logo_url,
-        appScreenshotUrl1: app_screenshot_url_1,
-        appScreenshotUrl2: app_screenshot_url_2,
-        appCategoryId: app_category_id,
-        packageName: package_name || "",
-        description: app_description,
-      },
-    });
+    const { androidAppData, dashboardAndHub } = await prismaClient.$transaction(
+      async (tx) => {
+        const androidAppData = await tx?.androidApp?.create({
+          data: {
+            appName: app_name,
+            appLogoUrl: app_logo_url,
+            appScreenshotUrl1: app_screenshot_url_1,
+            appScreenshotUrl2: app_screenshot_url_2,
+            appCategoryId: Number(category_id),
+            packageName: package_name || "",
+            description: app_description,
+          },
+        });
 
-    const dashboardAndHub = await prismaClient?.dashboardAndHub?.create({
-      data: {
-        appId: androidAppData?.id,
-        appOwnerId: req?.userId || "",
-        currentTester: 0,
-        totalTester: total_tester,
-        currentDay: 0,
-        totalDay: total_days,
-        instructionsForTester: instruction_for_tester,
-        // points
-        // averageTimeTesting
-        minimumAndroidVersion: minimum_android_version,
-        status: "IN_REVIEW",
-      },
-    });
+        const dashboardAndHub = await tx?.dashboardAndHub?.create({
+          data: {
+            appId: androidAppData?.id,
+            appOwnerId: req?.userId || "",
+            appType: "FREE",
+            currentTester: 0,
+            totalTester: total_tester,
+            currentDay: 0,
+            totalDay: total_days,
+            instructionsForTester: instruction_for_tester,
+            points: points_cost,
+            // averageTimeTesting
+            minimumAndroidVersion: minimum_android_version,
+            status: "IN_REVIEW",
+          },
+        });
+
+        const walletData = await tx?.userWallet?.update({
+          where: {
+            userId: req?.userId,
+          },
+          data: {
+            totalPoints: {
+              decrement: points_cost,
+            },
+          },
+        });
+
+        await tx?.userTransaction?.create({
+          data: {
+            userId: req.userId || "",
+            userWalletId: walletData?.id,
+            dashboardAndHubId: dashboardAndHub?.id,
+            action: "TESTING",
+            points: points_cost,
+            transactionType: "PURCHASE",
+            status: "DEBIT",
+          },
+        });
+
+        await tx?.userActivity?.create({
+          data: {
+            userId: req.userId || "",
+            dashboardAndHubId: dashboardAndHub?.id,
+            androidAppId: androidAppData?.id,
+            actionType: "SUBMIT_APP",
+            description: app_description,
+            ipAddress: req?.userIpAddress,
+            userAgent: req?.userAgent,
+            status: "SUCCESS",
+          },
+        });
+
+        return { androidAppData, dashboardAndHub };
+      }
+    );
 
     return sendSuccess(res, { androidAppData, dashboardAndHub }, "ok");
   } catch (error) {
@@ -161,6 +206,104 @@ export const addHubApp = async (req: Request, res: Response) => {
       actorRole: req?.role as string,
       module: "user",
       action: "addHubApp",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};
+
+export const getHubSubmittedApp = async (req: Request, res: Response) => {
+  try {
+    const { type } = req?.params;
+
+    if (!type) {
+      return sendError(res, 400, "Please send type filter");
+    }
+
+    const hubSubmittedApp = await prismaClient?.dashboardAndHub?.findMany({
+      where: {
+        appOwnerId: req?.userId,
+        status: type as DashboardAndHubStatus,
+      },
+      include: {
+        androidApp: {
+          include: {
+            appCategory: true,
+          },
+        },
+      },
+    });
+
+    return sendSuccess(res, hubSubmittedApp, "ok");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getHubSubmittedApp",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};
+
+export const getSubmittedAppsCount = async (req: Request, res: Response) => {
+  try {
+    const appStatusCounts = await prismaClient?.dashboardAndHub?.groupBy({
+      by: ["status"],
+      _count: {
+        _all: true,
+      },
+    });
+
+    const ALL_STATUSES = [
+      "IN_REVIEW",
+      "DRAFT",
+      "REJECTED",
+      "IN_TESTING",
+      "COMPLETED",
+      "ON_HOLD",
+      "REQUESTED",
+      "AVAILABLE",
+    ] as const;
+
+    const result = ALL_STATUSES.reduce<Record<string, number>>(
+      (acc, status) => {
+        acc[status] = 0;
+        return acc;
+      },
+      {}
+    );
+
+    for (const item of appStatusCounts) {
+      result[item.status] = item._count._all;
+    }
+
+    return sendSuccess(res, result, "ok");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getHubSubmittedApp",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
