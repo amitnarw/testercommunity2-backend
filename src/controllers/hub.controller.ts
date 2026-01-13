@@ -269,6 +269,110 @@ export const getSubmittedAppsCount = async (req: Request, res: Response) => {
   try {
     const appStatusCounts = await prismaClient?.dashboardAndHub?.groupBy({
       by: ["status"],
+      where: {
+        appOwnerId: req?.userId,
+      },
+      _count: {
+        _all: true,
+      },
+    });
+
+    const ALL_STATUSES = [
+      "IN_REVIEW",
+      "DRAFT",
+      "REJECTED",
+      "IN_TESTING",
+      "COMPLETED",
+      "ON_HOLD",
+      "REQUESTED",
+      "AVAILABLE",
+    ] as const;
+
+    const result = ALL_STATUSES.reduce<Record<string, number>>(
+      (acc, status) => {
+        acc[status] = 0;
+        return acc;
+      },
+      {}
+    );
+
+    for (const item of appStatusCounts) {
+      result[item.status] = item._count._all;
+    }
+
+    return sendSuccess(res, result, "ok");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getHubSubmittedApp",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};
+
+export const getHubApps = async (req: Request, res: Response) => {
+  try {
+    const { type } = req?.params;
+
+    if (!type) {
+      return sendError(res, 400, "Please send type filter");
+    }
+
+    const hubApps = await prismaClient?.dashboardAndHub?.findMany({
+      where: {
+        appOwnerId: {
+          not: req?.userId,
+        },
+        status: type as DashboardAndHubStatus,
+      },
+      include: {
+        androidApp: true,
+      },
+    });
+
+    return sendSuccess(res, hubApps, "ok");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getHubSubmittedApp",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};
+
+export const getAppsCount = async (req: Request, res: Response) => {
+  try {
+    const appStatusCounts = await prismaClient.dashboardAndHub.groupBy({
+      by: ["status"],
+      where: {
+        appOwnerId: {
+          not: req.userId,
+        },
+      },
       _count: {
         _all: true,
       },

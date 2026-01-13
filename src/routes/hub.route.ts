@@ -3,6 +3,8 @@ import { checkAuthentication } from "@/middlewares/checkAuthentication";
 import {
   addHubApp,
   getAppCategories,
+  getAppsCount,
+  getHubApps,
   getHubStats,
   getHubSubmittedApp,
   getSubmittedAppsCount,
@@ -24,5 +26,7 @@ router.get(
   checkAuthentication,
   getSubmittedAppsCount
 );
+router.get("/get-hub-apps/:type", checkAuthentication, getHubApps);
+router.get("/get-apps-count", checkAuthentication, getAppsCount);
 
 export default router;
