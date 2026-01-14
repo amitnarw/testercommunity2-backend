@@ -152,7 +152,7 @@ export const addHubApp = async (req: Request, res: Response) => {
             currentDay: 0,
             totalDay: total_days,
             instructionsForTester: instruction_for_tester,
-            points: points_cost,
+            costPoints: points_cost,
             // averageTimeTesting
             minimumAndroidVersion: minimum_android_version,
             status: "IN_REVIEW",
@@ -476,6 +476,132 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
       actorRole: req?.role as string,
       module: "user",
       action: "getHubSubmittedApp",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};
+
+export const addHubAppTestingRequest = async (req: Request, res: Response) => {
+  try {
+    const { payload } = await req.body;
+    if (!payload) {
+      return sendError(res, 400, "Payload is required");
+    }
+
+    const { hub_id } = payload;
+    if (!hub_id) {
+      return sendError(res, 400, "hub_id is required");
+    }
+
+    const checkTesterCount = await prismaClient?.dashboardAndHub?.findFirst({
+      where: {
+        id: hub_id,
+        status: "AVAILABLE",
+        testerRelations: {
+          none: {
+            testerId: req?.userId,
+            dashboardAndHubId: hub_id,
+          },
+        },
+      },
+    });
+
+    if (
+      !checkTesterCount ||
+      !checkTesterCount?.currentTester ||
+      !checkTesterCount?.totalTester ||
+      checkTesterCount?.currentTester >= checkTesterCount?.totalTester
+    ) {
+      return sendError(res, 409, "Tester capacity is already full");
+    }
+
+    await prismaClient.$transaction(async (tx) => {
+      await tx?.testerRelation?.create({
+        data: {
+          testerId: req?.userId || "",
+          dashboardAndHubId: hub_id,
+          isActive: true,
+          status: "PENDING",
+          daysCompleted: 0,
+        },
+      });
+
+      const freshDashboardHubData = await tx?.dashboardAndHub?.findFirst({
+        where: {
+          id: hub_id,
+          status: "AVAILABLE",
+          testerRelations: {
+            none: {
+              testerId: req?.userId,
+              dashboardAndHubId: hub_id,
+            },
+          },
+        },
+        include: {
+          androidApp: true,
+        },
+      });
+
+      if (!freshDashboardHubData) {
+        throw new Error("Hub unavailable or user already assigned");
+      }
+
+      const dataValues: any = { currentTester: { increment: 1 } };
+      if (
+        freshDashboardHubData.currentTester + 1 ===
+        freshDashboardHubData.totalTester
+      ) {
+        dataValues.status = "IN_TESTING";
+      }
+
+      await tx?.dashboardAndHub?.update({
+        where: {
+          id: hub_id,
+        },
+        data: dataValues,
+      });
+
+      await tx?.userActivity?.create({
+        data: {
+          userId: req.userId || "",
+          dashboardAndHubId: hub_id,
+          androidAppId: freshDashboardHubData?.androidApp?.id,
+          actionType: "JOIN_TEST",
+          description: `Joined testing program for ${freshDashboardHubData?.androidApp?.appName}`,
+          ipAddress: req?.userIpAddress,
+          userAgent: req?.userAgent,
+          status: "SUCCESS",
+        },
+      });
+
+      await tx?.notification?.create({
+        data: {
+          title: "New Tester Joined!",
+          description: `A new tester has joined your ${freshDashboardHubData?.androidApp?.appName} testing program.`,
+          type: "NEW_JOIN",
+          userId: freshDashboardHubData?.appOwnerId,
+          isActive: true,
+        },
+      });
+    });
+
+    return sendSuccess(res, null, "Tester join request sent successfully");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "addHubApp",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",

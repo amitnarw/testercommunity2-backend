@@ -215,15 +215,30 @@ model TesterRelation {
   id                Int      @id @default(autoincrement())
   testerId          String
   dashboardAndHubId Int?
-  isActive          Boolean  @default(true)
-  joinedAt          DateTime @default(now())
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  isActive          Boolean           @default(true) // Deprecated in favor of status? Keep for backward compat or ease.
+  status            TesterStatus      @default(IN_PROGRESS)
+  joinedAt          DateTime          @default(now())
+  completedAt       DateTime?
+  daysCompleted     Int               @default(0)
+  lastActivityAt    DateTime?
+  
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
-  tester          User             @relation(fields: [testerId], references: [id])
-  dashboardAndHub DashboardAndHub? @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
+  tester            User              @relation(fields: [testerId], references: [id])
+  dashboardAndHub   DashboardAndHub?  @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
 
+  @@unique([testerId, dashboardAndHubId])
   @@map("tester_relation")
+}
+
+enum TesterStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  DROPPED
+  REMOVED
+  REJECTED
 }
 
 model Session {
@@ -323,7 +338,8 @@ model DashboardAndHub {
   currentDay                  Int
   totalDay                    Int
   instructionsForTester       String?
-  points                      Float?
+  rewardPoints                Float?                    // Points given to the tester upon completion (decided by Admin)
+  costPoints                  Float?                    // Points deducted from the owner (Free app)
   averageTimeTesting          String?
   minimumAndroidVersion       Int
   status                      DashboardAndHubStatus
@@ -495,6 +511,7 @@ enum NotificationType {
   TEST_COMPLETED
   BUG_REPORT
   POINTS_AWARDED
+  NEW_JOIN
   OTHER
 }
 
@@ -725,6 +742,7 @@ enum EarningAction {
   FEEDBACK
   REFERRAL
   BONUS
+  APP_SUBMISSION
   OTHER
 }
 
