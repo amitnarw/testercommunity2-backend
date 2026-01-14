@@ -199,7 +199,12 @@ export const addHubApp = async (req: Request, res: Response) => {
       }
     );
 
-    return sendSuccess(res, { androidAppData, dashboardAndHub }, "ok");
+    const dashboardAndHubResult = {
+      ...dashboardAndHub,
+      statusDetails: JSON.parse(JSON.stringify(dashboardAndHub?.statusDetails)),
+    };
+
+    return sendSuccess(res, { androidAppData, dashboardAndHubResult }, "ok");
   } catch (error) {
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
@@ -243,7 +248,12 @@ export const getHubSubmittedApp = async (req: Request, res: Response) => {
       },
     });
 
-    return sendSuccess(res, hubSubmittedApp, "ok");
+    const result = hubSubmittedApp?.map((item) => ({
+      ...item,
+      statusDetails: JSON.parse(JSON.stringify(item?.statusDetails)),
+    }));
+
+    return sendSuccess(res, result, "ok");
   } catch (error) {
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
@@ -338,11 +348,20 @@ export const getHubApps = async (req: Request, res: Response) => {
         status: type as DashboardAndHubStatus,
       },
       include: {
-        androidApp: true,
+        androidApp: {
+          include: {
+            appCategory: true,
+          },
+        },
       },
     });
 
-    return sendSuccess(res, hubApps, "ok");
+    const result = hubApps?.map((item) => ({
+      ...item,
+      statusDetails: JSON.parse(JSON.stringify(item?.statusDetails)),
+    }));
+
+    return sendSuccess(res, result, "ok");
   } catch (error) {
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
@@ -400,6 +419,55 @@ export const getAppsCount = async (req: Request, res: Response) => {
     for (const item of appStatusCounts) {
       result[item.status] = item._count._all;
     }
+
+    return sendSuccess(res, result, "ok");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getHubSubmittedApp",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail
+    );
+  }
+};
+
+export const getSingleHubAppDetails = async (req: Request, res: Response) => {
+  try {
+    const { id } = req?.params;
+
+    if (!id) {
+      return sendError(res, 400, "Please send id of the hub app");
+    }
+
+    const hubAppDetails = await prismaClient?.dashboardAndHub?.findFirst({
+      where: {
+        id: Number(id),
+      },
+      include: {
+        androidApp: {
+          include: {
+            appCategory: true,
+          },
+        },
+        appOwner: true,
+      },
+    });
+
+    const result = {
+      ...hubAppDetails,
+      statusDetails: JSON.parse(JSON.stringify(hubAppDetails?.statusDetails)),
+    };
 
     return sendSuccess(res, result, "ok");
   } catch (error) {

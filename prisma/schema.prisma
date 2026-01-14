@@ -327,6 +327,7 @@ model DashboardAndHub {
   averageTimeTesting          String?
   minimumAndroidVersion       Int
   status                      DashboardAndHubStatus
+  statusDetails               Json?
   createdAt                   DateTime                  @default(now())
   updatedAt                   DateTime                  @updatedAt
 

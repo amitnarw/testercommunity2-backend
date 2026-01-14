@@ -7,6 +7,7 @@ import {
   getHubApps,
   getHubStats,
   getHubSubmittedApp,
+  getSingleHubAppDetails,
   getSubmittedAppsCount,
 } from "@/controllers/hub.controller";
 import { decryptPayload } from "@/middlewares/decyptPayload";
@@ -28,5 +29,6 @@ router.get(
 );
 router.get("/get-hub-apps/:type", checkAuthentication, getHubApps);
 router.get("/get-apps-count", checkAuthentication, getAppsCount);
+router.get("/get-app-details/:id", checkAuthentication, getSingleHubAppDetails);
 
 export default router;
