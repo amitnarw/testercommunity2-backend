@@ -2,6 +2,7 @@ import Router from "express";
 import { checkAuthentication } from "@/middlewares/checkAuthentication";
 import {
   addHubApp,
+  addHubAppTestingRequest,
   getAppCategories,
   getAppsCount,
   getHubApps,
@@ -30,5 +31,11 @@ router.get(
 router.get("/get-hub-apps/:type", checkAuthentication, getHubApps);
 router.get("/get-apps-count", checkAuthentication, getAppsCount);
 router.get("/get-app-details/:id", checkAuthentication, getSingleHubAppDetails);
+router.post(
+  "/add-hub-testing-request",
+  checkAuthentication,
+  decryptPayload,
+  addHubAppTestingRequest
+);
 
 export default router;

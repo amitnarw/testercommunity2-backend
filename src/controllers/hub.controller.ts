@@ -503,24 +503,28 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
       return sendError(res, 400, "hub_id is required");
     }
 
-    const checkTesterCount = await prismaClient?.dashboardAndHub?.findFirst({
+    const checkTester = await prismaClient?.dashboardAndHub?.findFirst({
       where: {
-        id: hub_id,
+        id: Number(hub_id),
         status: "AVAILABLE",
         testerRelations: {
           none: {
             testerId: req?.userId,
-            dashboardAndHubId: hub_id,
+            dashboardAndHubId: Number(hub_id),
           },
         },
+      },
+      include: {
+        androidApp: true,
       },
     });
 
     if (
-      !checkTesterCount ||
-      !checkTesterCount?.currentTester ||
-      !checkTesterCount?.totalTester ||
-      checkTesterCount?.currentTester >= checkTesterCount?.totalTester
+      !checkTester ||
+      checkTester?.currentTester === null ||
+      checkTester?.currentTester === undefined ||
+      !checkTester?.totalTester ||
+      checkTester?.currentTester >= checkTester?.totalTester
     ) {
       return sendError(res, 409, "Tester capacity is already full");
     }
@@ -529,44 +533,21 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
       await tx?.testerRelation?.create({
         data: {
           testerId: req?.userId || "",
-          dashboardAndHubId: hub_id,
+          dashboardAndHubId: Number(hub_id),
           isActive: true,
           status: "PENDING",
           daysCompleted: 0,
         },
       });
 
-      const freshDashboardHubData = await tx?.dashboardAndHub?.findFirst({
-        where: {
-          id: hub_id,
-          status: "AVAILABLE",
-          testerRelations: {
-            none: {
-              testerId: req?.userId,
-              dashboardAndHubId: hub_id,
-            },
-          },
-        },
-        include: {
-          androidApp: true,
-        },
-      });
-
-      if (!freshDashboardHubData) {
-        throw new Error("Hub unavailable or user already assigned");
-      }
-
       const dataValues: any = { currentTester: { increment: 1 } };
-      if (
-        freshDashboardHubData.currentTester + 1 ===
-        freshDashboardHubData.totalTester
-      ) {
+      if (checkTester.currentTester + 1 === checkTester.totalTester) {
         dataValues.status = "IN_TESTING";
       }
 
       await tx?.dashboardAndHub?.update({
         where: {
-          id: hub_id,
+          id: Number(hub_id),
         },
         data: dataValues,
       });
@@ -574,10 +555,10 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
       await tx?.userActivity?.create({
         data: {
           userId: req.userId || "",
-          dashboardAndHubId: hub_id,
-          androidAppId: freshDashboardHubData?.androidApp?.id,
+          dashboardAndHubId: Number(hub_id),
+          androidAppId: checkTester?.androidApp?.id,
           actionType: "JOIN_TEST",
-          description: `Joined testing program for ${freshDashboardHubData?.androidApp?.appName}`,
+          description: `Joined testing program for ${checkTester?.androidApp?.appName}`,
           ipAddress: req?.userIpAddress,
           userAgent: req?.userAgent,
           status: "SUCCESS",
@@ -587,9 +568,9 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
       await tx?.notification?.create({
         data: {
           title: "New Tester Joined!",
-          description: `A new tester has joined your ${freshDashboardHubData?.androidApp?.appName} testing program.`,
+          description: `A new tester has joined your ${checkTester?.androidApp?.appName} testing program.`,
           type: "NEW_JOIN",
-          userId: freshDashboardHubData?.appOwnerId,
+          userId: checkTester?.appOwnerId,
           isActive: true,
         },
       });
