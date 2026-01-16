@@ -346,6 +346,11 @@ export const getHubApps = async (req: Request, res: Response) => {
           not: req?.userId,
         },
         status: type as DashboardAndHubStatus,
+        testerRelations: {
+          none: {
+            testerId: req?.userId,
+          },
+        },
       },
       include: {
         androidApp: {
@@ -390,6 +395,11 @@ export const getAppsCount = async (req: Request, res: Response) => {
       where: {
         appOwnerId: {
           not: req.userId,
+        },
+        testerRelations: {
+          none: {
+            testerId: req?.userId,
+          },
         },
       },
       _count: {
