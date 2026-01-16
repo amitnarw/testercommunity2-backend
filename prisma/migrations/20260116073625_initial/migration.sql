@@ -35,6 +35,9 @@ CREATE TYPE "UserCommunicationMethod" AS ENUM ('EMAIL', 'PHONE', 'WHATSAPP', 'TE
 CREATE TYPE "UserNotificationPreference" AS ENUM ('APP_SUBMITTED', 'TEST_COMPLETED', 'TEST_ASSIGNED', 'COMMENT_ADDED', 'PROMOTIONS', 'OTHER');
 
 -- CreateEnum
+CREATE TYPE "TesterStatus" AS ENUM ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'DROPPED', 'REMOVED', 'REJECTED');
+
+-- CreateEnum
 CREATE TYPE "FaqCategory" AS ENUM ('general', 'community', 'professional', 'homepage');
 
 -- CreateEnum
@@ -59,7 +62,7 @@ CREATE TYPE "FeedbackType" AS ENUM ('BUG', 'SUGGESTION', 'PRAISE', 'OTHER');
 CREATE TYPE "FeedbackPriority" AS ENUM ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW');
 
 -- CreateEnum
-CREATE TYPE "NotificationType" AS ENUM ('NEW_TEST', 'FEEDBACK_RECEIVED', 'TEST_COMPLETED', 'BUG_REPORT', 'POINTS_AWARDED', 'OTHER');
+CREATE TYPE "NotificationType" AS ENUM ('NEW_TEST', 'FEEDBACK_RECEIVED', 'TEST_COMPLETED', 'BUG_REPORT', 'POINTS_AWARDED', 'NEW_JOIN', 'OTHER');
 
 -- CreateEnum
 CREATE TYPE "UserActionType" AS ENUM ('SUBMIT_APP', 'JOIN_TEST', 'COMPLETE_TEST', 'GIVE_FEEDBACK', 'RATE_APP', 'LOGIN', 'LOGOUT', 'UPDATE_PROFILE', 'REGISTER', 'RENEW_TOKENS', 'OTHER');
@@ -92,7 +95,7 @@ CREATE TYPE "WithdrawalStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'PAID
 CREATE TYPE "UserTransactionType" AS ENUM ('EARNING', 'WITHDRAWAL', 'PURCHASE', 'REFUND', 'BONUS', 'OTHER');
 
 -- CreateEnum
-CREATE TYPE "EarningAction" AS ENUM ('TESTING', 'FEEDBACK', 'REFERRAL', 'BONUS', 'OTHER');
+CREATE TYPE "EarningAction" AS ENUM ('TESTING', 'FEEDBACK', 'REFERRAL', 'BONUS', 'APP_SUBMISSION', 'OTHER');
 
 -- CreateEnum
 CREATE TYPE "UserTransactionStatus" AS ENUM ('CREDIT', 'DEBIT', 'HOLD');
@@ -158,7 +161,12 @@ CREATE TABLE "tester_relation" (
     "testerId" TEXT NOT NULL,
     "dashboardAndHubId" INTEGER,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "status" "TesterStatus" NOT NULL DEFAULT 'IN_PROGRESS',
     "joinedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completedAt" TIMESTAMP(3),
+    "daysCompleted" INTEGER NOT NULL DEFAULT 0,
+    "lastActivityAt" TIMESTAMP(3),
+    "statusDetails" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -253,10 +261,12 @@ CREATE TABLE "dashboard_and_hub" (
     "currentDay" INTEGER NOT NULL,
     "totalDay" INTEGER NOT NULL,
     "instructionsForTester" TEXT,
-    "points" DOUBLE PRECISION,
+    "rewardPoints" DOUBLE PRECISION,
+    "costPoints" DOUBLE PRECISION,
     "averageTimeTesting" TEXT,
     "minimumAndroidVersion" INTEGER NOT NULL,
     "status" "DashboardAndHubStatus" NOT NULL,
+    "statusDetails" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -605,6 +615,9 @@ CREATE UNIQUE INDEX "user_detail_userId_key" ON "user_detail"("userId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "user_detail_phone_key" ON "user_detail"("phone");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "tester_relation_testerId_dashboardAndHubId_key" ON "tester_relation"("testerId", "dashboardAndHubId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "session_token_key" ON "session"("token");

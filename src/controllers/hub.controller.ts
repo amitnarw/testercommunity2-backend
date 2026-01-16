@@ -340,31 +340,91 @@ export const getHubApps = async (req: Request, res: Response) => {
       return sendError(res, 400, "Please send type filter");
     }
 
-    const hubApps = await prismaClient?.dashboardAndHub?.findMany({
-      where: {
-        appOwnerId: {
-          not: req?.userId,
-        },
-        status: type as DashboardAndHubStatus,
-        testerRelations: {
-          none: {
-            testerId: req?.userId,
-          },
-        },
+    const whereCond: any = {
+      appOwnerId: {
+        not: req?.userId,
       },
+    };
+
+    if (type === "AVAILABLE") {
+      whereCond.status = "AVAILABLE";
+      whereCond.testerRelations = {
+        none: {
+          testerId: req?.userId,
+        },
+      };
+    } else {
+      let relationStatus;
+      if (type === "REQUESTED") relationStatus = "PENDING";
+      else if (type === "IN_TESTING") relationStatus = "IN_PROGRESS";
+      else if (type === "REJECTED") relationStatus = "REJECTED";
+      else if (type === "COMPLETED") relationStatus = "COMPLETED";
+
+      if (relationStatus) {
+        whereCond.testerRelations = {
+          some: {
+            testerId: req?.userId,
+            status: relationStatus,
+          },
+        };
+      } else {
+        // Fallback or empty result for unknown types that aren't available
+        return sendSuccess(res, [], "ok");
+      }
+    }
+
+    const hubApps = await prismaClient?.dashboardAndHub?.findMany({
+      where: whereCond,
       include: {
         androidApp: {
           include: {
             appCategory: true,
           },
         },
+        testerRelations: {
+          where: {
+            testerId: req?.userId,
+          },
+        },
       },
     });
 
-    const result = hubApps?.map((item) => ({
-      ...item,
-      statusDetails: JSON.parse(JSON.stringify(item?.statusDetails)),
-    }));
+    const result = hubApps?.map((item) => {
+      let statusDetails = item?.statusDetails;
+      // Default status from app, but for non-AVAILABLE apps we expect to override it
+      let status: any = item.status;
+      const relations = item?.testerRelations;
+
+      if (relations && relations.length > 0) {
+        const relation = relations[0];
+        const rStatus = relation.status;
+
+        // Map TesterStatus to frontend expected Status (DashboardAndHubStatus-like)
+        if (rStatus === "PENDING") status = "REQUESTED";
+        else if (rStatus === "IN_PROGRESS") status = "IN_TESTING";
+        else if (rStatus === "REJECTED") status = "REJECTED";
+        else if (rStatus === "COMPLETED") status = "COMPLETED";
+
+        // Use relation specific statusDetails if rejected
+        if (rStatus === "REJECTED" && relation.statusDetails) {
+          statusDetails = relation.statusDetails;
+        }
+      } else if (type !== "AVAILABLE") {
+        // If we requested non-available apps but relation is missing (shouldn't happen with correct query), keep app status?
+        // Or strictly follow request. But query ensures relation exists.
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { testerRelations, ...rest } = item;
+
+      return {
+        ...rest,
+        status,
+        statusDetails: statusDetails
+          ? JSON.parse(JSON.stringify(statusDetails))
+          : null,
+      };
+    });
 
     return sendSuccess(res, result, "ok");
   } catch (error) {
@@ -390,44 +450,56 @@ export const getHubApps = async (req: Request, res: Response) => {
 
 export const getAppsCount = async (req: Request, res: Response) => {
   try {
-    const appStatusCounts = await prismaClient.dashboardAndHub.groupBy({
+    // Count apps where the user is a tester based on TesterStatus
+    const testerCounts = await prismaClient.testerRelation.groupBy({
       by: ["status"],
       where: {
-        appOwnerId: {
-          not: req.userId,
-        },
-        testerRelations: {
-          none: {
-            testerId: req?.userId,
-          },
-        },
+        testerId: req.userId,
       },
       _count: {
         _all: true,
       },
     });
 
-    const ALL_STATUSES = [
-      "IN_REVIEW",
-      "DRAFT",
-      "REJECTED",
-      "IN_TESTING",
-      "COMPLETED",
-      "ON_HOLD",
-      "REQUESTED",
-      "AVAILABLE",
-    ] as const;
-
-    const result = ALL_STATUSES.reduce<Record<string, number>>(
-      (acc, status) => {
-        acc[status] = 0;
-        return acc;
+    // Count available apps (User is not owner, status AVAILABLE, user not a tester)
+    const availableCount = await prismaClient.dashboardAndHub.count({
+      where: {
+        status: "AVAILABLE",
+        appOwnerId: {
+          not: req.userId,
+        },
+        testerRelations: {
+          none: {
+            testerId: req.userId,
+          },
+        },
       },
-      {}
-    );
+    });
 
-    for (const item of appStatusCounts) {
-      result[item.status] = item._count._all;
+    const result: Record<string, number> = {
+      IN_REVIEW: 0,
+      DRAFT: 0,
+      REJECTED: 0,
+      IN_TESTING: 0,
+      COMPLETED: 0,
+      ON_HOLD: 0,
+      REQUESTED: 0,
+      AVAILABLE: availableCount,
+    };
+
+    // Map TesterStatus to DashboardAndHubStatus for the counts
+    for (const item of testerCounts) {
+      const status = item.status;
+      if (status === "PENDING") {
+        result["REQUESTED"] = (result["REQUESTED"] || 0) + item._count._all;
+      } else if (status === "IN_PROGRESS") {
+        result["IN_TESTING"] = (result["IN_TESTING"] || 0) + item._count._all;
+      } else if (status === "REJECTED") {
+        result["REJECTED"] = (result["REJECTED"] || 0) + item._count._all;
+      } else if (status === "COMPLETED") {
+        result["COMPLETED"] = (result["COMPLETED"] || 0) + item._count._all;
+      }
+      // Note: Other statuses like DROPPED, REMOVED are ignored for now as they don't map directly to the counters on frontend
     }
 
     return sendSuccess(res, result, "ok");
@@ -471,6 +543,14 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
           },
         },
         appOwner: true,
+        feedback: {
+          include: {
+            media: true,
+            tester: {
+              select: { name: true },
+            },
+          },
+        },
       },
     });
 

@@ -221,6 +221,7 @@ model TesterRelation {
   completedAt       DateTime?
   daysCompleted     Int               @default(0)
   lastActivityAt    DateTime?
+  statusDetails     Json?
   
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
