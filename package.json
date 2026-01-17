@@ -1,12 +1,13 @@
 {
   "name": "testercommunity2-backend",
   "version": "1.0.0",
+  "type": "module",
   "description": "",
-  "main": "index.js",
+  "main": "dist/src/server.js",
   "scripts": {
     "build": "tsc && tsc-alias",
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/src/server.ts",
+    "start": "node dist/server.js",
     "db:validate": "prisma validate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
@@ -15,7 +16,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "@prisma/adapter-pg": "^7.0.0",
     "@prisma/client": "^7.0.0",
