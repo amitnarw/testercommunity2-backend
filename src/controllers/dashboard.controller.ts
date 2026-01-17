@@ -15,7 +15,7 @@ export const getDashboardStats = async (req: Request, res: Response) => {
         wallet: { select: { totalPackages: true } },
       },
     });
-    
+
     const statusCounts = await prismaClient.dashboardAndHub.groupBy({
       by: ["status"],
       where: { appOwnerId: userId },
@@ -26,9 +26,16 @@ export const getDashboardStats = async (req: Request, res: Response) => {
       where: { appOwnerId: userId, status: "IN_REVIEW" },
     });
 
+    const inReviewAppsList = inReviewApps?.map((item) => ({
+      ...item,
+      statusDetails: JSON.parse(JSON.stringify(item?.statusDetails)),
+      updatedAt: item?.updatedAt?.toString(),
+      createdAt: item?.createdAt?.toString(),
+    }));
+
     const finalResponse = {
       wallet: response?.wallet?.totalPackages || 0,
-      inReviewApps,
+      inReviewApps: inReviewAppsList,
       statusCounts,
     };
 
@@ -49,7 +56,7 @@ export const getDashboardStats = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };

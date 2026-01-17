@@ -49,8 +49,8 @@ export const checkAuthorization =
         if (
           checkRole?.permissions.some(
             (permission) =>
-              permission.module === module &&
-              permission.actions.includes(action)
+              permission.module.name === module &&
+              (permission as any)[action] === true,
           )
         ) {
           next();

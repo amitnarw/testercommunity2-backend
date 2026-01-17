@@ -7,3 +7,7 @@ node_modules
 /generated/prisma
 
 prisma/generated
+
+dist
+build
+out

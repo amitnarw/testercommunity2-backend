@@ -12,27 +12,27 @@ export const getLogs = async (req: Request, res: Response) => {
 
     const total = await prismaClient.auditLog.count();
 
-    const logs = await prismaClient.auditLog.findMany({
-      skip,
-      take: limitNumber,
-      include: {
-        actor: {
-          select: {
-            id: true,
-            first_name: true,
-            last_name: true,
-            role: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: {
-        ts: "desc",
-      },
-    });
+    // const logs = await prismaClient.auditLog.findMany({
+    //   skip,
+    //   take: limitNumber,
+    //   include: {
+    //     actor: {
+    //       select: {
+    //         id: true,
+    //         first_name: true,
+    //         last_name: true,
+    //         role: {
+    //           select: {
+    //             name: true,
+    //           },
+    //         },
+    //       },
+    //     },
+    //   },
+    //   orderBy: {
+    //     ts: "desc",
+    //   },
+    // });
 
     // return sendSuccess(res, { payload: { data: logs, total } }, "ok");
   } catch (error) {
