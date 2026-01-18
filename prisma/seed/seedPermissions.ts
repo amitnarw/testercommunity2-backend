@@ -6,7 +6,14 @@ async function seedRolesModulesPermissions() {
   console.log("Seeding roles, modules, and permissions...");
 
   // 1️⃣ Roles
-  const roles = ["super_admin", "admin", "moderator", "support", "user", "tester"];
+  const roles = [
+    "super_admin",
+    "admin",
+    "moderator",
+    "support",
+    "user",
+    "tester",
+  ];
   for (const roleName of roles) {
     await prisma.role.upsert({
       where: { name: roleName },
@@ -69,15 +76,5 @@ async function seedRolesModulesPermissions() {
   console.log("Roles, modules, and permissions seeded successfully!");
 }
 
-async function main() {
-  try {
-    await seedRolesModulesPermissions();
-  } catch (err) {
-    console.error(err);
-    process.exit(1);
-  } finally {
-    await prisma.$disconnect();
-  }
-}
-
-main();
+// Export the function for use in the master seed file
+export { seedRolesModulesPermissions };

@@ -56,7 +56,7 @@ async function setRoleCookie(
       canDelete: boolean;
     }[];
   },
-  initial?: boolean
+  initial?: boolean,
 ) {
   if (role) {
     const secret = process.env.BETTER_AUTH_SECRET!;
@@ -81,6 +81,13 @@ export const auth = betterAuth({
     enabled: true,
     requireEmailVerification: true,
   },
+  socialProviders: {
+    google: {
+      prompt: "select_account",
+      clientId: process.env.GOOGLE_CLIENT_ID as string,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+    },
+  },
 
   session: {
     expiresIn: 60 * 60 * 24 * 7,
@@ -92,6 +99,29 @@ export const auth = betterAuth({
   },
   plugins: [rolePlugin],
   hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === "/sign-in/email") {
+        const { email } = ctx.body as { email: string };
+
+        if (!email) {
+          return;
+        }
+
+        const user = await prismaClient?.user.findUnique({
+          where: { email },
+          include: {
+            userDetail: true,
+          },
+        });
+
+        if (user?.userDetail?.auth_type === "GOOGLE") {
+          throw new APIError("BAD_REQUEST", {
+            message:
+              "You already have an account with Google. Please sign in with that.",
+          });
+        }
+      }
+    }),
     after: createAuthMiddleware(async (ctx) => {
       if (ctx.path === "/sign-out") {
         ctx.setCookie("better-auth.role_cache", "", {
@@ -165,13 +195,8 @@ export const auth = betterAuth({
     user: {
       create: {
         before: async (data, ctx) => {
-          const role = ctx?.body.role as string | undefined;
-
-          if (!role) {
-            throw new APIError("BAD_REQUEST", {
-              message: "Role is required",
-            });
-          }
+          // Handle role: use provided role or default to "user"
+          const role = (ctx?.body?.role ?? "user") as string;
 
           const roleRecord = await prismaClient?.role.findFirst({
             where: { name: role },
@@ -195,9 +220,22 @@ export const auth = betterAuth({
             updatedAt: Date;
             name: string;
           };
-          const auth_type = ctx?.body?.auth_type as string;
-          const first_name = ctx?.body?.first_name as string;
-          const last_name = ctx?.body?.last_name as string;
+
+          let auth_type = ctx?.body?.auth_type as string;
+          let first_name = ctx?.body?.first_name as string;
+          let last_name = ctx?.body?.last_name as string;
+
+          // If names are missing (e.g. OAuth), parse from user.name
+          if (!first_name || !last_name) {
+            const parts = user.name.split(" ");
+            if (!first_name) first_name = parts[0];
+            if (!last_name) last_name = parts.slice(1).join(" ") || "";
+          }
+
+          // If auth_type is missing (e.g. OAuth), default to GOOGLE if reasonable
+          if (!auth_type) {
+            auth_type = "GOOGLE";
+          }
 
           await prismaClient?.userDetail?.upsert({
             where: {

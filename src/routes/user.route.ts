@@ -21,36 +21,41 @@ router.get(
   "/get-user-data",
   checkAuthentication,
   // checkAuthorizationAccess,
-  getUserData
+  getUserData,
 );
 router.put(
   "/save-user-data",
   checkAuthentication,
   // checkAuthorizationAccess,
-  getUserData
+  getUserData,
 );
 router.get(
   "/get-user-profile-data",
   checkAuthentication,
   // checkAuthorizationAccess,
-  getUserProfileData
+  getUserProfileData,
 );
 router.get(
   "/initial-user-profile",
   checkAuthentication,
-  saveInitialProfileData
+  saveInitialProfileData,
 );
 router.post(
   "/save-profile-data",
   checkAuthentication,
   decryptPayload,
-  saveProfileData
+  saveProfileData,
 );
 
 router.get("/get-notifications", checkAuthentication, getNotifications);
 router.get("/get-all-pricing-plans", getAllPricingPlans);
 router.get("/get-all-sessions", checkAuthentication, getAllSessions);
-router.post("/logout-single-session", checkAuthentication, decryptPayload, logOutFromSession);
+router.post(
+  "/logout-single-session",
+  checkAuthentication,
+  decryptPayload,
+  logOutFromSession,
+);
 router.post("/logout-all-sessions", checkAuthentication, logOutFromAllSession);
 router.get("/get-user-wallet", checkAuthentication, getWalletData);
 

@@ -71,7 +71,7 @@ export const getUserData = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -108,7 +108,7 @@ export const saveUserData = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -145,7 +145,7 @@ export const getUserProfileData = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -184,7 +184,7 @@ export const saveInitialProfileData = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -341,7 +341,7 @@ export const saveProfileData = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -372,7 +372,7 @@ export const getNotifications = async (req: Request, res: Response) => {
     return sendSuccess(
       res,
       { notifications: result, totalNotifications },
-      "ok"
+      "ok",
     );
   } catch (error) {
     const auditLogPayloadFail: AuditLogPayload = {
@@ -390,7 +390,7 @@ export const getNotifications = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -428,7 +428,7 @@ export const getAllPricingPlans = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -490,7 +490,7 @@ export const getAllSessions = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -541,7 +541,7 @@ export const logOutFromSession = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -590,7 +590,7 @@ export const logOutFromAllSession = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -623,7 +623,7 @@ export const getFullWalletData = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -658,7 +658,7 @@ export const getWalletData = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };

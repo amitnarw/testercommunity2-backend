@@ -55,7 +55,7 @@ export const getHubStats = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -80,7 +80,7 @@ export const getAppCategories = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -122,7 +122,7 @@ export const addHubApp = async (req: Request, res: Response) => {
       return sendError(
         res,
         400,
-        "app_url, app_name, app_logo_url, app_screenshot_url_1, app_screenshot_url_2, category_id, app_description, minimum_android_version, total_tester, total_days and points_cost are required"
+        "app_url, app_name, app_logo_url, app_screenshot_url_1, app_screenshot_url_2, category_id, app_description, minimum_android_version, total_tester, total_days and points_cost are required",
       );
     }
 
@@ -196,7 +196,7 @@ export const addHubApp = async (req: Request, res: Response) => {
         });
 
         return { androidAppData, dashboardAndHub };
-      }
+      },
     );
 
     const dashboardAndHubResult = {
@@ -221,7 +221,7 @@ export const addHubApp = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -270,7 +270,7 @@ export const getHubSubmittedApp = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -303,7 +303,7 @@ export const getSubmittedAppsCount = async (req: Request, res: Response) => {
         acc[status] = 0;
         return acc;
       },
-      {}
+      {},
     );
 
     for (const item of appStatusCounts) {
@@ -327,7 +327,7 @@ export const getSubmittedAppsCount = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -443,7 +443,7 @@ export const getHubApps = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -519,7 +519,7 @@ export const getAppsCount = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -551,12 +551,50 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
             },
           },
         },
+        testerRelations: {
+          select: {
+            isActive: true,
+            status: true,
+            statusDetails: true,
+            tester: {
+              select: {
+                name: true,
+                email: true,
+                image: true,
+                createdAt: true,
+                userDetail: {
+                  select: {
+                    country: true,
+                    profile_type: true,
+                    job_role: true,
+                    experience_level: true,
+                    device_company: true,
+                    device_model: true,
+                    ram: true,
+                    os: true,
+                    screen_resolution: true,
+                    language: true,
+                    network: true,
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     });
 
     const result = {
       ...hubAppDetails,
       statusDetails: JSON.parse(JSON.stringify(hubAppDetails?.statusDetails)),
+      testerRelations:
+        hubAppDetails?.testerRelations &&
+        hubAppDetails?.testerRelations?.length > 0
+          ? hubAppDetails?.testerRelations?.map((item) => ({
+              ...item,
+              statusDetails: JSON.parse(JSON.stringify(item?.statusDetails)),
+            }))
+          : [],
     };
 
     return sendSuccess(res, result, "ok");
@@ -576,7 +614,7 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -647,6 +685,110 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
           userId: req.userId || "",
           dashboardAndHubId: Number(hub_id),
           androidAppId: checkTester?.androidApp?.id,
+          actionType: "JOIN_TEST_REQUEST",
+          description: `Joined testing program for ${checkTester?.androidApp?.appName}`,
+          ipAddress: req?.userIpAddress,
+          userAgent: req?.userAgent,
+          status: "SUCCESS",
+        },
+      });
+
+      await tx?.notification?.create({
+        data: {
+          title: "New Tester Joined!",
+          description: `A new tester has joined your ${checkTester?.androidApp?.appName} testing program.`,
+          type: "NEW_JOIN",
+          userId: checkTester?.appOwnerId,
+          isActive: true,
+        },
+      });
+    });
+
+    return sendSuccess(res, null, "Tester join request sent successfully");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "addHubApp",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+export const acceptSubmittedHubAppTestingRequest = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const { payload } = await req.body;
+    if (!payload) {
+      return sendError(res, 400, "Payload is required");
+    }
+
+    const { hub_id } = payload;
+    if (!hub_id) {
+      return sendError(res, 400, "hub_id is required");
+    }
+
+    const checkTester = await prismaClient?.dashboardAndHub?.findFirst({
+      where: {
+        id: Number(hub_id),
+        status: "AVAILABLE",
+        testerRelations: {
+          none: {
+            testerId: req?.userId,
+            dashboardAndHubId: Number(hub_id),
+          },
+        },
+      },
+      // include: {
+      //   androidApp: true,
+      // },
+    });
+
+    if (!checkTester || !checkTester?.totalTester) {
+      return sendError(res, 409, "Submitted App not found");
+    }
+
+    await prismaClient.$transaction(async (tx) => {
+      await tx?.testerRelation?.create({
+        data: {
+          testerId: req?.userId || "",
+          dashboardAndHubId: Number(hub_id),
+          isActive: true,
+          status: "PENDING",
+          daysCompleted: 0,
+        },
+      });
+
+      const dataValues: any = { currentTester: { increment: 1 } };
+      if (checkTester.currentTester + 1 === checkTester.totalTester) {
+        dataValues.status = "IN_TESTING";
+      }
+
+      await tx?.dashboardAndHub?.update({
+        where: {
+          id: Number(hub_id),
+        },
+        data: dataValues,
+      });
+
+      await tx?.userActivity?.create({
+        data: {
+          userId: req.userId || "",
+          dashboardAndHubId: Number(hub_id),
+          androidAppId: checkTester?.androidApp?.id,
           actionType: "JOIN_TEST",
           description: `Joined testing program for ${checkTester?.androidApp?.appName}`,
           ipAddress: req?.userIpAddress,
@@ -683,7 +825,7 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };

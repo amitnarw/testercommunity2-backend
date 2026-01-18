@@ -16,11 +16,4 @@ export async function seedControlRoom() {
   console.log("Control room values seeded successfully!");
 }
 
-seedControlRoom()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+// function is already exported above

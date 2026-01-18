@@ -3,40 +3,40 @@ import { prismaClient } from "../../src/lib/prisma";
 const prisma = prismaClient;
 
 const professionalPathFeatures: string[] = [
-  '14-Day Testing Cycle',
-  '20+ Vetted Testers',
-  'Managed by inTesters Team',
-  'Detailed Bug Reports',
-  'Device & OS Coverage Stats',
-  'Google Play Compliance Check',
+  "14-Day Testing Cycle",
+  "20+ Vetted Testers",
+  "Managed by inTesters Team",
+  "Detailed Bug Reports",
+  "Device & OS Coverage Stats",
+  "Google Play Compliance Check",
 ];
 
 const plans = [
   {
-    id: '1',
-    name: 'Booster',
+    id: "1",
+    name: "Booster",
     price: 699,
     package: 1,
     features: professionalPathFeatures,
   },
   {
-    id: '2',
-    name: 'Accelerator',
+    id: "2",
+    name: "Accelerator",
     price: 1799,
     package: 5,
     features: professionalPathFeatures,
   },
   {
-    id: '3',
-    name: 'Launchpad',
+    id: "3",
+    name: "Launchpad",
     price: 2899,
     package: 10,
     features: professionalPathFeatures,
   },
 ];
 
-async function main() {
-  console.log(`Start seeding ...`);
+export async function seedPlans() {
+  console.log(`Start seeding plans...`);
 
   for (const planData of plans) {
     const plan = await prisma.plans.upsert({
@@ -53,15 +53,5 @@ async function main() {
     console.log(`Created/updated plan with id: ${plan.id}`);
   }
 
-  console.log(`Seeding finished.`);
+  console.log(`Plans seeding finished.`);
 }
-
-main()
-  .catch(async (e) => {
-    console.error(e);
-    await prisma.$disconnect();
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });

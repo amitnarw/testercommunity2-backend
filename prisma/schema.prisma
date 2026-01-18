@@ -539,7 +539,8 @@ model UserActivity {
 
 enum UserActionType {
   SUBMIT_APP
-  JOIN_TEST
+  JOIN_TEST_REQUEST
+  JOIN_TEST_ACCEPT
   COMPLETE_TEST
   GIVE_FEEDBACK
   RATE_APP

@@ -29,30 +29,18 @@ const categories = [
 async function seedAppCategories() {
   console.log("Start seeding app categories...");
 
-  try {
-    for (const name of categories) {
-      await prisma.appCategory.upsert({
-        where: { name },
-        update: {}, // No updates needed if it exists
-        create: {
-          name,
-          isActive: true,
-        },
-      });
-    }
-
-    console.log("App categories seeding finished.");
-  } catch (error) {
-    console.error("Error seeding app categories:", error);
-    process.exit(1);
-  } finally {
-    await prisma.$disconnect();
+  for (const name of categories) {
+    await prisma.appCategory.upsert({
+      where: { name },
+      update: {}, // No updates needed if it exists
+      create: {
+        name,
+        isActive: true,
+      },
+    });
   }
-}
 
-// Allow running directly if main module
-if (require.main === module) {
-  seedAppCategories();
+  console.log("App categories seeding finished.");
 }
 
 export { seedAppCategories };
