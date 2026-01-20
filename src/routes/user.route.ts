@@ -1,6 +1,7 @@
 import {
   getAllPricingPlans,
   getAllSessions,
+  getEarnPoints,
   getNotifications,
   getUserData,
   getUserProfileData,
@@ -58,5 +59,6 @@ router.post(
 );
 router.post("/logout-all-sessions", checkAuthentication, logOutFromAllSession);
 router.get("/get-user-wallet", checkAuthentication, getWalletData);
+router.get("/get-earn-points", checkAuthentication, getEarnPoints);
 
 export default router;

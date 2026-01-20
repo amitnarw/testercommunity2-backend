@@ -255,7 +255,7 @@ export const saveProfileData = async (req: Request, res: Response) => {
       },
     });
 
-    if (
+    const isProfileComplete =
       checkAllValues?.first_name &&
       checkAllValues?.last_name &&
       checkAllValues?.phone &&
@@ -273,16 +273,17 @@ export const saveProfileData = async (req: Request, res: Response) => {
       checkAllValues?.platform_development &&
       checkAllValues?.publish_frequency &&
       checkAllValues?.service_usage &&
-      checkAllValues?.communication_methods &&
-      checkAllValues?.notification_preference &&
+      checkAllValues?.communication_methods?.length > 0 &&
+      // checkAllValues?.notification_preference?.length > 0 &&
       checkAllValues?.device_company &&
       checkAllValues?.device_model &&
       checkAllValues?.ram &&
       checkAllValues?.os &&
       checkAllValues?.screen_resolution &&
       checkAllValues?.language &&
-      checkAllValues?.network
-    ) {
+      checkAllValues?.network;
+
+    if (isProfileComplete) {
       const controlData = await prismaClient?.controlRoom?.findFirst();
       const checkUserTransaction =
         await prismaClient?.userTransaction?.findFirst({
@@ -322,10 +323,32 @@ export const saveProfileData = async (req: Request, res: Response) => {
             status: "CREDIT",
           },
         });
+        return sendSuccess(
+          res,
+          { pointsAwarded: true, status: "EARNED_NOW" },
+          "User profile data saved successfully",
+        );
+      } else {
+        return sendSuccess(
+          res,
+          { pointsAwarded: false, status: "ALREADY_EARNED" },
+          "User profile data saved successfully",
+        );
       }
     }
-    return sendSuccess(res, null, "User profile data saved successfully");
-  } catch (error) {
+    return sendSuccess(
+      res,
+      { pointsAwarded: false, status: "INCOMPLETE" },
+      "User profile data saved successfully",
+    );
+  } catch (error: any) {
+    if (
+      (error.code === "P2002" && error?.meta?.target?.includes("phone")) ||
+      (error?.message?.includes("Unique constraint failed") &&
+        error?.message?.includes("phone"))
+    ) {
+      return sendError(res, 400, "This phone number is already in use.");
+    }
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
@@ -642,6 +665,55 @@ export const getWalletData = async (req: Request, res: Response) => {
     });
 
     return sendSuccess(res, wallet, "ok");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getWalletData",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+export const getEarnPoints = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    if (!userId) {
+      return sendError(res, 401, "Unauthorized");
+    }
+
+    const controlData = await prismaClient?.controlRoom?.findFirst();
+    const checkUserTransaction = await prismaClient?.userTransaction?.findFirst(
+      {
+        where: {
+          userId: req?.userId,
+          action: "BONUS",
+          points: controlData?.profileSurveyPoints || 200,
+          transactionType: "BONUS",
+          status: "CREDIT",
+        },
+      },
+    );
+
+    return sendSuccess(
+      res,
+      {
+        surveyPoints: controlData?.profileSurveyPoints || 0,
+        surveyDone: checkUserTransaction ? true : false,
+      },
+      "ok",
+    );
   } catch (error) {
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",

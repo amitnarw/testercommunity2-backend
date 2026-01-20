@@ -316,7 +316,7 @@ export const getSubmittedAppsCount = async (req: Request, res: Response) => {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
       module: "user",
-      action: "getHubSubmittedApp",
+      action: "getSubmittedAppsCount",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
@@ -344,6 +344,7 @@ export const getHubApps = async (req: Request, res: Response) => {
       appOwnerId: {
         not: req?.userId,
       },
+      appType: "FREE"
     };
 
     if (type === "AVAILABLE") {
@@ -432,7 +433,7 @@ export const getHubApps = async (req: Request, res: Response) => {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
       module: "user",
-      action: "getHubSubmittedApp",
+      action: "getHubApps",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
@@ -508,7 +509,7 @@ export const getAppsCount = async (req: Request, res: Response) => {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
       module: "user",
-      action: "getHubSubmittedApp",
+      action: "getAppsCount",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
@@ -603,7 +604,7 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
       module: "user",
-      action: "getHubSubmittedApp",
+      action: "getSingleHubAppDetails",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
@@ -654,7 +655,11 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
       !checkTester?.totalTester ||
       checkTester?.currentTester >= checkTester?.totalTester
     ) {
-      return sendError(res, 409, "Tester capacity is already full");
+      return sendError(
+        res,
+        409,
+        "The application owner is not accepting any more testers.",
+      );
     }
 
     await prismaClient.$transaction(async (tx) => {
@@ -668,25 +673,13 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
         },
       });
 
-      const dataValues: any = { currentTester: { increment: 1 } };
-      if (checkTester.currentTester + 1 === checkTester.totalTester) {
-        dataValues.status = "IN_TESTING";
-      }
-
-      await tx?.dashboardAndHub?.update({
-        where: {
-          id: Number(hub_id),
-        },
-        data: dataValues,
-      });
-
       await tx?.userActivity?.create({
         data: {
           userId: req.userId || "",
           dashboardAndHubId: Number(hub_id),
           androidAppId: checkTester?.androidApp?.id,
           actionType: "JOIN_TEST_REQUEST",
-          description: `Joined testing program for ${checkTester?.androidApp?.appName}`,
+          description: `Your request to join testing for ${checkTester?.androidApp?.appName} has been sent successfully.`,
           ipAddress: req?.userIpAddress,
           userAgent: req?.userAgent,
           status: "SUCCESS",
@@ -695,9 +688,9 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
 
       await tx?.notification?.create({
         data: {
-          title: "New Tester Joined!",
-          description: `A new tester has joined your ${checkTester?.androidApp?.appName} testing program.`,
-          type: "NEW_JOIN",
+          title: "New Tester Join Request!",
+          description: `A new tester requested to join your ${checkTester?.androidApp?.appName} testing program.`,
+          type: "NEW_JOIN_REQUEST",
           userId: checkTester?.appOwnerId,
           isActive: true,
         },
@@ -710,7 +703,7 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
       module: "user",
-      action: "addHubApp",
+      action: "addHubAppTestingRequest",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
@@ -736,9 +729,9 @@ export const acceptSubmittedHubAppTestingRequest = async (
       return sendError(res, 400, "Payload is required");
     }
 
-    const { hub_id } = payload;
-    if (!hub_id) {
-      return sendError(res, 400, "hub_id is required");
+    const { hub_id, tester_id } = payload;
+    if (!hub_id || !tester_id) {
+      return sendError(res, 400, "hub_id and tester_id are required");
     }
 
     const checkTester = await prismaClient?.dashboardAndHub?.findFirst({
@@ -747,30 +740,52 @@ export const acceptSubmittedHubAppTestingRequest = async (
         status: "AVAILABLE",
         testerRelations: {
           none: {
-            testerId: req?.userId,
+            testerId: tester_id,
             dashboardAndHubId: Number(hub_id),
           },
         },
       },
-      // include: {
-      //   androidApp: true,
-      // },
+      include: {
+        androidApp: true,
+      },
     });
 
     if (!checkTester || !checkTester?.totalTester) {
       return sendError(res, 409, "Submitted App not found");
     }
 
+    const testerRequest = await prismaClient?.testerRelation?.findFirst({
+      where: {
+        testerId: tester_id,
+        dashboardAndHubId: Number(hub_id),
+        isActive: true,
+        status: "PENDING",
+      },
+    });
+
+    if (!testerRequest) {
+      return sendError(res, 409, "Tester request not found");
+    }
+
     await prismaClient.$transaction(async (tx) => {
-      await tx?.testerRelation?.create({
+      await tx?.testerRelation?.update({
+        where: {
+          id: testerRequest?.id,
+        },
         data: {
-          testerId: req?.userId || "",
-          dashboardAndHubId: Number(hub_id),
-          isActive: true,
-          status: "PENDING",
-          daysCompleted: 0,
+          status: "IN_PROGRESS",
         },
       });
+
+      // await tx?.testerRelation?.create({
+      //   data: {
+      //     testerId: tester_id || "",
+      //     dashboardAndHubId: Number(hub_id),
+      //     isActive: true,
+      //     status: "IN_PROGRESS",
+      //     daysCompleted: 0,
+      //   },
+      // });
 
       const dataValues: any = { currentTester: { increment: 1 } };
       if (checkTester.currentTester + 1 === checkTester.totalTester) {
@@ -786,11 +801,11 @@ export const acceptSubmittedHubAppTestingRequest = async (
 
       await tx?.userActivity?.create({
         data: {
-          userId: req.userId || "",
+          userId: tester_id || "",
           dashboardAndHubId: Number(hub_id),
           androidAppId: checkTester?.androidApp?.id,
-          actionType: "JOIN_TEST",
-          description: `Joined testing program for ${checkTester?.androidApp?.appName}`,
+          actionType: "JOIN_TEST_ACCEPT",
+          description: `Your request to join testing for the application ${checkTester?.androidApp?.appName} has been accepted.`,
           ipAddress: req?.userIpAddress,
           userAgent: req?.userAgent,
           status: "SUCCESS",
@@ -799,22 +814,134 @@ export const acceptSubmittedHubAppTestingRequest = async (
 
       await tx?.notification?.create({
         data: {
-          title: "New Tester Joined!",
-          description: `A new tester has joined your ${checkTester?.androidApp?.appName} testing program.`,
-          type: "NEW_JOIN",
-          userId: checkTester?.appOwnerId,
+          title: "Test Joining Request Accepted!",
+          description: `Your request to join the application ${checkTester?.androidApp?.appName} has been approved. You may begin testing once the test phase has started.`,
+          type: "NEW_JOIN_ACCEPT",
+          userId: tester_id,
           isActive: true,
         },
       });
     });
 
-    return sendSuccess(res, null, "Tester join request sent successfully");
+    return sendSuccess(res, null, "Tester accepted for the testing");
   } catch (error) {
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
       module: "user",
-      action: "addHubApp",
+      action: "acceptSubmittedHubAppTestingRequest",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+export const rejectSubmittedHubAppTestingRequest = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const { payload } = await req.body;
+    if (!payload) {
+      return sendError(res, 400, "Payload is required");
+    }
+
+    const { hub_id, tester_id, title, description, image, video } = payload;
+    if (!hub_id || !tester_id || !title || !description) {
+      return sendError(
+        res,
+        400,
+        "hub_id, tester_id, rejection title and rejection description are required",
+      );
+    }
+
+    const checkTester = await prismaClient?.dashboardAndHub?.findFirst({
+      where: {
+        id: Number(hub_id),
+        status: "AVAILABLE",
+        testerRelations: {
+          none: {
+            testerId: tester_id,
+            dashboardAndHubId: Number(hub_id),
+          },
+        },
+      },
+      include: {
+        androidApp: true,
+      },
+    });
+
+    if (!checkTester || !checkTester?.totalTester) {
+      return sendError(res, 409, "Submitted App not found");
+    }
+
+    const testerRequest = await prismaClient?.testerRelation?.findFirst({
+      where: {
+        testerId: tester_id,
+        dashboardAndHubId: Number(hub_id),
+        isActive: true,
+        status: "PENDING",
+      },
+    });
+
+    if (!testerRequest) {
+      return sendError(res, 409, "Tester request not found");
+    }
+
+    await prismaClient.$transaction(async (tx) => {
+      await tx?.testerRelation?.update({
+        where: {
+          id: testerRequest?.id,
+        },
+        data: {
+          status: "REJECTED",
+          statusDetails: {
+            title,
+            description,
+          },
+        },
+      });
+
+      await tx?.userActivity?.create({
+        data: {
+          userId: req.userId || "",
+          dashboardAndHubId: Number(hub_id),
+          androidAppId: checkTester?.androidApp?.id,
+          actionType: "JOIN_TEST_REJECTED",
+          description: `Your request to join testing for the application ${checkTester?.androidApp?.appName} has been rejected.`,
+          ipAddress: req?.userIpAddress,
+          userAgent: req?.userAgent,
+          status: "SUCCESS",
+        },
+      });
+
+      await tx?.notification?.create({
+        data: {
+          title: "Test Joining Request Rejected!",
+          description: `Your request to join the application ${checkTester?.androidApp?.appName} has been declined. Please check the app for more details.`,
+          type: "REJECTED",
+          userId: tester_id,
+          isActive: true,
+        },
+      });
+    });
+
+    return sendSuccess(res, null, "Tester accepted for the testing");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "rejectSubmittedHubAppTestingRequest",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",

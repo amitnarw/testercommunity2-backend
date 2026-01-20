@@ -1,6 +1,7 @@
 import Router from "express";
 import { checkAuthentication } from "@/middlewares/checkAuthentication";
 import {
+  acceptSubmittedHubAppTestingRequest,
   addHubApp,
   addHubAppTestingRequest,
   getAppCategories,
@@ -10,6 +11,7 @@ import {
   getHubSubmittedApp,
   getSingleHubAppDetails,
   getSubmittedAppsCount,
+  rejectSubmittedHubAppTestingRequest,
 } from "@/controllers/hub.controller";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 
@@ -21,12 +23,12 @@ router.post("/add-hub-app", checkAuthentication, decryptPayload, addHubApp);
 router.get(
   "/submitted/get-hub-apps/:type",
   checkAuthentication,
-  getHubSubmittedApp
+  getHubSubmittedApp,
 );
 router.get(
   "/submitted/get-apps-count",
   checkAuthentication,
-  getSubmittedAppsCount
+  getSubmittedAppsCount,
 );
 router.get("/get-hub-apps/:type", checkAuthentication, getHubApps);
 router.get("/get-apps-count", checkAuthentication, getAppsCount);
@@ -35,7 +37,19 @@ router.post(
   "/add-hub-testing-request",
   checkAuthentication,
   decryptPayload,
-  addHubAppTestingRequest
+  addHubAppTestingRequest,
+);
+router.post(
+  "/accept-hub-testing-request",
+  checkAuthentication,
+  decryptPayload,
+  acceptSubmittedHubAppTestingRequest,
+);
+router.post(
+  "/reject-hub-testing-request",
+  checkAuthentication,
+  decryptPayload,
+  rejectSubmittedHubAppTestingRequest,
 );
 
 export default router;
