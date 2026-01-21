@@ -212,7 +212,7 @@ enum UserNotificationPreference {
 }
 
 model TesterRelation {
-  id                Int      @id @default(autoincrement())
+  id                Int               @id @default(autoincrement())
   testerId          String
   dashboardAndHubId Int?
   isActive          Boolean           @default(true) // Deprecated in favor of status? Keep for backward compat or ease.

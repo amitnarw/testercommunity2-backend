@@ -344,7 +344,7 @@ export const getHubApps = async (req: Request, res: Response) => {
       appOwnerId: {
         not: req?.userId,
       },
-      appType: "FREE"
+      appType: "FREE",
     };
 
     if (type === "AVAILABLE") {
@@ -554,6 +554,7 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
         },
         testerRelations: {
           select: {
+            testerId: true,
             isActive: true,
             status: true,
             statusDetails: true,
@@ -739,7 +740,7 @@ export const acceptSubmittedHubAppTestingRequest = async (
         id: Number(hub_id),
         status: "AVAILABLE",
         testerRelations: {
-          none: {
+          some: {
             testerId: tester_id,
             dashboardAndHubId: Number(hub_id),
           },
@@ -776,16 +777,6 @@ export const acceptSubmittedHubAppTestingRequest = async (
           status: "IN_PROGRESS",
         },
       });
-
-      // await tx?.testerRelation?.create({
-      //   data: {
-      //     testerId: tester_id || "",
-      //     dashboardAndHubId: Number(hub_id),
-      //     isActive: true,
-      //     status: "IN_PROGRESS",
-      //     daysCompleted: 0,
-      //   },
-      // });
 
       const dataValues: any = { currentTester: { increment: 1 } };
       if (checkTester.currentTester + 1 === checkTester.totalTester) {
