@@ -1,7 +1,7 @@
 import Router from "express";
 import { checkAuthentication } from "@/middlewares/checkAuthentication";
 import { decryptPayload } from "@/middlewares/decyptPayload";
-import { createUploadUrl } from "@/controllers/r2.controller";
+import { createUploadUrl, deleteFileFromR2 } from "@/controllers/r2.controller";
 
 const router = Router();
 
@@ -10,6 +10,11 @@ router.post(
   checkAuthentication,
   decryptPayload,
   createUploadUrl,
+);
+router.delete(
+  "/delete-r2-file/:key",
+  checkAuthentication,
+  deleteFileFromR2,
 );
 
 export default router;

@@ -3,6 +3,7 @@ import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient } from "@/lib/prisma";
 import type { DashboardAndHubStatus } from "prisma/generated/prisma";
+import { deleteFunction } from "./r2.controller";
 
 function extractPackageName(url: string): string | null {
   try {
@@ -354,24 +355,47 @@ export const getHubApps = async (req: Request, res: Response) => {
           testerId: req?.userId,
         },
       };
+    } else if (type === "REQUESTED") {
+      whereCond.testerRelations = {
+        some: {
+          testerId: req?.userId,
+          status: "PENDING",
+        },
+      };
+    } else if (type === "REJECTED") {
+      whereCond.testerRelations = {
+        some: {
+          testerId: req?.userId,
+          status: "REJECTED",
+        },
+      };
+    } else if (type === "APPROVED") {
+      // Waiting to start: User is IN_PROGRESS but App is still AVAILABLE
+      whereCond.status = "AVAILABLE";
+      whereCond.testerRelations = {
+        some: {
+          testerId: req?.userId,
+          status: "IN_PROGRESS",
+        },
+      };
+    } else if (type === "IN_TESTING") {
+      // Active testing: User is IN_PROGRESS and App is IN_TESTING
+      whereCond.status = "IN_TESTING";
+      whereCond.testerRelations = {
+        some: {
+          testerId: req?.userId,
+          status: "IN_PROGRESS",
+        },
+      };
+    } else if (type === "COMPLETED") {
+      whereCond.testerRelations = {
+        some: {
+          testerId: req?.userId,
+          status: "COMPLETED",
+        },
+      };
     } else {
-      let relationStatus;
-      if (type === "REQUESTED") relationStatus = "PENDING";
-      else if (type === "IN_TESTING") relationStatus = "IN_PROGRESS";
-      else if (type === "REJECTED") relationStatus = "REJECTED";
-      else if (type === "COMPLETED") relationStatus = "COMPLETED";
-
-      if (relationStatus) {
-        whereCond.testerRelations = {
-          some: {
-            testerId: req?.userId,
-            status: relationStatus,
-          },
-        };
-      } else {
-        // Fallback or empty result for unknown types that aren't available
-        return sendSuccess(res, [], "ok");
-      }
+      return sendSuccess(res, [], "ok");
     }
 
     const hubApps = await prismaClient?.dashboardAndHub?.findMany({
@@ -402,17 +426,19 @@ export const getHubApps = async (req: Request, res: Response) => {
 
         // Map TesterStatus to frontend expected Status (DashboardAndHubStatus-like)
         if (rStatus === "PENDING") status = "REQUESTED";
-        else if (rStatus === "IN_PROGRESS") status = "IN_TESTING";
-        else if (rStatus === "REJECTED") status = "REJECTED";
+        else if (rStatus === "IN_PROGRESS") {
+          // If app is AVAILABLE, it's APPROVED (Waiting to Start)
+          // If app is IN_TESTING, it's IN_TESTING (Active)
+          if (item.status === "AVAILABLE") status = "ACCEPTED";
+          else if (item.status === "IN_TESTING") status = "IN_TESTING";
+          else status = "IN_TESTING"; // Fallback
+        } else if (rStatus === "REJECTED") status = "REJECTED";
         else if (rStatus === "COMPLETED") status = "COMPLETED";
 
         // Use relation specific statusDetails if rejected
         if (rStatus === "REJECTED" && relation.statusDetails) {
           statusDetails = relation.statusDetails;
         }
-      } else if (type !== "AVAILABLE") {
-        // If we requested non-available apps but relation is missing (shouldn't happen with correct query), keep app status?
-        // Or strictly follow request. But query ensures relation exists.
       }
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -451,17 +477,6 @@ export const getHubApps = async (req: Request, res: Response) => {
 
 export const getAppsCount = async (req: Request, res: Response) => {
   try {
-    // Count apps where the user is a tester based on TesterStatus
-    const testerCounts = await prismaClient.testerRelation.groupBy({
-      by: ["status"],
-      where: {
-        testerId: req.userId,
-      },
-      _count: {
-        _all: true,
-      },
-    });
-
     // Count available apps (User is not owner, status AVAILABLE, user not a tester)
     const availableCount = await prismaClient.dashboardAndHub.count({
       where: {
@@ -477,6 +492,21 @@ export const getAppsCount = async (req: Request, res: Response) => {
       },
     });
 
+    const testerApps = await prismaClient.testerRelation.findMany({
+      where: {
+        testerId: req.userId,
+        // isActive: true, // Assuming we want active relations
+      },
+      select: {
+        status: true,
+        dashboardAndHub: {
+          select: {
+            status: true,
+          },
+        },
+      },
+    });
+
     const result: Record<string, number> = {
       IN_REVIEW: 0,
       DRAFT: 0,
@@ -485,22 +515,32 @@ export const getAppsCount = async (req: Request, res: Response) => {
       COMPLETED: 0,
       ON_HOLD: 0,
       REQUESTED: 0,
+      ACCEPTED: 0,
       AVAILABLE: availableCount,
     };
 
-    // Map TesterStatus to DashboardAndHubStatus for the counts
-    for (const item of testerCounts) {
-      const status = item.status;
-      if (status === "PENDING") {
-        result["REQUESTED"] = (result["REQUESTED"] || 0) + item._count._all;
-      } else if (status === "IN_PROGRESS") {
-        result["IN_TESTING"] = (result["IN_TESTING"] || 0) + item._count._all;
-      } else if (status === "REJECTED") {
-        result["REJECTED"] = (result["REJECTED"] || 0) + item._count._all;
-      } else if (status === "COMPLETED") {
-        result["COMPLETED"] = (result["COMPLETED"] || 0) + item._count._all;
+    for (const app of testerApps) {
+      const relationStatus = app.status;
+      const appStatus = app.dashboardAndHub?.status;
+
+      if (relationStatus === "PENDING") {
+        result["REQUESTED"]++;
+      } else if (relationStatus === "REJECTED") {
+        result["REJECTED"]++;
+      } else if (relationStatus === "COMPLETED") {
+        result["COMPLETED"]++;
+      } else if (relationStatus === "IN_PROGRESS") {
+        if (appStatus === "AVAILABLE") {
+          result["ACCEPTED"]++; // Waiting to start
+        } else if (appStatus === "IN_TESTING") {
+          result["IN_TESTING"]++; // Active
+        } else {
+          // Edge case: relation IN_PROGRESS but app COMPLETED or something else?
+          // For now count as IN_TESTING or leave it?
+          // If app is COMPLETED but user didn't mark complete, usually technically "IN_TESTING" for them or "Missed"
+          result["IN_TESTING"]++;
+        }
       }
-      // Note: Other statuses like DROPPED, REMOVED are ignored for now as they don't map directly to the counters on frontend
     }
 
     return sendSuccess(res, result, "ok");
@@ -860,7 +900,7 @@ export const rejectSubmittedHubAppTestingRequest = async (
         id: Number(hub_id),
         status: "AVAILABLE",
         testerRelations: {
-          none: {
+          some: {
             testerId: tester_id,
             dashboardAndHubId: Number(hub_id),
           },
@@ -888,6 +928,17 @@ export const rejectSubmittedHubAppTestingRequest = async (
       return sendError(res, 409, "Tester request not found");
     }
 
+    const statusDetails: any = {
+      title,
+      description,
+    };
+    if (image) {
+      statusDetails["image"] = image;
+    }
+    if (video) {
+      statusDetails["video"] = video;
+    }
+
     await prismaClient.$transaction(async (tx) => {
       await tx?.testerRelation?.update({
         where: {
@@ -895,10 +946,7 @@ export const rejectSubmittedHubAppTestingRequest = async (
         },
         data: {
           status: "REJECTED",
-          statusDetails: {
-            title,
-            description,
-          },
+          statusDetails: statusDetails,
         },
       });
 
@@ -933,6 +981,273 @@ export const rejectSubmittedHubAppTestingRequest = async (
       actorRole: req?.role as string,
       module: "user",
       action: "rejectSubmittedHubAppTestingRequest",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+export const addHubAppFeedback = async (req: Request, res: Response) => {
+  try {
+    const { payload } = await req.body;
+    if (!payload) {
+      return sendError(res, 400, "Payload is required");
+    }
+
+    const { message, type, priority, hub_id, image, video } = payload;
+    if (!hub_id) {
+      return sendError(res, 400, "Message, type and hub_id are required");
+    }
+
+    const checkApp = await prismaClient?.dashboardAndHub?.findFirst({
+      where: {
+        id: Number(hub_id),
+        status: "IN_TESTING",
+        testerRelations: {
+          some: {
+            testerId: req?.userId,
+            dashboardAndHubId: Number(hub_id),
+          },
+        },
+      },
+      include: {
+        androidApp: true,
+      },
+    });
+
+    if (!checkApp) {
+      return sendError(res, 409, "Application not found.");
+    }
+
+    await prismaClient.$transaction(async (tx) => {
+      const feedbackData = await tx?.feedback?.create({
+        data: {
+          message,
+          type,
+          priority,
+          testerId: req?.userId || "",
+          dashboardAndHubId: Number(hub_id),
+        },
+      });
+
+      if (image || video) {
+        await tx?.media.create({
+          data: {
+            type: image ? "IMAGE" : "VIDEO",
+            category: image ? "FEATURED_IMAGE" : "FEATURED_VIDEO",
+            src: image ? image : video,
+            feedbackId: feedbackData?.id,
+          },
+        });
+      }
+
+      await tx?.userActivity?.create({
+        data: {
+          userId: req.userId || "",
+          dashboardAndHubId: Number(hub_id),
+          androidAppId: checkApp?.androidApp?.id,
+          feedbackId: feedbackData?.id,
+          actionType: "GIVE_FEEDBACK",
+          description: `Feedback added for app ${checkApp?.androidApp?.id} which is of ${type} type ${priority && `with ${priority} priority`} by ${req?.userId} tester.`,
+          ipAddress: req?.userIpAddress,
+          userAgent: req?.userAgent,
+          status: "SUCCESS",
+        },
+      });
+
+      return true;
+    });
+
+    return sendSuccess(res, null, "Feedback added successfully");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "addHubAppTestingRequest",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+// export const updateHubAppFeedback = async (req: Request, res: Response) => {
+//   try {
+//     const { payload } = await req.body;
+//     if (!payload) {
+//       return sendError(res, 400, "Payload is required");
+//     }
+
+//     const { message, type, priority, hub_id, image, video } = payload;
+//     if (!hub_id) {
+//       return sendError(res, 400, "Message, type and hub_id are required");
+//     }
+
+//     const checkApp = await prismaClient?.dashboardAndHub?.findFirst({
+//       where: {
+//         id: Number(hub_id),
+//         status: "IN_TESTING",
+//         testerRelations: {
+//           some: {
+//             testerId: req?.userId,
+//             dashboardAndHubId: Number(hub_id),
+//           },
+//         },
+//       },
+//       include: {
+//         androidApp: true,
+//       },
+//     });
+
+//     if (!checkApp) {
+//       return sendError(res, 409, "Application not found.");
+//     }
+
+//     await prismaClient.$transaction(async (tx) => {
+//       const feedbackData = await tx?.feedback?.create({
+//         data: {
+//           message,
+//           type,
+//           priority,
+//           testerId: req?.userId || "",
+//           dashboardAndHubId: hub_id,
+//         },
+//       });
+
+//       if (image || video) {
+//         await tx?.media.create({
+//           data: {
+//             type: image ? "IMAGE" : "VIDEO",
+//             category: image ? "FEATURED_IMAGE" : "FEATURED_VIDEO",
+//             src: image ? image : video,
+//             feedbackId: feedbackData?.id,
+//           },
+//         });
+//       }
+
+//       await tx?.userActivity?.create({
+//         data: {
+//           userId: req.userId || "",
+//           dashboardAndHubId: Number(hub_id),
+//           androidAppId: checkApp?.androidApp?.id,
+//           feedbackId: feedbackData?.id,
+//           actionType: "GIVE_FEEDBACK",
+//           description: `Feedback added for app ${checkApp?.androidApp?.id} which is of ${type} type ${priority && `with ${priority} priority`} by ${req?.userId} tester.`,
+//           ipAddress: req?.userIpAddress,
+//           userAgent: req?.userAgent,
+//           status: "SUCCESS",
+//         },
+//       });
+
+//       return true;
+//     });
+
+//     return sendSuccess(res, null, "Feedback added successfully");
+//   } catch (error) {
+//     const auditLogPayloadFail: AuditLogPayload = {
+//       actorId: req?.userId || "",
+//       actorRole: req?.role as string,
+//       module: "user",
+//       action: "addHubAppTestingRequest",
+//       targetId: req?.userId || "",
+//       result: "fail",
+//       reason: error instanceof Error ? error.message : "Unknown error",
+//       ip: req?.userIpAddress || "",
+//       ua: req?.userAgent || "",
+//     };
+//     return sendError(
+//       res,
+//       400,
+//       error instanceof Error ? error.message : "Unknown error",
+//       auditLogPayloadFail,
+//     );
+//   }
+// };
+
+export const deleteHubAppFeedback = async (req: Request, res: Response) => {
+  try {
+    const { id } = req?.params;
+
+    if (!id) {
+      return sendError(res, 400, "Please send feedback id");
+    }
+
+    const checkFeedback = await prismaClient?.feedback?.findFirst({
+      where: {
+        id: Number(id),
+      },
+      include: {
+        media: true,
+      },
+    });
+    if (!checkFeedback) {
+      return sendError(res, 409, "Feedback not found");
+    }
+
+    await prismaClient.$transaction(async (tx) => {
+      if (checkFeedback?.media || !checkFeedback?.media?.src) {
+        const check = await deleteFunction({
+          url: checkFeedback?.media?.src || "",
+        });
+        if (!check) {
+          return false;
+        }
+
+        await tx?.media?.delete({
+          where: {
+            id: checkFeedback?.media?.id,
+          },
+        });
+      }
+
+      await tx?.feedback?.delete({
+        where: {
+          id: checkFeedback?.id,
+        },
+      });
+
+      const checkUserActivity = await tx.userActivity.findFirst({
+        where: {
+          feedbackId: checkFeedback?.id,
+        },
+      });
+
+      if (checkUserActivity) {
+        await tx?.userActivity?.delete({
+          where: {
+            id: checkUserActivity?.id,
+          },
+        });
+      }
+
+      return true;
+    });
+
+    return sendSuccess(res, null, "Feedback deleted successfully");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "deleteHubAppFeedback",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",

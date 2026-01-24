@@ -3,7 +3,9 @@ import { checkAuthentication } from "@/middlewares/checkAuthentication";
 import {
   acceptSubmittedHubAppTestingRequest,
   addHubApp,
+  addHubAppFeedback,
   addHubAppTestingRequest,
+  deleteHubAppFeedback,
   getAppCategories,
   getAppsCount,
   getHubApps,
@@ -30,6 +32,7 @@ router.get(
   checkAuthentication,
   getSubmittedAppsCount,
 );
+
 router.get("/get-hub-apps/:type", checkAuthentication, getHubApps);
 router.get("/get-apps-count", checkAuthentication, getAppsCount);
 router.get("/get-app-details/:id", checkAuthentication, getSingleHubAppDetails);
@@ -50,6 +53,26 @@ router.post(
   checkAuthentication,
   decryptPayload,
   rejectSubmittedHubAppTestingRequest,
+);
+
+// Feedback
+router.post(
+  "/add-hub-feedback",
+  checkAuthentication,
+  decryptPayload,
+  addHubAppFeedback,
+);
+// router.put(
+//   "/update-hub-feedback",
+//   checkAuthentication,
+//   decryptPayload,
+//   addHubAppFeedback,
+// );
+router.delete(
+  "/delete-feedback/:id",
+  checkAuthentication,
+  decryptPayload,
+  deleteHubAppFeedback,
 );
 
 export default router;

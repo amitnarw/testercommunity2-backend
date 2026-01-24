@@ -398,27 +398,27 @@ model AndroidApp {
 }
 
 model Media {
-  id               Int           @id @default(autoincrement())
-  type             MediaType
-  mime             String?
-  category         MediaCategory
-  src              String
-  appId            Int?
-  blogId           Int?
-  feedbackId       Int?
-  notificationId   Int?
-  supportRequestId Int?
-  supportMessageId Int?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  id                          Int                         @id @default(autoincrement())
+  type                        MediaType
+  mime                        String?
+  category                    MediaCategory
+  src                         String
+  appId                       Int?
+  blogId                      Int?
+  feedbackId                  Int?                        @unique
+  notificationId              Int?
+  supportRequestId            Int?
+  supportMessageId            Int?
+  createdAt                   DateTime                    @default(now())
+  updatedAt                   DateTime                    @updatedAt
 
-  androidApp                 AndroidApp?                 @relation(fields: [appId], references: [id], onDelete: Cascade)
-  blog                       Blog?                       @relation(fields: [blogId], references: [id], onDelete: Cascade)
-  feedback                   Feedback?                   @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
-  notification               Notification?               @relation(fields: [notificationId], references: [id], onDelete: Cascade)
-  supportRequest             SupportRequest?             @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
-  supportMessage             SupportMessage?             @relation(fields: [supportMessageId], references: [id], onDelete: Cascade)
-  websiteFeedbackSuggestions WebsiteFeedbackSuggestion[]
+  androidApp                  AndroidApp?                 @relation(fields: [appId], references: [id], onDelete: Cascade)
+  blog                        Blog?                       @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  feedback                    Feedback?                   @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  notification                Notification?               @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  supportRequest              SupportRequest?             @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+  supportMessage              SupportMessage?             @relation(fields: [supportMessageId], references: [id], onDelete: Cascade)
+  websiteFeedbackSuggestions  WebsiteFeedbackSuggestion[]
 
   @@map("media")
 }
@@ -431,7 +431,7 @@ enum MediaType {
 enum MediaCategory {
   APP_LOGO
   SCREENSHOT
-  FEEDBACK_MEDIA
+  FEATURED_VIDEO
   FEATURED_IMAGE
   AUTHOR_IMAGE
   OTHER
@@ -467,9 +467,10 @@ model Feedback {
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
-  tester          User            @relation(fields: [testerId], references: [id])
-  dashboardAndHub DashboardAndHub @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
-  media           Media[]
+  tester            User              @relation(fields: [testerId], references: [id])
+  dashboardAndHub   DashboardAndHub   @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
+  media             Media?
+  userActivities    UserActivity[]
 
   @@map("feedback")
 }
@@ -523,6 +524,7 @@ model UserActivity {
   userId            String
   dashboardAndHubId Int?
   androidAppId      Int?
+  feedbackId        Int?
   actionType        UserActionType
   description       String?
   context           Json?
@@ -535,6 +537,7 @@ model UserActivity {
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   dashboardAndHub DashboardAndHub? @relation(fields: [dashboardAndHubId], references: [id])
   androidApp      AndroidApp?      @relation(fields: [androidAppId], references: [id])
+  feedback        Feedback?        @relation(fields: [feedbackId], references: [id])
 
   @@map("user_activity")
 }
