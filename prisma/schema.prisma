@@ -228,6 +228,7 @@ model TesterRelation {
 
   tester            User              @relation(fields: [testerId], references: [id])
   dashboardAndHub   DashboardAndHub?  @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
+  dailyVerifications DailyTesterVerification[]
 
   @@unique([testerId, dashboardAndHubId])
   @@map("tester_relation")
@@ -239,6 +240,31 @@ enum TesterStatus {
   COMPLETED
   DROPPED
   REMOVED
+  REJECTED
+}
+
+model DailyTesterVerification {
+  id                Int                @id @default(autoincrement())
+  testerRelationId  Int
+  dayNumber         Int                // e.g. 1, 2, 3... 14
+  proofImageUrl     String
+  status            VerificationStatus @default(PENDING)
+  verifiedAt        DateTime?
+  rejectionReason   String?
+  metaData          Json?              // For anti-cheat data capture
+
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  testerRelation    TesterRelation     @relation(fields: [testerRelationId], references: [id], onDelete: Cascade)
+
+  @@unique([testerRelationId, dayNumber])
+  @@map("daily_tester_verification")
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
   REJECTED
 }
 

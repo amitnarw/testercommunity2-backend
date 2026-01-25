@@ -585,6 +585,9 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
         },
         appOwner: true,
         feedback: {
+          orderBy: {
+            createdAt: "desc",
+          },
           include: {
             media: true,
             tester: {
@@ -598,6 +601,9 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
             isActive: true,
             status: true,
             statusDetails: true,
+            dailyVerifications: true,
+            daysCompleted: true,
+            lastActivityAt: true,
             tester: {
               select: {
                 name: true,
@@ -635,6 +641,10 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
           ? hubAppDetails?.testerRelations?.map((item) => ({
               ...item,
               statusDetails: JSON.parse(JSON.stringify(item?.statusDetails)),
+              dailyVerifications: item?.dailyVerifications?.map((item2) => ({
+                ...item2,
+                metaData: JSON.parse(JSON.stringify(item2?.metaData)),
+              })),
             }))
           : [],
     };
@@ -1089,98 +1099,114 @@ export const addHubAppFeedback = async (req: Request, res: Response) => {
   }
 };
 
-// export const updateHubAppFeedback = async (req: Request, res: Response) => {
-//   try {
-//     const { payload } = await req.body;
-//     if (!payload) {
-//       return sendError(res, 400, "Payload is required");
-//     }
+export const updateHubAppFeedback = async (req: Request, res: Response) => {
+  try {
+    const { payload } = await req.body;
+    if (!payload) {
+      return sendError(res, 400, "Payload is required");
+    }
 
-//     const { message, type, priority, hub_id, image, video } = payload;
-//     if (!hub_id) {
-//       return sendError(res, 400, "Message, type and hub_id are required");
-//     }
+    const { id, message, type, priority, image, video } = payload;
+    if (!id) {
+      return sendError(res, 400, "Feedback id is required");
+    }
 
-//     const checkApp = await prismaClient?.dashboardAndHub?.findFirst({
-//       where: {
-//         id: Number(hub_id),
-//         status: "IN_TESTING",
-//         testerRelations: {
-//           some: {
-//             testerId: req?.userId,
-//             dashboardAndHubId: Number(hub_id),
-//           },
-//         },
-//       },
-//       include: {
-//         androidApp: true,
-//       },
-//     });
+    const checkFeedback = await prismaClient?.feedback?.findFirst({
+      where: {
+        id: Number(id),
+      },
+      include: {
+        media: true,
+      },
+    });
 
-//     if (!checkApp) {
-//       return sendError(res, 409, "Application not found.");
-//     }
+    if (!checkFeedback) {
+      return sendError(res, 409, "Feedback not found");
+    }
 
-//     await prismaClient.$transaction(async (tx) => {
-//       const feedbackData = await tx?.feedback?.create({
-//         data: {
-//           message,
-//           type,
-//           priority,
-//           testerId: req?.userId || "",
-//           dashboardAndHubId: hub_id,
-//         },
-//       });
+    if (checkFeedback?.testerId !== req?.userId) {
+      return sendError(
+        res,
+        403,
+        "You are not authorized to update this feedback",
+      );
+    }
 
-//       if (image || video) {
-//         await tx?.media.create({
-//           data: {
-//             type: image ? "IMAGE" : "VIDEO",
-//             category: image ? "FEATURED_IMAGE" : "FEATURED_VIDEO",
-//             src: image ? image : video,
-//             feedbackId: feedbackData?.id,
-//           },
-//         });
-//       }
+    await prismaClient.$transaction(async (tx) => {
+      await tx.feedback.update({
+        where: { id: Number(id) },
+        data: {
+          message,
+          type,
+          priority,
+        },
+      });
 
-//       await tx?.userActivity?.create({
-//         data: {
-//           userId: req.userId || "",
-//           dashboardAndHubId: Number(hub_id),
-//           androidAppId: checkApp?.androidApp?.id,
-//           feedbackId: feedbackData?.id,
-//           actionType: "GIVE_FEEDBACK",
-//           description: `Feedback added for app ${checkApp?.androidApp?.id} which is of ${type} type ${priority && `with ${priority} priority`} by ${req?.userId} tester.`,
-//           ipAddress: req?.userIpAddress,
-//           userAgent: req?.userAgent,
-//           status: "SUCCESS",
-//         },
-//       });
+      if (image || video) {
+        const newSrc = image || video;
+        const newType = image ? "IMAGE" : "VIDEO";
+        const newCategory = image ? "FEATURED_IMAGE" : "FEATURED_VIDEO";
 
-//       return true;
-//     });
+        if (checkFeedback.media) {
+          // If media exists, check if we need to update
+          if (checkFeedback.media.src !== newSrc) {
+            // Delete old file from R2
+            await deleteFunction({ url: checkFeedback.media.src });
 
-//     return sendSuccess(res, null, "Feedback added successfully");
-//   } catch (error) {
-//     const auditLogPayloadFail: AuditLogPayload = {
-//       actorId: req?.userId || "",
-//       actorRole: req?.role as string,
-//       module: "user",
-//       action: "addHubAppTestingRequest",
-//       targetId: req?.userId || "",
-//       result: "fail",
-//       reason: error instanceof Error ? error.message : "Unknown error",
-//       ip: req?.userIpAddress || "",
-//       ua: req?.userAgent || "",
-//     };
-//     return sendError(
-//       res,
-//       400,
-//       error instanceof Error ? error.message : "Unknown error",
-//       auditLogPayloadFail,
-//     );
-//   }
-// };
+            // Update DB
+            await tx.media.update({
+              where: { id: checkFeedback.media.id },
+              data: {
+                type: newType,
+                category: newCategory,
+                src: newSrc,
+              },
+            });
+          }
+        } else {
+          // Create new media
+          await tx.media.create({
+            data: {
+              type: newType,
+              category: newCategory,
+              src: newSrc,
+              feedbackId: checkFeedback.id,
+            },
+          });
+        }
+      } else if (checkFeedback.media) {
+        // If no image/video provided but media exists, it means user removed it
+        // Delete old file from R2
+        await deleteFunction({ url: checkFeedback.media.src });
+
+        // Delete from DB
+        await tx.media.delete({
+          where: { id: checkFeedback.media.id },
+        });
+      }
+    });
+
+    return sendSuccess(res, null, "Feedback updated successfully");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "updateHubAppFeedback",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
 
 export const deleteHubAppFeedback = async (req: Request, res: Response) => {
   try {
@@ -1203,13 +1229,10 @@ export const deleteHubAppFeedback = async (req: Request, res: Response) => {
     }
 
     await prismaClient.$transaction(async (tx) => {
-      if (checkFeedback?.media || !checkFeedback?.media?.src) {
-        const check = await deleteFunction({
+      if (checkFeedback?.media) {
+        await deleteFunction({
           url: checkFeedback?.media?.src || "",
         });
-        if (!check) {
-          return false;
-        }
 
         await tx?.media?.delete({
           where: {
@@ -1248,6 +1271,144 @@ export const deleteHubAppFeedback = async (req: Request, res: Response) => {
       actorRole: req?.role as string,
       module: "user",
       action: "deleteHubAppFeedback",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+export const submitDailyVerification = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    if (!payload) {
+      return sendError(res, 400, "Payload is required");
+    }
+
+    const { hubId, proofImage, metaData } = payload;
+    if (!hubId || !proofImage) {
+      return sendError(res, 400, "hubId and proofImage are required");
+    }
+
+    const userId = req.userId;
+
+    // 1. Find the relation (Using explicit composite key lookup or findFirst)
+    // Since unique is on [testerId, dashboardAndHubId], but prisma naming might vary, findFirst is safer if composite naming is complex
+    const relation = await prismaClient.testerRelation.findFirst({
+      where: {
+        testerId: userId!,
+        dashboardAndHubId: Number(hubId),
+      },
+      include: {
+        dashboardAndHub: true,
+      },
+    });
+
+    if (!relation) {
+      return sendError(res, 404, "You are not a tester for this app.");
+    }
+
+    if (relation.status !== "IN_PROGRESS") {
+      return sendError(
+        res,
+        400,
+        "Testing for this app is not currently in progress.",
+      );
+    }
+
+    // 2. Determine Day Number
+    const nextDay = relation.daysCompleted + 1;
+    const totalDaysRequired = relation.dashboardAndHub?.totalDay || 14;
+
+    if (nextDay > totalDaysRequired) {
+      return sendError(
+        res,
+        400,
+        "You have already completed the required testing days.",
+      );
+    }
+
+    // 3. Duplicate Check
+    const existing = await prismaClient.dailyTesterVerification.findFirst({
+      where: {
+        testerRelationId: relation.id,
+        dayNumber: nextDay,
+      },
+    });
+
+    if (existing) {
+      return sendError(
+        res,
+        409,
+        `Verification for day ${nextDay} already submitted.`,
+      );
+    }
+
+    // 4. Create & Update
+    await prismaClient.$transaction(async (tx) => {
+      await tx.dailyTesterVerification.create({
+        data: {
+          testerRelationId: relation.id,
+          dayNumber: nextDay,
+          proofImageUrl: proofImage,
+          status: "PENDING",
+          verifiedAt: new Date(),
+          metaData: JSON.stringify({
+            ...metaData,
+            ipAddress: req?.userIpAddress,
+          }) || { ipAddress: req?.userIpAddress },
+        },
+      });
+
+      let newStatus = relation.status;
+      let completedAt = relation.completedAt;
+
+      if (nextDay >= totalDaysRequired) {
+        newStatus = "COMPLETED";
+        completedAt = new Date();
+      }
+
+      await tx.testerRelation.update({
+        where: { id: relation.id },
+        data: {
+          daysCompleted: { increment: 1 },
+          lastActivityAt: new Date(),
+          status: newStatus,
+          completedAt: completedAt,
+        },
+      });
+
+      // Log activity
+      await tx.userActivity.create({
+        data: {
+          userId: userId!,
+          dashboardAndHubId: Number(hubId),
+          actionType: "COMPLETE_TEST",
+          description: `Completed daily testing verification for Day ${nextDay}`,
+          status: "SUCCESS",
+        },
+      });
+    });
+
+    return sendSuccess(
+      res,
+      { day: nextDay, status: "VERIFIED" },
+      "Daily verification submitted successfully.",
+    );
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "hub",
+      action: "submitDailyVerification",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",

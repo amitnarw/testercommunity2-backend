@@ -3,6 +3,7 @@ import { seedRolesModulesPermissions } from "./seedPermissions";
 import { seedControlRoom } from "./seedControlRoom";
 import { seedPlans } from "./seedPlans";
 import { seedAppCategories } from "./seedAppCategories";
+import { seedAdmin } from "./seedAdmin";
 
 const prisma = prismaClient;
 
@@ -21,6 +22,9 @@ async function main() {
 
     await seedAppCategories();
     console.log("✅ App Categories seeded");
+
+    await seedAdmin();
+    console.log("✅ Admin seeded");
 
     console.log("🏁 All seeds completed successfully!");
   } catch (e) {

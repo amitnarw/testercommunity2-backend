@@ -4,6 +4,7 @@ import {
   acceptSubmittedHubAppTestingRequest,
   addHubApp,
   addHubAppFeedback,
+  updateHubAppFeedback,
   addHubAppTestingRequest,
   deleteHubAppFeedback,
   getAppCategories,
@@ -14,6 +15,7 @@ import {
   getSingleHubAppDetails,
   getSubmittedAppsCount,
   rejectSubmittedHubAppTestingRequest,
+  submitDailyVerification,
 } from "@/controllers/hub.controller";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 
@@ -55,6 +57,13 @@ router.post(
   rejectSubmittedHubAppTestingRequest,
 );
 
+router.post(
+  "/submit-daily-verification",
+  checkAuthentication,
+  decryptPayload,
+  submitDailyVerification,
+);
+
 // Feedback
 router.post(
   "/add-hub-feedback",
@@ -62,16 +71,15 @@ router.post(
   decryptPayload,
   addHubAppFeedback,
 );
-// router.put(
-//   "/update-hub-feedback",
-//   checkAuthentication,
-//   decryptPayload,
-//   addHubAppFeedback,
-// );
+router.post(
+  "/update-hub-feedback",
+  checkAuthentication,
+  decryptPayload,
+  updateHubAppFeedback,
+);
 router.delete(
   "/delete-feedback/:id",
   checkAuthentication,
-  decryptPayload,
   deleteHubAppFeedback,
 );
 
