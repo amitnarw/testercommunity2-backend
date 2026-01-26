@@ -84,8 +84,8 @@ export const getSubmittedApps = async (req: Request, res: Response) => {
 
 export const acceptApp = async (req: Request, res: Response) => {
   try {
-    const { id } = req.body;
-
+    const { payload } = req.body;
+    const { id } = payload;
     if (!id) {
       return sendError(res, 400, "App ID is required");
     }
@@ -109,7 +109,9 @@ export const acceptApp = async (req: Request, res: Response) => {
 
 export const rejectApp = async (req: Request, res: Response) => {
   try {
-    const { id, title, description, image, video } = req.body;
+    const { payload } = req.body;
+
+    const { id, title, description, image, video } = payload;
 
     if (!id) {
       return sendError(res, 400, "App ID is required");
