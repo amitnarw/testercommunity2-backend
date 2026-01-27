@@ -2,7 +2,7 @@ name: Deploy Backend
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   deploy:
@@ -19,4 +19,5 @@ jobs:
             cd /var/www/backend
             git pull origin main
             npm install
-            pm2 reload backend
+            npm run build
+            pm2 reload backend --update-env
