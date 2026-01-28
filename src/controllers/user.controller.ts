@@ -595,6 +595,10 @@ export const logOutFromAllSession = async (req: Request, res: Response) => {
     res.clearCookie("better-auth.role_cache");
     res.clearCookie("better-auth.session_data");
     res.clearCookie("better-auth.session_token");
+    res.clearCookie("__Secure-better-auth.dont_remember");
+    res.clearCookie("__Secure-better-auth.role_cache");
+    res.clearCookie("__Secure-better-auth.session_data");
+    res.clearCookie("__Secure-better-auth.session_token");
 
     return sendSuccess(res, null, "All Sessions are logged out successfully");
   } catch (error) {
