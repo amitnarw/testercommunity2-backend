@@ -13,10 +13,20 @@ export const checkAuthentication = async (
       req.cookies["__Secure-better-auth.session_token"] ||
       req.cookies["better-auth_session_token"];
 
+    const headers: Record<string, string> = {};
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (typeof value === "string") {
+        headers[key] = value;
+      } else if (Array.isArray(value)) {
+        headers[key] = value.join(";");
+      }
+    }
+
+    headers["cookie"] =
+      `better-auth.session_token=${session_token}; __Secure-better-auth.session_token=${session_token}`;
+
     const session: SessionWithRole | null = await auth.api.getSession({
-      headers: {
-        cookie: `better-auth.session_token=${session_token}; __Secure-better-auth.session_token=${session_token}`,
-      },
+      headers,
     });
 
     if (!session) {
