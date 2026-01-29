@@ -37,7 +37,7 @@ const getCookieConfig = () => ({
   secure: true,
   sameSite: (isProduction ? "lax" : "none") as "strict" | "lax" | "none",
   path: "/",
-  domain: process.env.COOKIE_DOMAIN || undefined,
+  domain: isProduction ? process.env.COOKIE_DOMAIN || undefined : undefined,
 });
 
 async function setRoleCookie(
@@ -93,9 +93,8 @@ export const auth = betterAuth({
   session: {
     expiresIn: 60 * 60 * 24 * 7,
     cookieCache: {
-      enabled: true,
+      enabled: false,
       maxAge: 60 * 60,
-      strategy: "compact",
     },
   },
   plugins: [rolePlugin],
