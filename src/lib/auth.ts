@@ -35,8 +35,9 @@ const isProduction = process.env.NODE_ENV === "production";
 const getCookieConfig = () => ({
   httpOnly: true,
   secure: true,
-  sameSite: (isProduction ? "strict" : "none") as "strict" | "lax" | "none",
+  sameSite: (isProduction ? "lax" : "none") as "strict" | "lax" | "none",
   path: "/",
+  domain: process.env.COOKIE_DOMAIN || undefined,
 });
 
 async function setRoleCookie(
