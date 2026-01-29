@@ -8,11 +8,7 @@ export const checkAuthentication = async (
   next: NextFunction,
 ) => {
   try {
-    const session_token =
-      req.cookies["better-auth.session_token"] ||
-      req.cookies["__Secure-better-auth.session_token"] ||
-      req.cookies["better-auth_session_token"];
-
+    // Pass all headers including cookies to the auth client
     const headers: Record<string, string> = {};
     for (const [key, value] of Object.entries(req.headers)) {
       if (typeof value === "string") {
@@ -21,9 +17,6 @@ export const checkAuthentication = async (
         headers[key] = value.join(";");
       }
     }
-
-    headers["cookie"] =
-      `better-auth.session_token=${session_token}; __Secure-better-auth.session_token=${session_token}`;
 
     const session: SessionWithRole | null = await auth.api.getSession({
       headers,
