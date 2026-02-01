@@ -16,6 +16,7 @@ import {
   getSubmittedAppsCount,
   rejectSubmittedHubAppTestingRequest,
   submitDailyVerification,
+  completeHostedApp,
 } from "@/controllers/hub.controller";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 
@@ -62,6 +63,13 @@ router.post(
   checkAuthentication,
   decryptPayload,
   submitDailyVerification,
+);
+
+router.post(
+  "/complete-hosted-app",
+  checkAuthentication,
+  decryptPayload,
+  completeHostedApp,
 );
 
 // Feedback

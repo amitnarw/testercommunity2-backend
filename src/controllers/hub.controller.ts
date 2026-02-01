@@ -609,14 +609,27 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
   try {
     const { id } = req?.params;
 
+    const { view } = req.query;
     if (!id) {
       return sendError(res, 400, "Please send id of the hub app");
     }
 
+    const whereCondition: any = {
+      id: Number(id),
+    };
+
+    const testerRelationsCondition: any = {};
+
+    // If viewing as owner, ensure the user owns the app and fetch all tester relations
+    if (view === "owner") {
+      whereCondition.appOwnerId = req?.userId;
+    } else {
+      // Otherwise, only fetch the tester relation for the current user
+      testerRelationsCondition.testerId = req?.userId;
+    }
+
     const hubAppDetails = await prismaClient?.dashboardAndHub?.findFirst({
-      where: {
-        id: Number(id),
-      },
+      where: whereCondition,
       include: {
         androidApp: {
           include: {
@@ -636,6 +649,7 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
           },
         },
         testerRelations: {
+          where: testerRelationsCondition,
           select: {
             testerId: true,
             isActive: true,
@@ -1449,6 +1463,80 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       actorRole: req?.role as string,
       module: "hub",
       action: "submitDailyVerification",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+export const completeHostedApp = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    if (!payload?.appId) {
+      return sendError(res, 400, "App ID is required");
+    }
+
+    const { appId } = payload;
+    const userId = req.userId;
+
+    const app = await prismaClient.dashboardAndHub.findFirst({
+      where: {
+        id: Number(appId),
+        appOwnerId: userId,
+      },
+      include: {
+        androidApp: true,
+      },
+    });
+
+    if (!app) {
+      return sendError(res, 404, "App not found or you are not the owner");
+    }
+
+    if (app.status === "COMPLETED") {
+      return sendSuccess(res, null, "App is already completed");
+    }
+
+    await prismaClient.$transaction(async (tx) => {
+      // Update App Status
+      await tx.dashboardAndHub.update({
+        where: { id: app.id },
+        data: {
+          status: "COMPLETED",
+        },
+      });
+
+      // Log Activity
+      await tx.userActivity.create({
+        data: {
+          userId: userId!,
+          dashboardAndHubId: app.id,
+          androidAppId: app.androidApp.id,
+          actionType: "COMPLETE_TEST",
+          description: `App owner completed the testing for ${app.androidApp.appName}`,
+          status: "SUCCESS",
+          ipAddress: req.userIpAddress,
+          userAgent: req.userAgent,
+        },
+      });
+    });
+
+    return sendSuccess(res, null, "App marked as completed successfully");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "hub",
+      action: "completeHostedApp",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
