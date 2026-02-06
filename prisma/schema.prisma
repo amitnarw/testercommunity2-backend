@@ -569,6 +569,7 @@ model UserActivity {
 }
 
 enum UserActionType {
+  DRAFT
   SUBMIT_APP
   JOIN_TEST_REQUEST
   JOIN_TEST_ACCEPT

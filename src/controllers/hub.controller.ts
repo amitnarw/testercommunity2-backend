@@ -4,15 +4,7 @@ import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient } from "@/lib/prisma";
 import type { DashboardAndHubStatus } from "prisma/generated/prisma";
 import { deleteFunction } from "./r2.controller";
-
-function extractPackageName(url: string): string | null {
-  try {
-    const parsedUrl = new URL(url);
-    return parsedUrl.searchParams.get("id");
-  } catch {
-    return null;
-  }
-}
+import { extractPackageName } from "@/services/common";
 
 export const getHubStats = async (req: Request, res: Response) => {
   try {
@@ -28,7 +20,7 @@ export const getHubStats = async (req: Request, res: Response) => {
     });
 
     const appsSubmitted = await prismaClient.dashboardAndHub.count({
-      where: { appOwnerId: userId },
+      where: { appOwnerId: userId, appType: "FREE" },
     });
 
     const testersEngaged = await prismaClient.testerRelation.count({
@@ -47,13 +39,14 @@ export const getHubStats = async (req: Request, res: Response) => {
 
     const statusCounts = await prismaClient.dashboardAndHub.groupBy({
       by: ["status"],
-      where: { appOwnerId: userId },
+      where: { appOwnerId: userId, appType: "FREE" },
       _count: { _all: true },
     });
 
     const availableApps = await prismaClient.dashboardAndHub.findMany({
       where: {
         status: "AVAILABLE",
+        appType: "FREE",
         appOwnerId: { not: userId },
         testerRelations: {
           none: {
