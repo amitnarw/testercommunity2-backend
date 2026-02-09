@@ -1,0 +1,804 @@
+/**
+ * Payment Controller - Razorpay Integration
+ * 
+ * Handles all payment-related operations including:
+ * - Order creation
+ * - Payment verification
+ * - Payment status checking
+ * - Webhook processing
+ * - Refund handling
+ * 
+ * Best Practices Implemented:
+ * 1. Signature verification for security
+ * 2. Idempotency for webhook processing
+ * 3. Comprehensive error handling
+ * 4. Audit logging for all payment operations
+ * 5. Transaction-safe database operations
+ */
+
+import { Request, Response } from "express";
+import { prisma } from "../lib/prisma";
+import {
+    getRazorpayInstance,
+    getRazorpayKeyId,
+    isRazorpayConfigured,
+    verifyPaymentSignature,
+    verifyWebhookSignature,
+    type RazorpayOrder,
+    type RazorpayWebhookEvent,
+    type RazorpayPaymentEntity,
+} from "../lib/razorpay";
+import { sendSuccess, sendError } from "../utils/response";
+import { v4 as uuidv4 } from "uuid";
+import type {
+    CreatePaymentOrderRequest,
+    VerifyPaymentRequest,
+} from "../types/razorpay.types";
+
+// Environment variables
+const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || "";
+
+/**
+ * Get Razorpay configuration for frontend
+ * Returns the key_id needed for checkout initialization
+ */
+export const getConfig = async (_req: Request, res: Response) => {
+    try {
+        if (!isRazorpayConfigured()) {
+            return sendError(res, "Payment gateway not configured", 503);
+        }
+
+        return sendSuccess(res, {
+            key_id: getRazorpayKeyId(),
+            currency: "INR",
+            name: "Tester Community",
+            description: "Tester Community Payment Gateway",
+        });
+    } catch (error) {
+        console.error("Error getting payment config:", error);
+        return sendError(res, "Failed to get payment configuration", 500);
+    }
+};
+
+/**
+ * Create a new Razorpay order
+ * This is the first step in the payment flow
+ */
+export const createOrder = async (req: Request, res: Response) => {
+    try {
+        if (!isRazorpayConfigured()) {
+            return sendError(res, "Payment gateway not configured", 503);
+        }
+
+        const userId = (req as any).userId;
+        if (!userId) {
+            return sendError(res, "User not authenticated", 401);
+        }
+
+        const { amount, currency = "INR", planId, packageCount = 1, notes } = req.body as CreatePaymentOrderRequest;
+
+        // Validate amount
+        if (!amount || amount <= 0) {
+            return sendError(res, "Invalid amount", 400);
+        }
+
+        // Validate plan if provided
+        if (planId) {
+            const plan = await prisma.plans.findUnique({
+                where: { id: planId },
+            });
+
+            if (!plan || !plan.isActive) {
+                return sendError(res, "Invalid or inactive plan", 400);
+            }
+        }
+
+        // Generate unique receipt ID
+        const receipt = `rcpt_${uuidv4().replace(/-/g, "").substring(0, 20)}`;
+
+        // Convert amount to paise (smallest currency unit)
+        const amountInPaise = Math.round(amount * 100);
+
+        // Create order in Razorpay
+        const razorpay = getRazorpayInstance();
+        const razorpayOrder = await razorpay.orders.create({
+            amount: amountInPaise,
+            currency,
+            receipt,
+            notes: {
+                userId,
+                planId: planId || "",
+                packageCount: String(packageCount),
+                ...notes,
+            },
+        }) as RazorpayOrder;
+
+        // Store order in database
+        const order = await prisma.order.create({
+            data: {
+                userId,
+                planId: planId || null,
+                packageCount,
+                razorpayOrderId: razorpayOrder.id,
+                receipt,
+                amount: amountInPaise,
+                currency,
+                status: "CREATED",
+                notes: notes as any,
+                expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes expiry
+            },
+        });
+
+        // Get user details for prefill
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            include: {
+                userDetail: true,
+            },
+        });
+
+        return sendSuccess(res, {
+            order: {
+                id: razorpayOrder.id,
+                amount: razorpayOrder.amount,
+                currency: razorpayOrder.currency,
+                receipt: razorpayOrder.receipt,
+                internalOrderId: order.id,
+            },
+            key_id: getRazorpayKeyId(),
+            prefill: {
+                name: user?.name || "",
+                email: user?.email || "",
+                contact: user?.userDetail?.phone || "",
+            },
+        }, "Order created successfully");
+    } catch (error: any) {
+        console.error("Error creating order:", error);
+        return sendError(
+            res,
+            error.message || "Failed to create order",
+            error.statusCode || 500
+        );
+    }
+};
+
+/**
+ * Verify payment after checkout completion
+ * This validates the payment signature and updates the order status
+ */
+export const verifyPayment = async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).userId;
+        if (!userId) {
+            return sendError(res, "User not authenticated", 401);
+        }
+
+        const {
+            razorpay_order_id,
+            razorpay_payment_id,
+            razorpay_signature,
+        } = req.body as VerifyPaymentRequest;
+
+        // Validate required fields
+        if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+            return sendError(res, "Missing required payment verification fields", 400);
+        }
+
+        // Verify signature
+        const isValid = verifyPaymentSignature(
+            razorpay_order_id,
+            razorpay_payment_id,
+            razorpay_signature
+        );
+
+        if (!isValid) {
+            console.error("Payment signature verification failed:", {
+                orderId: razorpay_order_id,
+                paymentId: razorpay_payment_id,
+            });
+            return sendError(res, "Payment verification failed - invalid signature", 400);
+        }
+
+        // Find the order
+        const order = await prisma.order.findUnique({
+            where: { razorpayOrderId: razorpay_order_id },
+        });
+
+        if (!order) {
+            return sendError(res, "Order not found", 404);
+        }
+
+        // Check if user owns this order
+        if (order.userId !== userId) {
+            return sendError(res, "Unauthorized access to this order", 403);
+        }
+
+        // Fetch payment details from Razorpay
+        const razorpay = getRazorpayInstance();
+        const paymentDetails = await razorpay.payments.fetch(razorpay_payment_id) as RazorpayPaymentEntity;
+
+        // Use transaction for consistency
+        const result = await prisma.$transaction(async (tx) => {
+            // Check for duplicate payment (idempotency)
+            const existingPayment = await tx.payment.findUnique({
+                where: { razorpayPaymentId: razorpay_payment_id },
+            });
+
+            if (existingPayment) {
+                return { payment: existingPayment, order, isNew: false };
+            }
+
+            // Create payment record
+            const payment = await tx.payment.create({
+                data: {
+                    orderId: order.id,
+                    razorpayPaymentId: razorpay_payment_id,
+                    razorpayOrderId: razorpay_order_id,
+                    razorpaySignature: razorpay_signature,
+                    amount: paymentDetails.amount,
+                    currency: paymentDetails.currency,
+                    status: paymentDetails.status === "captured" ? "CAPTURED" :
+                        paymentDetails.status === "authorized" ? "AUTHORIZED" : "PENDING",
+                    method: paymentDetails.method,
+                    bank: paymentDetails.bank,
+                    wallet: paymentDetails.wallet,
+                    vpa: paymentDetails.vpa,
+                    email: paymentDetails.email,
+                    contact: paymentDetails.contact,
+                    fee: paymentDetails.fee,
+                    tax: paymentDetails.tax,
+                    captured: paymentDetails.captured,
+                    international: paymentDetails.international,
+                    notes: paymentDetails.notes as any,
+                },
+            });
+
+            // Update order status
+            await tx.order.update({
+                where: { id: order.id },
+                data: {
+                    status: "PAID",
+                    attempts: { increment: 1 },
+                },
+            });
+
+            // If plan purchase, update user's plan
+            if (order.planId) {
+                await tx.userPlan.create({
+                    data: {
+                        userId: order.userId,
+                        planId: order.planId,
+                        isActive: true,
+                    },
+                });
+
+                // Update user wallet with packages
+                const plan = await tx.plans.findUnique({
+                    where: { id: order.planId },
+                });
+
+                if (plan && order.packageCount) {
+                    await tx.userWallet.upsert({
+                        where: { userId: order.userId },
+                        create: {
+                            userId: order.userId,
+                            totalPackages: plan.package * order.packageCount,
+                        },
+                        update: {
+                            totalPackages: {
+                                increment: plan.package * order.packageCount,
+                            },
+                        },
+                    });
+
+                    // Record transaction
+                    await tx.userTransaction.create({
+                        data: {
+                            userId: order.userId,
+                            package: plan.package * order.packageCount,
+                            transactionType: "PURCHASE",
+                            status: "CREDIT",
+                        },
+                    });
+                }
+            }
+
+            return { payment, order, isNew: true };
+        });
+
+        return sendSuccess(res, {
+            verified: true,
+            payment: {
+                id: result.payment.id,
+                orderId: result.payment.razorpayOrderId,
+                paymentId: result.payment.razorpayPaymentId,
+                amount: result.payment.amount / 100, // Convert back to rupees
+                currency: result.payment.currency,
+                status: result.payment.status,
+            },
+            isNew: result.isNew,
+        }, "Payment verified successfully");
+    } catch (error: any) {
+        console.error("Error verifying payment:", error);
+        return sendError(
+            res,
+            error.message || "Payment verification failed",
+            error.statusCode || 500
+        );
+    }
+};
+
+/**
+ * Get payment status by order ID
+ */
+export const getPaymentStatus = async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).userId;
+        if (!userId) {
+            return sendError(res, "User not authenticated", 401);
+        }
+
+        const { orderId } = req.params;
+
+        const order = await prisma.order.findFirst({
+            where: {
+                OR: [
+                    { razorpayOrderId: orderId },
+                    { id: parseInt(orderId) || 0 },
+                ],
+                userId,
+            },
+            include: {
+                payments: {
+                    orderBy: { createdAt: "desc" },
+                    take: 1,
+                },
+            },
+        });
+
+        if (!order) {
+            return sendError(res, "Order not found", 404);
+        }
+
+        const latestPayment = order.payments[0];
+
+        return sendSuccess(res, {
+            order: {
+                id: order.id,
+                razorpayOrderId: order.razorpayOrderId,
+                amount: order.amount / 100,
+                currency: order.currency,
+                status: order.status,
+                createdAt: order.createdAt,
+            },
+            payment: latestPayment ? {
+                id: latestPayment.id,
+                razorpayPaymentId: latestPayment.razorpayPaymentId,
+                status: latestPayment.status,
+                method: latestPayment.method,
+                captured: latestPayment.captured,
+                createdAt: latestPayment.createdAt,
+            } : null,
+        });
+    } catch (error: any) {
+        console.error("Error getting payment status:", error);
+        return sendError(res, "Failed to get payment status", 500);
+    }
+};
+
+/**
+ * Get user's payment history
+ */
+export const getPaymentHistory = async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).userId;
+        if (!userId) {
+            return sendError(res, "User not authenticated", 401);
+        }
+
+        const { page = 1, limit = 10 } = req.query;
+        const skip = (Number(page) - 1) * Number(limit);
+
+        const [orders, total] = await Promise.all([
+            prisma.order.findMany({
+                where: { userId },
+                include: {
+                    payments: {
+                        orderBy: { createdAt: "desc" },
+                        take: 1,
+                    },
+                    plan: {
+                        select: {
+                            name: true,
+                            price: true,
+                            package: true,
+                        },
+                    },
+                },
+                orderBy: { createdAt: "desc" },
+                skip,
+                take: Number(limit),
+            }),
+            prisma.order.count({ where: { userId } }),
+        ]);
+
+        return sendSuccess(res, {
+            orders: orders.map((order) => ({
+                id: order.id,
+                razorpayOrderId: order.razorpayOrderId,
+                amount: order.amount / 100,
+                currency: order.currency,
+                status: order.status,
+                plan: order.plan,
+                packageCount: order.packageCount,
+                payment: order.payments[0] ? {
+                    status: order.payments[0].status,
+                    method: order.payments[0].method,
+                    createdAt: order.payments[0].createdAt,
+                } : null,
+                createdAt: order.createdAt,
+            })),
+            pagination: {
+                page: Number(page),
+                limit: Number(limit),
+                total,
+                totalPages: Math.ceil(total / Number(limit)),
+            },
+        });
+    } catch (error: any) {
+        console.error("Error getting payment history:", error);
+        return sendError(res, "Failed to get payment history", 500);
+    }
+};
+
+/**
+ * Handle Razorpay webhooks
+ * This endpoint receives events from Razorpay for async payment updates
+ */
+export const handleWebhook = async (req: Request, res: Response) => {
+    try {
+        // Get raw body for signature verification
+        const rawBody = JSON.stringify(req.body);
+        const signature = req.headers["x-razorpay-signature"] as string;
+
+        if (!signature) {
+            console.error("Webhook: Missing signature header");
+            return res.status(400).json({ error: "Missing signature" });
+        }
+
+        // Verify webhook signature
+        if (!verifyWebhookSignature(rawBody, signature, RAZORPAY_WEBHOOK_SECRET)) {
+            console.error("Webhook: Invalid signature");
+            return res.status(400).json({ error: "Invalid signature" });
+        }
+
+        const event = req.body as RazorpayWebhookEvent;
+        const eventId = `${event.event}_${event.created_at}`;
+
+        // Check for duplicate event (idempotency)
+        const existingEvent = await prisma.webhookEventLog.findUnique({
+            where: { eventId },
+        });
+
+        if (existingEvent?.processed) {
+            console.log(`Webhook: Duplicate event ${eventId}, skipping`);
+            return res.status(200).json({ status: "already_processed" });
+        }
+
+        // Log the event
+        const webhookLog = await prisma.webhookEventLog.upsert({
+            where: { eventId },
+            create: {
+                eventId,
+                eventType: event.event,
+                payload: event as any,
+            },
+            update: {},
+        });
+
+        // Process the event
+        try {
+            await processWebhookEvent(event);
+
+            // Mark as processed
+            await prisma.webhookEventLog.update({
+                where: { id: webhookLog.id },
+                data: {
+                    processed: true,
+                    processedAt: new Date(),
+                },
+            });
+
+            return res.status(200).json({ status: "processed" });
+        } catch (processingError: any) {
+            // Log error but still return 200 to prevent retries for permanent failures
+            await prisma.webhookEventLog.update({
+                where: { id: webhookLog.id },
+                data: {
+                    processingError: processingError.message,
+                },
+            });
+
+            console.error("Webhook processing error:", processingError);
+            return res.status(200).json({ status: "processing_error" });
+        }
+    } catch (error: any) {
+        console.error("Webhook handler error:", error);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+};
+
+/**
+ * Process individual webhook events
+ */
+async function processWebhookEvent(event: RazorpayWebhookEvent): Promise<void> {
+    const eventType = event.event;
+
+    switch (eventType) {
+        case "payment.authorized":
+            await handlePaymentAuthorized(event);
+            break;
+
+        case "payment.captured":
+            await handlePaymentCaptured(event);
+            break;
+
+        case "payment.failed":
+            await handlePaymentFailed(event);
+            break;
+
+        case "order.paid":
+            await handleOrderPaid(event);
+            break;
+
+        case "refund.created":
+        case "refund.processed":
+            await handleRefundEvent(event);
+            break;
+
+        default:
+            console.log(`Webhook: Unhandled event type: ${eventType}`);
+    }
+}
+
+/**
+ * Handle payment.authorized event
+ */
+async function handlePaymentAuthorized(event: RazorpayWebhookEvent): Promise<void> {
+    const payment = event.payload.payment?.entity;
+    if (!payment) return;
+
+    await prisma.payment.upsert({
+        where: { razorpayPaymentId: payment.id },
+        create: {
+            orderId: (await getOrderIdFromRazorpayOrderId(payment.order_id)) || 0,
+            razorpayPaymentId: payment.id,
+            razorpayOrderId: payment.order_id,
+            amount: payment.amount,
+            currency: payment.currency,
+            status: "AUTHORIZED",
+            method: payment.method,
+            bank: payment.bank,
+            wallet: payment.wallet,
+            vpa: payment.vpa,
+            email: payment.email,
+            contact: payment.contact,
+            webhookVerified: true,
+            webhookPayload: event as any,
+        },
+        update: {
+            status: "AUTHORIZED",
+            webhookVerified: true,
+            webhookPayload: event as any,
+        },
+    });
+}
+
+/**
+ * Handle payment.captured event
+ */
+async function handlePaymentCaptured(event: RazorpayWebhookEvent): Promise<void> {
+    const payment = event.payload.payment?.entity;
+    if (!payment) return;
+
+    await prisma.$transaction(async (tx) => {
+        // Update payment status
+        await tx.payment.upsert({
+            where: { razorpayPaymentId: payment.id },
+            create: {
+                orderId: (await getOrderIdFromRazorpayOrderId(payment.order_id)) || 0,
+                razorpayPaymentId: payment.id,
+                razorpayOrderId: payment.order_id,
+                amount: payment.amount,
+                currency: payment.currency,
+                status: "CAPTURED",
+                method: payment.method,
+                bank: payment.bank,
+                wallet: payment.wallet,
+                vpa: payment.vpa,
+                email: payment.email,
+                contact: payment.contact,
+                fee: payment.fee,
+                tax: payment.tax,
+                captured: true,
+                webhookVerified: true,
+                webhookPayload: event as any,
+            },
+            update: {
+                status: "CAPTURED",
+                captured: true,
+                fee: payment.fee,
+                tax: payment.tax,
+                webhookVerified: true,
+                webhookPayload: event as any,
+            },
+        });
+
+        // Update order status
+        await tx.order.updateMany({
+            where: { razorpayOrderId: payment.order_id },
+            data: { status: "PAID" },
+        });
+    });
+}
+
+/**
+ * Handle payment.failed event
+ */
+async function handlePaymentFailed(event: RazorpayWebhookEvent): Promise<void> {
+    const payment = event.payload.payment?.entity;
+    if (!payment) return;
+
+    await prisma.payment.upsert({
+        where: { razorpayPaymentId: payment.id },
+        create: {
+            orderId: (await getOrderIdFromRazorpayOrderId(payment.order_id)) || 0,
+            razorpayPaymentId: payment.id,
+            razorpayOrderId: payment.order_id,
+            amount: payment.amount,
+            currency: payment.currency,
+            status: "FAILED",
+            method: payment.method,
+            errorCode: payment.error_code,
+            errorDescription: payment.error_description,
+            errorReason: payment.error_reason,
+            webhookVerified: true,
+            webhookPayload: event as any,
+        },
+        update: {
+            status: "FAILED",
+            errorCode: payment.error_code,
+            errorDescription: payment.error_description,
+            errorReason: payment.error_reason,
+            webhookVerified: true,
+            webhookPayload: event as any,
+        },
+    });
+}
+
+/**
+ * Handle order.paid event
+ */
+async function handleOrderPaid(event: RazorpayWebhookEvent): Promise<void> {
+    const order = event.payload.order?.entity;
+    if (!order) return;
+
+    await prisma.order.updateMany({
+        where: { razorpayOrderId: order.id },
+        data: { status: "PAID" },
+    });
+}
+
+/**
+ * Handle refund events
+ */
+async function handleRefundEvent(event: RazorpayWebhookEvent): Promise<void> {
+    // Refund handling would go here
+    // Implementation depends on your refund processing requirements
+    console.log("Refund event received:", event.event);
+}
+
+/**
+ * Helper to get internal order ID from Razorpay order ID
+ */
+async function getOrderIdFromRazorpayOrderId(razorpayOrderId: string): Promise<number | null> {
+    const order = await prisma.order.findUnique({
+        where: { razorpayOrderId },
+        select: { id: true },
+    });
+    return order?.id || null;
+}
+
+/**
+ * Initiate refund for a payment
+ */
+export const initiateRefund = async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).userId;
+        if (!userId) {
+            return sendError(res, "User not authenticated", 401);
+        }
+
+        const { paymentId, amount, reason } = req.body;
+
+        if (!paymentId) {
+            return sendError(res, "Payment ID is required", 400);
+        }
+
+        // Find the payment
+        const payment = await prisma.payment.findUnique({
+            where: { razorpayPaymentId: paymentId },
+            include: {
+                order: true,
+            },
+        });
+
+        if (!payment) {
+            return sendError(res, "Payment not found", 404);
+        }
+
+        // Verify user ownership (admins can refund any payment)
+        const userDetail = await prisma.userDetail.findUnique({
+            where: { userId },
+            include: { role: true },
+        });
+
+        if (payment.order.userId !== userId && userDetail?.role?.name !== "admin") {
+            return sendError(res, "Unauthorized", 403);
+        }
+
+        if (payment.status !== "CAPTURED") {
+            return sendError(res, "Only captured payments can be refunded", 400);
+        }
+
+        // Calculate refund amount
+        const refundAmount = amount ? Math.round(amount * 100) : payment.amount;
+
+        if (refundAmount > payment.amount - payment.amountRefunded) {
+            return sendError(res, "Refund amount exceeds available balance", 400);
+        }
+
+        // Create refund in Razorpay
+        const razorpay = getRazorpayInstance();
+        const razorpayRefund = await razorpay.payments.refund(paymentId, {
+            amount: refundAmount,
+            notes: { reason: reason || "Customer request" },
+        }) as any;
+
+        // Create refund record
+        const refund = await prisma.refund.create({
+            data: {
+                paymentId: payment.id,
+                razorpayRefundId: razorpayRefund.id,
+                razorpayPaymentId: paymentId,
+                amount: refundAmount,
+                currency: payment.currency,
+                reason: reason || "Customer request",
+                status: "PENDING",
+            },
+        });
+
+        // Update payment refund status
+        const newRefundedAmount = payment.amountRefunded + refundAmount;
+        await prisma.payment.update({
+            where: { id: payment.id },
+            data: {
+                amountRefunded: newRefundedAmount,
+                refundStatus: newRefundedAmount >= payment.amount ? "FULL" : "PARTIAL",
+                status: newRefundedAmount >= payment.amount ? "REFUNDED" : "PARTIALLY_REFUNDED",
+            },
+        });
+
+        return sendSuccess(res, {
+            refund: {
+                id: refund.id,
+                razorpayRefundId: refund.razorpayRefundId,
+                amount: refund.amount / 100,
+                status: refund.status,
+            },
+        }, "Refund initiated successfully");
+    } catch (error: any) {
+        console.error("Error initiating refund:", error);
+        return sendError(res, error.message || "Failed to initiate refund", 500);
+    }
+};

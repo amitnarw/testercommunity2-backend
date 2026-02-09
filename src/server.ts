@@ -49,7 +49,11 @@ app.use(cookieParser());
 //   res.json({ message: `Welcome Admin ${session.user.email}` });
 // });
 
-app.use(express.json());
+app.use(express.json({
+  verify: (req: any, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 const apiVersion = "/api/";
 app.use(apiVersion, routes);
 

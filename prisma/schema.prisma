@@ -40,6 +40,7 @@ model User {
   auditLogs                  AuditLog[] 
   accounts                   Account[]
   passwordReset              PasswordReset[]
+  orders                     Order[]
 
   @@map("user")
 }
@@ -293,6 +294,7 @@ model Plans {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   userPlans UserPlan[]
+  orders    Order[]
 
   @@map("plans")
 }
@@ -924,4 +926,178 @@ model ControlRoom {
   updatedAt                   DateTime              @default(now()) @updatedAt
 
   @@map("control_room")
+}
+
+// ==================== RAZORPAY PAYMENT MODELS ====================
+
+model Order {
+  id                  Int                 @id @default(autoincrement())
+  userId              String
+  planId              String?
+  packageCount        Int?                @default(1)
+  
+  // Razorpay specific fields
+  razorpayOrderId     String              @unique
+  receipt             String              @unique
+  
+  // Amount in smallest currency unit (paise for INR)
+  amount              Int
+  currency            String              @default("INR")
+  
+  status              OrderStatus         @default(CREATED)
+  
+  // Metadata for tracking
+  notes               Json?
+  attempts            Int                 @default(0)
+  
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  expiresAt           DateTime?
+
+  // Relations
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                Plans?              @relation(fields: [planId], references: [id])
+  payments            Payment[]
+
+  @@index([userId])
+  @@index([razorpayOrderId])
+  @@index([status])
+  @@map("order")
+}
+
+enum OrderStatus {
+  CREATED
+  ATTEMPTED
+  PAID
+  EXPIRED
+  CANCELLED
+}
+
+model Payment {
+  id                    Int                 @id @default(autoincrement())
+  orderId               Int
+  
+  // Razorpay specific fields
+  razorpayPaymentId     String              @unique
+  razorpayOrderId       String
+  razorpaySignature     String?
+  
+  // Amount in smallest currency unit (paise for INR)
+  amount                Int
+  currency              String              @default("INR")
+  
+  // Payment details
+  status                PaymentStatus       @default(PENDING)
+  method                String?             // card, netbanking, upi, wallet, etc.
+  bank                  String?
+  wallet                String?
+  vpa                   String?             // UPI VPA
+  
+  // Customer details from Razorpay
+  email                 String?
+  contact               String?
+  
+  // Transaction fees
+  fee                   Int?                @default(0)
+  tax                   Int?                @default(0)
+  
+  // Error tracking
+  errorCode             String?
+  errorDescription      String?
+  errorReason           String?
+  
+  // Refund tracking
+  amountRefunded        Int                 @default(0)
+  refundStatus          RefundStatus?
+  
+  // Metadata
+  notes                 Json?
+  captured              Boolean             @default(false)
+  international         Boolean             @default(false)
+  
+  // Webhook tracking
+  webhookVerified       Boolean             @default(false)
+  webhookPayload        Json?
+  
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  // Relations
+  order                 Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  refunds               Refund[]
+
+  @@index([orderId])
+  @@index([razorpayPaymentId])
+  @@index([razorpayOrderId])
+  @@index([status])
+  @@map("payment")
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+model Refund {
+  id                  Int                 @id @default(autoincrement())
+  paymentId           Int
+  
+  // Razorpay specific fields
+  razorpayRefundId    String              @unique
+  razorpayPaymentId   String
+  
+  // Amount in smallest currency unit
+  amount              Int
+  currency            String              @default("INR")
+  
+  status              RefundModelStatus   @default(PENDING)
+  reason              String?
+  notes               Json?
+  
+  // Speed of refund
+  speed               String?             @default("normal") // normal or optimum
+  
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  processedAt         DateTime?
+
+  // Relations
+  payment             Payment             @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([razorpayRefundId])
+  @@map("refund")
+}
+
+enum RefundStatus {
+  NONE
+  PARTIAL
+  FULL
+}
+
+enum RefundModelStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+// Webhook event log for idempotency and debugging
+model WebhookEventLog {
+  id                  Int                 @id @default(autoincrement())
+  eventId             String              @unique  // Razorpay event ID for idempotency
+  eventType           String
+  payload             Json
+  processed           Boolean             @default(false)
+  processingError     String?
+  
+  createdAt           DateTime            @default(now())
+  processedAt         DateTime?
+
+  @@index([eventId])
+  @@index([eventType])
+  @@map("webhook_event_log")
 }
