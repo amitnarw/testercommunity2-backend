@@ -690,6 +690,170 @@ export const getWalletData = async (req: Request, res: Response) => {
   }
 };
 
+export const getUserTransactions = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    if (!userId) {
+      return sendError(res, 401, "Unauthorized");
+    }
+
+    // Get query parameters for filtering and pagination
+    const { type, limit = "50", offset = "0" } = req.query;
+
+    // Build where clause
+    const whereClause: any = { userId };
+    
+    // Filter by transaction type if provided
+    if (type && typeof type === "string") {
+      const validTypes = ["EARNING", "WITHDRAWAL", "PURCHASE", "REFUND", "BONUS", "OTHER"];
+      if (validTypes.includes(type.toUpperCase())) {
+        whereClause.transactionType = type.toUpperCase();
+      }
+    }
+
+    // Get total count for pagination
+    const totalCount = await prismaClient?.userTransaction?.count({
+      where: whereClause,
+    });
+
+    // Get transactions with related data
+    const transactions = await prismaClient?.userTransaction?.findMany({
+      where: whereClause,
+      include: {
+        dashboardAndHub: {
+          include: {
+            androidApp: {
+              select: {
+                appName: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: parseInt(limit as string, 10),
+      skip: parseInt(offset as string, 10),
+    });
+
+    // Format the response
+    const formattedTransactions = transactions?.map((txn) => {
+      // Determine description based on transaction type and action
+      let description = "";
+      let amount = "";
+      let change = "";
+      let changeType = txn.status === "CREDIT" ? "positive" : "negative";
+
+      switch (txn.transactionType) {
+        case "PURCHASE":
+          if (txn.status === "CREDIT") {
+            description = "Package Purchase";
+            amount = `+${txn.package || 0} Packages`;
+            change = `+${txn.package || 0} Packages`;
+          } else {
+            description = txn.dashboardAndHub?.androidApp?.appName 
+              ? `Submitted "${txn.dashboardAndHub.androidApp.appName}"` 
+              : "Package Used";
+            amount = `-${txn.package || 0} Package`;
+            change = `-${txn.package || 0} Package`;
+          }
+          break;
+        case "EARNING":
+          description = txn.dashboardAndHub?.androidApp?.appName
+            ? `Completed test for "${txn.dashboardAndHub.androidApp.appName}"`
+            : "Points Earned";
+          amount = `+${txn.points || 0} Points`;
+          change = `+${txn.points || 0} Points`;
+          break;
+        case "BONUS":
+          description = "Bonus Reward";
+          amount = `+${txn.points || 0} Points`;
+          change = `+${txn.points || 0} Points`;
+          break;
+        case "WITHDRAWAL":
+          description = "Withdrawal";
+          amount = `-${txn.points || 0} Points`;
+          change = `-${txn.points || 0} Points`;
+          break;
+        case "REFUND":
+          description = "Refund";
+          amount = `+${txn.package || 0} Packages`;
+          change = `+${txn.package || 0} Packages`;
+          break;
+        default:
+          description = "Transaction";
+          if (txn.status === "CREDIT") {
+            amount = txn.points ? `+${txn.points} Points` : `+${txn.package} Packages`;
+            change = amount;
+          } else {
+            amount = txn.points ? `-${txn.points} Points` : `-${txn.package} Packages`;
+            change = amount;
+          }
+      }
+
+      // Determine transaction type label for display
+      let typeLabel: string = txn.transactionType;
+      if (txn.transactionType === "PURCHASE") {
+        typeLabel = txn.status === "CREDIT" ? "Package Purchase" : "Package Used";
+      } else if (txn.transactionType === "EARNING") {
+        typeLabel = "Points Earned";
+      } else if (txn.transactionType === "BONUS") {
+        typeLabel = "Bonus";
+      } else if (txn.transactionType === "WITHDRAWAL") {
+        typeLabel = "Withdrawal";
+      } else if (txn.transactionType === "REFUND") {
+        typeLabel = "Refund";
+      }
+
+      return {
+        id: `TXN-${txn.id.toString().padStart(3, "0")}`,
+        date: txn.createdAt.toISOString().split("T")[0],
+        type: typeLabel,
+        description,
+        amount,
+        change,
+        status: "Completed",
+        changeType,
+        transactionType: txn.transactionType,
+        action: txn.action,
+        points: txn.points,
+        package: txn.package,
+      };
+    });
+
+    return sendSuccess(
+      res,
+      {
+        transactions: formattedTransactions,
+        pagination: {
+          total: totalCount || 0,
+          limit: parseInt(limit as string, 10),
+          offset: parseInt(offset as string, 10),
+        },
+      },
+      "Transactions fetched successfully",
+    );
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getUserTransactions",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
 export const getEarnPoints = async (req: Request, res: Response) => {
   try {
     const userId = req?.userId;

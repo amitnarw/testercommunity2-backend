@@ -69,13 +69,7 @@ export const addDashboardAppSubmit = async (req: Request, res: Response) => {
       return sendError(res, 400, "Payload is required");
     }
 
-    const {
-      appName,
-      testingUrl,
-      logoUrl,
-      categoryId,
-      instructions,
-    } = payload;
+    const { appName, testingUrl, logoUrl, categoryId, instructions } = payload;
     if (!appName || !testingUrl || !logoUrl || !categoryId) {
       return sendError(
         res,
@@ -265,6 +259,91 @@ export const addDashboardAppDraft = async (req: Request, res: Response) => {
       400,
       error instanceof Error ? error.message : "Unknown error",
       auditLogPayloadFail,
+    );
+  }
+};
+
+export const getDashboardApps = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    const { type } = req.params;
+
+    if (!userId) {
+      return sendError(res, 400, "UserId not found");
+    }
+
+    if (!type) {
+      return sendError(res, 400, "Type is required");
+    }
+
+    const apps = await prismaClient.dashboardAndHub.findMany({
+      where: {
+        appOwnerId: userId,
+        appType: "PAID", // Corrected enum value based on schema
+        status: type as any,
+      },
+      include: {
+        androidApp: true,
+        appOwner: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    // Determine the user's role/plan to show status details properly if needed
+    // But for getDashboardApps, usually just mapping the DB object is enough.
+    // The statusDetails JSON field might need parsing.
+
+    const formattedApps = apps.map((app) => ({
+      ...app,
+      statusDetails: app.statusDetails
+        ? JSON.parse(JSON.stringify(app.statusDetails))
+        : null,
+      updatedAt: app.updatedAt.toString(),
+      createdAt: app.createdAt.toString(),
+    }));
+
+    return sendSuccess(res, formattedApps, "ok");
+  } catch (error) {
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+export const getAppsCount = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+
+    if (!userId) {
+      return sendError(res, 400, "UserId not found");
+    }
+
+    const counts = await prismaClient.dashboardAndHub.groupBy({
+      by: ["status"],
+      where: {
+        appOwnerId: userId,
+        appType: "PAID",
+      },
+      _count: {
+        _all: true,
+      },
+    });
+
+    const result: Record<string, number> = {};
+    counts.forEach((item) => {
+      result[item.status] = item._count._all;
+    });
+
+    return sendSuccess(res, result, "ok");
+  } catch (error) {
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
     );
   }
 };

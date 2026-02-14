@@ -6,6 +6,7 @@ import {
   getUserData,
   getUserProfileData,
   getWalletData,
+  getUserTransactions,
   logOutFromAllSession,
   logOutFromSession,
   saveInitialProfileData,
@@ -59,6 +60,7 @@ router.post(
 );
 router.post("/logout-all-sessions", checkAuthentication, logOutFromAllSession);
 router.get("/get-user-wallet", checkAuthentication, getWalletData);
+router.get("/get-user-transactions", checkAuthentication, getUserTransactions);
 router.get("/get-earn-points", checkAuthentication, getEarnPoints);
 
 export default router;
