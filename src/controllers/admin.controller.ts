@@ -290,12 +290,59 @@ export const getDashboardStats = async (req: Request, res: Response) => {
       },
     });
 
+    // Get total verifications count
+    const totalVerifications =
+      await prismaClient.dailyTesterVerification.count();
+
+    // Get pending verifications
+    const pendingVerifications =
+      await prismaClient.dailyTesterVerification.count({
+        where: { status: "PENDING" },
+      });
+
+    // Get today's verifications
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayVerifications = await prismaClient.dailyTesterVerification.count(
+      {
+        where: {
+          createdAt: {
+            gte: today,
+          },
+        },
+      },
+    );
+
+    // Get support requests stats
+    const totalSupportRequests = await prismaClient.supportRequest.count();
+    const pendingSupportRequests = await prismaClient.supportRequest.count({
+      where: { status: "PENDING" },
+    });
+
+    // Get active testers today (distinct testers who did a verification today)
+    const activeTestersTodayData =
+      await prismaClient.dailyTesterVerification.groupBy({
+        by: ["testerRelationId"],
+        where: {
+          createdAt: {
+            gte: today,
+          },
+        },
+      });
+    const activeTestersToday = activeTestersTodayData.length;
+
     const stats = {
       totalUsers,
       totalSubmissions,
       totalTesters,
       totalFeedback,
       pendingApprovals,
+      totalVerifications,
+      pendingVerifications,
+      todayVerifications,
+      totalSupportRequests,
+      pendingSupportRequests,
+      activeTestersToday,
       submissionsByStatus: submissionsByStatus.reduce(
         (acc, item) => {
           acc[item.status] = item._count._all;

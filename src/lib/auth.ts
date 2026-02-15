@@ -24,7 +24,8 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
   });
   await setRoleCookie(ctx, role?.role, role?.initial || false);
   return {
-    ...role,
+    role: role?.role,
+    initial: role?.initial,
     user,
     session,
   };
