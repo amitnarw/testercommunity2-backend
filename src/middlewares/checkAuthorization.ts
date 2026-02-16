@@ -16,9 +16,9 @@ export const checkAuthorization =
         }
       }
 
-      const session: SessionWithRole | null = await auth.api.getSession({
+      const session = await auth.api.getSession({
         headers,
-      });
+      }) as SessionWithRole | null;
 
       if (!session) {
         return sendError(res, 401, "Unauthorized");

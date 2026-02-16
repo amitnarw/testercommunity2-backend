@@ -21,7 +21,7 @@ import {
     handleWebhook,
     initiateRefund,
 } from "../controllers/payment.controller";
-import { requireAuth } from "../middlewares/auth";
+import { checkAuthentication } from "@/middlewares/checkAuthentication";
 
 const router = Router();
 
