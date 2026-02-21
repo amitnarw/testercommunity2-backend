@@ -1464,3 +1464,89 @@ export const updateTesterApplicationStatus = async (
     );
   }
 };
+
+export const assignTestersToApp = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id, testerIds } = payload; // id is DashboardAndHub ID
+
+    if (!id || !Array.isArray(testerIds) || testerIds.length === 0) {
+      return sendError(
+        res,
+        400,
+        "App ID and an array of tester IDs are required",
+      );
+    }
+
+    const app = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: parseInt(id) },
+    });
+
+    if (!app) {
+      return sendError(res, 404, "App not found");
+    }
+
+    // Check existing tester relations to prevent duplicates
+    const existingRelations = await prismaClient.testerRelation.findMany({
+      where: {
+        dashboardAndHubId: parseInt(id),
+        testerId: { in: testerIds },
+      },
+    });
+
+    const existingTesterIds = existingRelations.map((rel) => rel.testerId);
+    const newTesterIds = testerIds.filter(
+      (tId) => !existingTesterIds.includes(tId),
+    );
+
+    if (newTesterIds.length === 0) {
+      return sendError(
+        res,
+        400,
+        "All provided testers are already assigned to this app",
+      );
+    }
+
+    // Create new relations
+    const newRelationsData = newTesterIds.map((tId) => ({
+      testerId: tId,
+      dashboardAndHubId: parseInt(id),
+      status: "IN_PROGRESS" as const, // Initial status for testers
+      isActive: true,
+    }));
+
+    await prismaClient.testerRelation.createMany({
+      data: newRelationsData,
+    });
+
+    // Update currentTester count on DashboardAndHub
+    const newCurrentTester = app.currentTester + newTesterIds.length;
+    let newStatus = app.status;
+
+    // Optional logic: if the required number of testers is reached, we can move the app to IN_TESTING.
+    // However, if the admin assigns less than required, it might stay AVAILABLE.
+    if (newCurrentTester > 0 && app.status === "AVAILABLE") {
+      newStatus = "IN_TESTING";
+    }
+
+    const updatedApp = await prismaClient.dashboardAndHub.update({
+      where: { id: parseInt(id) },
+      data: {
+        currentTester: newCurrentTester,
+        status: newStatus,
+      },
+      include: {
+        androidApp: true,
+      },
+    });
+
+    return sendSuccess(res, updatedApp, "Testers assigned successfully");
+  } catch (error) {
+    console.error("Error assigning testers:", error);
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};

@@ -20,7 +20,7 @@ export const getHubStats = async (req: Request, res: Response) => {
     });
 
     const appsSubmitted = await prismaClient.dashboardAndHub.count({
-      where: { appOwnerId: userId, appType: "FREE" },
+      where: { appOwnerId: userId },
     });
 
     const testersEngaged = await prismaClient.testerRelation.count({
@@ -46,7 +46,6 @@ export const getHubStats = async (req: Request, res: Response) => {
     const availableApps = await prismaClient.dashboardAndHub.findMany({
       where: {
         status: "AVAILABLE",
-        appType: "FREE",
         appOwnerId: { not: userId },
         testerRelations: {
           none: {
@@ -378,7 +377,6 @@ export const getHubApps = async (req: Request, res: Response) => {
       appOwnerId: {
         not: req?.userId,
       },
-      appType: "FREE",
     };
 
     if (type === "AVAILABLE") {

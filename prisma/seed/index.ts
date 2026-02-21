@@ -4,6 +4,7 @@ import { seedControlRoom } from "./seedControlRoom";
 import { seedPlans } from "./seedPlans";
 import { seedAppCategories } from "./seedAppCategories";
 import { seedAdmin } from "./seedAdmin";
+import { seedTester } from "./seedTester";
 
 const prisma = prismaClient;
 
@@ -25,6 +26,9 @@ async function main() {
 
     await seedAdmin();
     console.log("✅ Admin seeded");
+
+    await seedTester();
+    console.log("✅ Tester seeded");
 
     console.log("🏁 All seeds completed successfully!");
   } catch (e) {

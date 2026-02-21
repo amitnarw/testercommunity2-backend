@@ -29,15 +29,15 @@ async function seedAdmin() {
         email: adminEmail,
         password: adminPassword,
         name: "Super Admin",
-        // role: "super_admin",
-        // auth_type: "EMAIL_PASSWORD",
-        // first_name: "Super",
-        // last_name: "Admin",
-      },
+        role: "super_admin",
+        auth_type: "EMAIL_PASSWORD",
+        first_name: "Super",
+        last_name: "Admin",
+      } as any,
     });
 
     // 3. Manually verify the email and create wallet as hooks might not handle these
-    const createdAdmin = await prisma.user.update({
+    await prisma.user.update({
       where: { email: adminEmail },
       data: {
         emailVerified: true,

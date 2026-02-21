@@ -37,6 +37,7 @@ import {
   getTesterApplicationCounts,
   getTesterApplicationById,
   updateTesterApplicationStatus,
+  assignTestersToApp,
 } from "@/controllers/admin.controller";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 import Router from "express";
@@ -89,6 +90,10 @@ router.delete("/notifications/:id", deleteNotification);
 router.get("/tester-applications", getTesterApplications);
 router.get("/tester-applications/counts", getTesterApplicationCounts);
 router.get("/tester-applications/:id", getTesterApplicationById);
-router.post("/tester-applications/update-status", decryptPayload, updateTesterApplicationStatus);
+router.post(
+  "/tester-applications/update-status",
+  decryptPayload,
+  updateTesterApplicationStatus,
+);
 
 export default router;
