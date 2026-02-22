@@ -1609,3 +1609,72 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
     );
   }
 };
+
+export const unassignTesterFromApp = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id, testerId } = payload; // id is DashboardAndHub ID
+
+    if (!id || !testerId) {
+      return sendError(res, 400, "App ID and Tester ID are required");
+    }
+
+    const app = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: parseInt(id) },
+    });
+
+    if (!app) {
+      return sendError(res, 404, "App not found");
+    }
+
+    // Check if relation exists
+    const relation = await prismaClient.testerRelation.findFirst({
+      where: {
+        dashboardAndHubId: parseInt(id),
+        testerId: testerId,
+      },
+    });
+
+    if (!relation) {
+      return sendError(res, 404, "Tester is not assigned to this app");
+    }
+
+    // Delete relation
+    await prismaClient.testerRelation.delete({
+      where: { id: relation.id },
+    });
+
+    // Update currentTester count on DashboardAndHub
+    const newCurrentTester = Math.max(0, app.currentTester - 1);
+    let newStatus = app.status;
+
+    // If no testers are left, move from IN_TESTING back to AVAILABLE
+    if (newCurrentTester === 0 && app.status === "IN_TESTING") {
+      newStatus = "AVAILABLE";
+    }
+
+    const updatedApp = await prismaClient.dashboardAndHub.update({
+      where: { id: parseInt(id) },
+      data: {
+        currentTester: newCurrentTester,
+        status: newStatus,
+      },
+      include: {
+        androidApp: true,
+      },
+    });
+
+    return sendSuccess(
+      res,
+      updatedApp as any,
+      "Tester unassigned successfully",
+    );
+  } catch (error) {
+    console.error("Error unassigning tester:", error);
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};

@@ -38,6 +38,7 @@ import {
   getTesterApplicationById,
   updateTesterApplicationStatus,
   assignTestersToApp,
+  unassignTesterFromApp,
 } from "@/controllers/admin.controller";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 import Router from "express";
@@ -96,5 +97,10 @@ router.post(
   updateTesterApplicationStatus,
 );
 router.post("/tester-applications/assign", decryptPayload, assignTestersToApp);
+router.post(
+  "/tester-applications/unassign",
+  decryptPayload,
+  unassignTesterFromApp,
+);
 
 export default router;
