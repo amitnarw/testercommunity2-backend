@@ -1599,7 +1599,7 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
       },
     });
 
-    return sendSuccess(res, updatedApp, "Testers assigned successfully");
+    return sendSuccess(res, updatedApp as any, "Testers assigned successfully");
   } catch (error) {
     console.error("Error assigning testers:", error);
     return sendError(
