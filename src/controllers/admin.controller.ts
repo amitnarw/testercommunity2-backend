@@ -107,6 +107,38 @@ export const acceptApp = async (req: Request, res: Response) => {
   }
 };
 
+export const updateProjectStatus = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id, status } = payload;
+    if (!id) {
+      return sendError(res, 400, "App ID is required");
+    }
+    if (!status) {
+      return sendError(res, 400, "Status is required");
+    }
+
+    const updatedApp = await prismaClient.dashboardAndHub.update({
+      where: { id: parseInt(id) },
+      data: {
+        status: status,
+      },
+    });
+
+    return sendSuccess(
+      res,
+      updatedApp as any,
+      `App status updated to ${status} successfully`,
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
 export const rejectApp = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
