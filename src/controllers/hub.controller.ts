@@ -614,8 +614,11 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
     // If viewing as owner, ensure the user owns the app and fetch all tester relations
     if (view === "owner") {
       whereCondition.appOwnerId = req?.userId;
-    } else {
-      // Otherwise, only fetch the tester relation for the current user
+    } else if (
+      req?.role?.toUpperCase() !== "SUPER_ADMIN" &&
+      req?.role?.toUpperCase() !== "ADMIN"
+    ) {
+      // Otherwise, only fetch the tester relation for the current user (unless Admin)
       testerRelationsCondition.testerId = req?.userId;
     }
 

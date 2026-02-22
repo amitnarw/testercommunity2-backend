@@ -115,3 +115,36 @@ export const getTesterProjects = async (req: Request, res: Response) => {
     );
   }
 };
+
+export const updateTesterAvailability = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    const { availability } = req.body.payload;
+
+    const validStatuses = ["AVAILABLE", "BUSY", "AWAY", "DO_NOT_DISTURB"];
+    if (!availability || !validStatuses.includes(availability)) {
+      return sendError(
+        res,
+        400,
+        "Invalid availability status. Must be one of: AVAILABLE, BUSY, AWAY, DO_NOT_DISTURB",
+      );
+    }
+
+    const updatedDetail = await prismaClient.userDetail.update({
+      where: { userId },
+      data: { availability },
+    });
+
+    return sendSuccess(
+      res,
+      { availability: updatedDetail.availability },
+      "Availability updated successfully",
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};

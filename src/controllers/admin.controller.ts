@@ -610,6 +610,12 @@ export const getAllUsers = async (req: Request, res: Response) => {
             role: true,
           },
         },
+        testerRelations: {
+          select: {
+            status: true,
+            lastActivityAt: true,
+          },
+        },
         _count: {
           select: {
             testerRelations: true,
@@ -623,19 +629,45 @@ export const getAllUsers = async (req: Request, res: Response) => {
       },
     });
 
-    const formattedUsers = users.map((user) => ({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      image: user.image,
-      role: user.userDetail?.role?.name || "User",
-      status: user.userDetail?.banned ? "Banned" : "Active",
-      testingPaths: user.userDetail?.profile_type || [],
-      tests: user._count.testerRelations,
-      submissions: user._count.ownedDashboardAndHubApps,
-      feedbacks: user._count.feedbacks,
-      createdAt: user.createdAt.toISOString(),
-    }));
+    const formattedUsers = users.map((user) => {
+      // Calculate active and completed test counts from testerRelations
+      const activeTests = user.testerRelations.filter(
+        (tr) => tr.status === "IN_PROGRESS" || tr.status === "PENDING",
+      ).length;
+      const completedTests = user.testerRelations.filter(
+        (tr) => tr.status === "COMPLETED",
+      ).length;
+
+      // Get the most recent activity timestamp
+      const lastActivityAt =
+        user.testerRelations
+          .map((tr) => tr.lastActivityAt)
+          .filter(Boolean)
+          .sort((a, b) => (b?.getTime() || 0) - (a?.getTime() || 0))[0] || null;
+
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        image: user.image,
+        role: user.userDetail?.role?.name || "User",
+        status: user.userDetail?.banned ? "Banned" : "Active",
+        availability: user.userDetail?.availability || "AVAILABLE",
+        testingPaths: user.userDetail?.profile_type || [],
+        device:
+          user.userDetail?.device_company && user.userDetail?.device_model
+            ? `${user.userDetail.device_company} ${user.userDetail.device_model}`
+            : null,
+        experience: user.userDetail?.experience_level || null,
+        tests: user._count.testerRelations,
+        activeTests,
+        completedTests,
+        lastActivityAt: lastActivityAt?.toISOString() || null,
+        submissions: user._count.ownedDashboardAndHubApps,
+        feedbacks: user._count.feedbacks,
+        createdAt: user.createdAt.toISOString(),
+      };
+    });
 
     return sendSuccess(res, formattedUsers, "Users fetched successfully");
   } catch (error) {
@@ -704,18 +736,45 @@ export const getUserById = async (req: Request, res: Response) => {
       role: user.userDetail?.role?.name || "User",
       status: user.userDetail?.banned ? "Banned" : "Active",
       banReason: user.userDetail?.ban_reason || "",
-      userDetail: user.userDetail,
+      phone: user.userDetail?.phone || null,
+      availability: user.userDetail?.availability || "AVAILABLE",
+      device:
+        user.userDetail?.device_company && user.userDetail?.device_model
+          ? `${user.userDetail.device_company} ${user.userDetail.device_model}`
+          : null,
+      deviceDetails: {
+        company: user.userDetail?.device_company || null,
+        model: user.userDetail?.device_model || null,
+        ram: user.userDetail?.ram || null,
+        os: user.userDetail?.os || null,
+        screenResolution: user.userDetail?.screen_resolution || null,
+      },
+      experience: user.userDetail?.experience_level || null,
+      profileType: user.userDetail?.profile_type || null,
+      country: user.userDetail?.country || null,
       wallet: user.wallet,
       stats: {
         totalTests: user.testerRelations.length,
+        activeTests: user.testerRelations.filter(
+          (tr) => tr.status === "IN_PROGRESS" || tr.status === "PENDING",
+        ).length,
+        completedTests: user.testerRelations.filter(
+          (tr) => tr.status === "COMPLETED",
+        ).length,
+        droppedTests: user.testerRelations.filter(
+          (tr) => tr.status === "DROPPED" || tr.status === "REMOVED",
+        ).length,
         totalSubmissions: user.ownedDashboardAndHubApps.length,
         totalFeedbacks: user.feedbacks.length,
       },
-      recentTests: user.testerRelations.slice(0, 5).map((tr) => ({
+      recentTests: user.testerRelations.slice(0, 10).map((tr) => ({
         id: tr.id,
         appName: tr.dashboardAndHub?.androidApp?.appName || "",
         status: tr.status,
+        daysCompleted: tr.daysCompleted,
         joinedAt: tr.joinedAt.toISOString() || "",
+        completedAt: tr.completedAt?.toISOString() || null,
+        lastActivityAt: tr.lastActivityAt?.toISOString() || null,
       })),
       recentSubmissions: user.ownedDashboardAndHubApps
         .slice(0, 5)

@@ -89,6 +89,8 @@ model UserDetail {
   language                  String?
   network                   String?
 
+  availability              TesterAvailability?            @default(AVAILABLE)
+
   initial                   Boolean                        @default(true)
 
   createdAt                 DateTime                       @default(now())
@@ -210,6 +212,13 @@ enum UserNotificationPreference {
   COMMENT_ADDED
   PROMOTIONS
   OTHER
+}
+
+enum TesterAvailability {
+  AVAILABLE
+  BUSY
+  AWAY
+  DO_NOT_DISTURB
 }
 
 model TesterRelation {

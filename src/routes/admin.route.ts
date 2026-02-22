@@ -95,5 +95,6 @@ router.post(
   decryptPayload,
   updateTesterApplicationStatus,
 );
+router.post("/tester-applications/assign", decryptPayload, assignTestersToApp);
 
 export default router;

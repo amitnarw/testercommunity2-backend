@@ -276,11 +276,15 @@ export const getDashboardApps = async (req: Request, res: Response) => {
       return sendError(res, 400, "Type is required");
     }
 
+    const typeArray = type.split(",");
+
     const apps = await prismaClient.dashboardAndHub.findMany({
       where: {
         appOwnerId: userId,
         appType: "PAID", // Corrected enum value based on schema
-        status: type as any,
+        status: {
+          in: typeArray as any[],
+        },
       },
       include: {
         androidApp: true,
