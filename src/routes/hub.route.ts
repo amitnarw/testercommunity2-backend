@@ -17,6 +17,7 @@ import {
   rejectSubmittedHubAppTestingRequest,
   submitDailyVerification,
   completeHostedApp,
+  validatePromoCode,
 } from "@/controllers/hub.controller";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 
@@ -89,6 +90,13 @@ router.delete(
   "/delete-feedback/:id",
   checkAuthentication,
   deleteHubAppFeedback,
+);
+
+router.post(
+  "/validate-promo",
+  checkAuthentication,
+  decryptPayload,
+  validatePromoCode,
 );
 
 export default router;

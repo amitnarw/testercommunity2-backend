@@ -40,6 +40,10 @@ import {
   assignTestersToApp,
   unassignTesterFromApp,
   updateProjectStatus,
+  getAllPromoCodes,
+  createPromoCode,
+  updatePromoCode,
+  deletePromoCode,
 } from "@/controllers/admin.controller";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 import Router from "express";
@@ -104,5 +108,11 @@ router.post(
   decryptPayload,
   unassignTesterFromApp,
 );
+
+// Promo Codes
+router.get("/promo-codes", getAllPromoCodes);
+router.post("/promo-codes", decryptPayload, createPromoCode);
+router.post("/promo-codes/update", decryptPayload, updatePromoCode);
+router.delete("/promo-codes/:id", deletePromoCode);
 
 export default router;

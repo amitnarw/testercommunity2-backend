@@ -1710,3 +1710,102 @@ export const unassignTesterFromApp = async (req: Request, res: Response) => {
     );
   }
 };
+
+// ==================== PROMO CODE MANAGEMENT ====================
+
+export const getAllPromoCodes = async (req: Request, res: Response) => {
+  try {
+    const promoCodes = await prismaClient.promoCode.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+    return sendSuccess(res, promoCodes, "Promo codes fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const createPromoCode = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { code, fixedPoints, isActive, maxUses, maxPerUser } = payload;
+
+    if (!code) return sendError(res, 400, "Code is required");
+
+    const newPromo = await prismaClient.promoCode.create({
+      data: {
+        code: code.trim().toUpperCase(),
+        fixedPoints: parseFloat(fixedPoints) || 200,
+        isActive: isActive !== undefined ? isActive : true,
+        maxUses: maxUses ? parseInt(maxUses) : null,
+        maxPerUser: maxPerUser ? parseInt(maxPerUser) : null,
+      },
+    });
+
+    return sendSuccess(res, newPromo, "Promo code created successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const updatePromoCode = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id, code, fixedPoints, isActive, maxUses, maxPerUser } = payload;
+
+    if (!id) return sendError(res, 400, "Promo code ID is required");
+
+    const updatedPromo = await prismaClient.promoCode.update({
+      where: { id: parseInt(id) },
+      data: {
+        code: code ? code.trim().toUpperCase() : undefined,
+        fixedPoints:
+          fixedPoints !== undefined ? parseFloat(fixedPoints) : undefined,
+        isActive: isActive !== undefined ? isActive : undefined,
+        maxUses:
+          maxUses !== undefined
+            ? maxUses
+              ? parseInt(maxUses)
+              : null
+            : undefined,
+        maxPerUser:
+          maxPerUser !== undefined
+            ? maxPerUser
+              ? parseInt(maxPerUser)
+              : null
+            : undefined,
+      },
+    });
+
+    return sendSuccess(res, updatedPromo, "Promo code updated successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const deletePromoCode = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await prismaClient.promoCode.delete({
+      where: { id: parseInt(id) },
+    });
+    return sendSuccess(res, null, "Promo code deleted successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};

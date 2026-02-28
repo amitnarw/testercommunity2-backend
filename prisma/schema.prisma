@@ -41,6 +41,7 @@ model User {
   accounts                   Account[]
   passwordReset              PasswordReset[]
   orders                     Order[]
+  promoUsages                UserPromoUsage[]
 
   @@map("user")
 }
@@ -1109,4 +1110,33 @@ model WebhookEventLog {
   @@index([eventId])
   @@index([eventType])
   @@map("webhook_event_log")
+}
+
+model PromoCode {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  fixedPoints Float    @default(200) // The cost when this code is used
+  isActive    Boolean  @default(true)
+  maxUses     Int?     // Total global limits across all users
+  maxPerUser  Int?     // Max times a single user can use this code
+  usedCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  usages      UserPromoUsage[]
+
+  @@map("promo_code")
+}
+
+model UserPromoUsage {
+  id          Int      @id @default(autoincrement())
+  userId      String
+  promoCodeId Int
+  usedCount   Int      @default(0)
+  
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  promoCode   PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, promoCodeId])
+  @@map("user_promo_usage")
 }

@@ -138,6 +138,7 @@ export const addHubApp = async (req: Request, res: Response) => {
       total_tester,
       total_days,
       points_cost,
+      promo_code,
     } = payload;
     if (
       !app_name ||
@@ -159,7 +160,74 @@ export const addHubApp = async (req: Request, res: Response) => {
       );
     }
 
+    const existingApp = await prismaClient.androidApp.findFirst({
+      where: {
+        OR: [
+          { appName: app_name },
+          { appLogoUrl: app_logo_url },
+          { packageName: extractPackageName(app_url) || "" },
+        ],
+      },
+    });
+
+    if (existingApp) {
+      if (existingApp.appName === app_name) {
+        return sendError(
+          res,
+          400,
+          "An app with this name already exists. Please use different name",
+        );
+      }
+      if (existingApp.appLogoUrl === app_logo_url) {
+        return sendError(
+          res,
+          400,
+          "An app with this logo already exists. Please use different logo",
+        );
+      }
+      return sendError(res, 400, "This app has already been submitted");
+    }
+
     const package_name = extractPackageName(app_url);
+
+    let final_points_cost = points_cost;
+    let appliedPromoCodeId: number | null = null;
+
+    if (promo_code) {
+      const dbPromo = await prismaClient.promoCode.findUnique({
+        where: { code: promo_code.trim().toUpperCase() },
+      });
+
+      if (!dbPromo || !dbPromo.isActive) {
+        return sendError(res, 400, "Invalid or inactive promo code.");
+      }
+
+      if (dbPromo.maxUses && dbPromo.usedCount >= dbPromo.maxUses) {
+        return sendError(res, 400, "Promo code usage limit reached.");
+      }
+
+      if (dbPromo.maxPerUser) {
+        const usage = await prismaClient.userPromoUsage.findUnique({
+          where: {
+            userId_promoCodeId: {
+              userId: req.userId!,
+              promoCodeId: dbPromo.id,
+            },
+          },
+        });
+
+        if (usage && usage.usedCount >= dbPromo.maxPerUser) {
+          return sendError(
+            res,
+            400,
+            `You have already used this promo code ${dbPromo.maxPerUser} times.`,
+          );
+        }
+      }
+
+      final_points_cost = dbPromo.fixedPoints;
+      appliedPromoCodeId = dbPromo.id;
+    }
 
     const { androidAppData, dashboardAndHub } = await prismaClient.$transaction(
       async (tx) => {
@@ -185,7 +253,7 @@ export const addHubApp = async (req: Request, res: Response) => {
             currentDay: 0,
             totalDay: total_days,
             instructionsForTester: instruction_for_tester,
-            costPoints: points_cost,
+            costPoints: final_points_cost,
             // averageTimeTesting
             minimumAndroidVersion: minimum_android_version,
             status: "IN_REVIEW",
@@ -198,10 +266,34 @@ export const addHubApp = async (req: Request, res: Response) => {
           },
           data: {
             totalPoints: {
-              decrement: points_cost,
+              decrement: final_points_cost,
             },
           },
         });
+
+        if (appliedPromoCodeId) {
+          await tx?.promoCode?.update({
+            where: { id: appliedPromoCodeId },
+            data: { usedCount: { increment: 1 } },
+          });
+
+          await tx.userPromoUsage.upsert({
+            where: {
+              userId_promoCodeId: {
+                userId: req.userId!,
+                promoCodeId: appliedPromoCodeId,
+              },
+            },
+            create: {
+              userId: req.userId!,
+              promoCodeId: appliedPromoCodeId,
+              usedCount: 1,
+            },
+            update: {
+              usedCount: { increment: 1 },
+            },
+          });
+        }
 
         await tx?.userTransaction?.create({
           data: {
@@ -209,7 +301,7 @@ export const addHubApp = async (req: Request, res: Response) => {
             userWalletId: walletData?.id,
             dashboardAndHubId: dashboardAndHub?.id,
             action: "TESTING",
-            points: points_cost,
+            points: final_points_cost,
             transactionType: "PURCHASE",
             status: "DEBIT",
           },
@@ -221,7 +313,9 @@ export const addHubApp = async (req: Request, res: Response) => {
             dashboardAndHubId: dashboardAndHub?.id,
             androidAppId: androidAppData?.id,
             actionType: "SUBMIT_APP",
-            description: app_description,
+            description: appliedPromoCodeId
+              ? `${app_description} (Promo applied)`
+              : app_description,
             ipAddress: req?.userIpAddress,
             userAgent: req?.userAgent,
             status: "SUCCESS",
@@ -1540,6 +1634,71 @@ export const completeHostedApp = async (req: Request, res: Response) => {
     return sendError(
       res,
       400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+export const validatePromoCode = async (req: Request, res: Response) => {
+  try {
+    const { payload } = await req.body;
+    const code = payload?.code || req.body?.code;
+    if (!code) {
+      return sendError(res, 400, "Promo code is required");
+    }
+
+    const promoCode = await prismaClient?.promoCode?.findUnique({
+      where: { code: code.trim().toUpperCase() },
+    });
+
+    if (!promoCode || !promoCode.isActive) {
+      return sendError(res, 400, "Invalid or inactive promo code.");
+    }
+
+    if (promoCode.maxUses && promoCode.usedCount >= promoCode.maxUses) {
+      return sendError(res, 400, "Promo code usage limit reached.");
+    }
+
+    if (promoCode.maxPerUser) {
+      const usage = await prismaClient.userPromoUsage.findUnique({
+        where: {
+          userId_promoCodeId: {
+            userId: req.userId!,
+            promoCodeId: promoCode.id,
+          },
+        },
+      });
+
+      if (usage && usage.usedCount >= promoCode.maxPerUser) {
+        return sendError(
+          res,
+          400,
+          `You have already used this promo code ${promoCode.maxPerUser} times.`,
+        );
+      }
+    }
+
+    return sendSuccess(
+      res,
+      { fixedPoints: promoCode.fixedPoints },
+      "Promo code is valid",
+    );
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "hub",
+      action: "validatePromoCode",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      500,
       error instanceof Error ? error.message : "Unknown error",
       auditLogPayloadFail,
     );

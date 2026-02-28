@@ -5,6 +5,7 @@ import { seedPlans } from "./seedPlans";
 import { seedAppCategories } from "./seedAppCategories";
 import { seedAdmin } from "./seedAdmin";
 import { seedTester } from "./seedTester";
+import { seedPromoCodes } from "./seedPromoCodes";
 
 const prisma = prismaClient;
 
@@ -29,6 +30,8 @@ async function main() {
 
     await seedTester();
     console.log("✅ Tester seeded");
+
+    await seedPromoCodes();
 
     console.log("🏁 All seeds completed successfully!");
   } catch (e) {

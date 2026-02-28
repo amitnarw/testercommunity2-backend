@@ -5,7 +5,7 @@ import { type NextFunction, type Request, type Response } from "express";
 export const decryptPayload = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     const { payload } = req.body;
@@ -23,7 +23,7 @@ export const decryptPayload = async (
     return sendError(
       res,
       400,
-      error instanceof Error ? error.message : "Unknown error"
+      error instanceof Error ? error.message : "Unknown error",
     );
   }
 };
