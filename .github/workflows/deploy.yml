@@ -7,8 +7,14 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
+      # ⏱️ Capture start time
+      - name: ⏱️ Capture start time
+        run: echo "START_TIME=$(date +%s)" >> $GITHUB_ENV
+
       - name: SSH Deploy
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -23,3 +29,45 @@ jobs:
             npx prisma migrate deploy
             npm run build
             pm2 reload backend --update-env
+
+      # ✅ Telegram Success Notification
+      - name: 📣 Telegram Success Notification
+        if: success()
+        run: |
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          MIN=$((DURATION / 60))
+          SEC=$((DURATION % 60))
+
+          MESSAGE="🧠 <b>BACKEND DEPLOYED SUCCESSFULLY</b>%0A
+          ⏱ Duration: <b>${MIN}m ${SEC}s</b>%0A
+          📦 Repo: <b>${{ github.repository }}</b>%0A
+          🌿 Branch: <b>${{ github.ref_name }}</b>%0A
+          👤 By: <b>${{ github.actor }}</b>%0A
+          🧾 Commit: <b>${{ github.event.head_commit.message }}</b>%0A
+          🔗 <a href='${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}'>View Commit</a>"
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d parse_mode="HTML" \
+          -d text="$MESSAGE"
+
+      # ❌ Telegram Failure Notification
+      - name: ❌ Telegram Failure Notification
+        if: failure()
+        run: |
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          MIN=$((DURATION / 60))
+          SEC=$((DURATION % 60))
+
+          MESSAGE="❌ <b>BACKEND DEPLOYMENT FAILED</b>%0A
+          ⏱ Failed After: <b>${MIN}m ${SEC}s</b>%0A
+          📦 Repo: <b>${{ github.repository }}</b>%0A
+          👤 By: <b>${{ github.actor }}</b>%0A
+          ⚠️ Check GitHub Actions logs."
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d parse_mode="HTML" \
+          -d text="$MESSAGE"
