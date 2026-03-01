@@ -575,3 +575,32 @@ export const initiateRefund = async (req: Request, res: Response) => {
     return sendError(res, 500, "Refund failed");
   }
 };
+
+/**
+ * Get all active promo codes for the offers page
+ */
+export const getActivePromoCodes = async (req: Request, res: Response) => {
+  try {
+    const promoCodes = await prismaClient?.promoCode?.findMany({
+      where: {
+        isActive: true,
+      },
+      select: {
+        id: true,
+        code: true,
+        fixedPoints: true,
+        maxUses: true,
+        usedCount: true,
+        updatedAt: true,
+      },
+    });
+
+    return sendSuccess(res, promoCodes, "Promo codes fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Failed to fetch promo codes",
+    );
+  }
+};
