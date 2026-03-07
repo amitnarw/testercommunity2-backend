@@ -79,10 +79,10 @@ export const renewTokens = async (req: Request, res: Response) => {
     });
 
     const accessExpiryMs = parseTimeString(
-      process.env.ACCESS_TOKEN_EXPIRY || "1h"
+      process.env.ACCESS_TOKEN_EXPIRY || "1h",
     );
     const refreshExpiryMs = parseTimeString(
-      process.env.REFRESH_TOKEN_EXPIRY || "30d"
+      process.env.REFRESH_TOKEN_EXPIRY || "30d",
     );
 
     const accessTokenExpiry = new Date(Date.now() + accessExpiryMs);
@@ -124,11 +124,11 @@ export const renewTokens = async (req: Request, res: Response) => {
 
     await prismaClient?.userLogs?.create({
       data: {
-        userId: checkUserData?.id,
+        userId: checkUserData?.id || "",
         logType: "RENEW_TOKENS",
         description: "access and refresh tokens renewed",
-        ipAddress: req?.userIpAddress,
-        userAgent: req?.userAgent,
+        ipAddress: req?.userIpAddress || "",
+        userAgent: req?.userAgent || "",
       },
     });
 
@@ -154,7 +154,7 @@ export const renewTokens = async (req: Request, res: Response) => {
       res,
       null,
       "Tokens renewed successfully",
-      auditLogPayloadSuccess
+      auditLogPayloadSuccess,
     );
   } catch (error) {
     const auditLogPayloadFail: AuditLogPayload = {
@@ -172,7 +172,7 @@ export const renewTokens = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };
@@ -208,7 +208,7 @@ export const passwordResetCreate = async (req: Request, res: Response) => {
     const passwordResetUrl = `${process.env.CORS_ORIGIN}/auth/password-reset?id=${password_reset_token?.data}`;
 
     const passwordResetExpiryMs = parseTimeString(
-      process.env.PASSWORD_RESET_TOKEN_EXPIRY || "1h"
+      process.env.PASSWORD_RESET_TOKEN_EXPIRY || "1h",
     );
 
     const accessTokenExpiry = new Date(Date.now() + passwordResetExpiryMs);
@@ -236,7 +236,7 @@ export const passwordResetCreate = async (req: Request, res: Response) => {
       res,
       passwordResetUrl,
       "Password reset url created",
-      auditLogPayloadSuccess
+      auditLogPayloadSuccess,
     );
   } catch (error) {
     const auditLogPayloadFail: AuditLogPayload = {
@@ -254,7 +254,7 @@ export const passwordResetCreate = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail
+      auditLogPayloadFail,
     );
   }
 };

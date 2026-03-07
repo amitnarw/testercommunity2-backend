@@ -1,0 +1,6 @@
+﻿src/controllers/auth.controller.ts(126,7): error TS2322: Type '{ userId: string | undefined; logType: "RENEW_TOKENS"; description: string; ipAddress: string | undefined; userAgent: string | undefined; }' is not assignable to type '(Without<UserLogsCreateInput, UserLogsUncheckedCreateInput> & UserLogsUncheckedCreateInput) | (Without<...> & UserLogsCreateInput)'.
+  Type '{ userId: string | undefined; logType: "RENEW_TOKENS"; description: string; ipAddress: string | undefined; userAgent: string | undefined; }' is not assignable to type 'Without<UserLogsUncheckedCreateInput, UserLogsCreateInput> & UserLogsCreateInput'.
+    Type '{ userId: string | undefined; logType: "RENEW_TOKENS"; description: string; ipAddress: string | undefined; userAgent: string | undefined; }' is not assignable to type 'Without<UserLogsUncheckedCreateInput, UserLogsCreateInput>'.
+      Types of property 'userId' are incompatible.
+        Type 'string | undefined' is not assignable to type 'undefined'.
+          Type 'string' is not assignable to type 'undefined'.
