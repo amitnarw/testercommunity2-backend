@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client-js"
   output   = "./generated/prisma"
@@ -9,98 +8,705 @@ datasource db {
 }
 
 model User {
-  id                         String                         @id
+  id                         String                      @id
   name                       String
-  email                      String                         @unique
+  email                      String                      @unique
   emailVerified              Boolean
   image                      String?
-
-  createdAt                  DateTime                       @default(now())
-  updatedAt                  DateTime                       @updatedAt
-
-  // Relations
-  userDetail                 UserDetail?
-  sessions                   Session[]
-  ownedDashboardAndHubApps   DashboardAndHub[]              @relation("DashboardAndHubAppOwner")
-  testingDashboardAndHubApps DashboardAndHub[]              @relation("DashboardAndHubTesters")
-  activities                 UserActivity[]
-  logs                       UserLogs[]
-  supportRequests            SupportRequest[]
-  supportMessages            SupportMessage[]
-  supportAgent               SupportAgent?
-  withdrawalRequests         WithdrawalRequest[]
-  wallet                     UserWallet?
-  transactions               UserTransaction[]
-  testerRelations            TesterRelation[]
-  userPlans                  UserPlan[]
-  ratings                    Rating[]
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  accounts                   Account[]
+  auditLogs                  AuditLog[]
+  ownedDashboardAndHubApps   DashboardAndHub[]           @relation("DashboardAndHubAppOwner")
   feedbacks                  Feedback[]
   notifications              Notification[]
-  websiteFeedbackSuggestions WebsiteFeedbackSuggestion[]
-  auditLogs                  AuditLog[] 
-  accounts                   Account[]
-  passwordReset              PasswordReset[]
   orders                     Order[]
+  passwordReset              PasswordReset[]
+  ratings                    Rating[]
+  sessions                   Session[]
+  supportAgent               SupportAgent?
+  supportMessages            SupportMessage[]
+  supportRequests            SupportRequest[]
+  testerRelations            TesterRelation[]
+  activities                 UserActivity[]
+  userDetail                 UserDetail?
+  logs                       UserLogs[]
+  userPlans                  UserPlan[]
   promoUsages                UserPromoUsage[]
+  transactions               UserTransaction[]
+  wallet                     UserWallet?
+  websiteFeedbackSuggestions WebsiteFeedbackSuggestion[]
+  withdrawalRequests         WithdrawalRequest[]
+  testingDashboardAndHubApps DashboardAndHub[]           @relation("DashboardAndHubTesters")
 
   @@map("user")
+}
+
+model UserDetail {
+  id                      Int                          @id @default(autoincrement())
+  userId                  String                       @unique
+  first_name              String
+  last_name               String
+  phone                   String?                      @unique
+  auth_type               UserAuthType
+  roleId                  Int
+  banned                  Boolean?                     @default(false)
+  ban_reason              String?
+  country                 String?
+  profile_type            UserProfileType?
+  job_role                UserJobRole?
+  company_name            String?
+  company_size            UserCompanySize?
+  position_in_company     UserCompanyPosition?
+  company_website         String?
+  experience_level        UserExperienceLevel?
+  total_published_apps    UserTotalPublishedApps?
+  platform_development    UserDevelopmentPlatform?
+  publish_frequency       UserPublishFrequency?
+  service_usage           UserTestingServiceReason?
+  communication_methods   UserCommunicationMethod[]    @default([])
+  notification_preference UserNotificationPreference[] @default([])
+  device_company          String?
+  device_model            String?
+  ram                     String?
+  os                      String?
+  screen_resolution       String?
+  language                String?
+  network                 String?
+  initial                 Boolean                      @default(true)
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
+  availability            TesterAvailability?          @default(AVAILABLE)
+  role                    Role                         @relation("UserRole", fields: [roleId], references: [id])
+  user                    User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_detail")
+}
+
+model TesterRelation {
+  id                 Int                       @id @default(autoincrement())
+  testerId           String
+  dashboardAndHubId  Int?
+  isActive           Boolean                   @default(true)
+  status             TesterStatus              @default(IN_PROGRESS)
+  joinedAt           DateTime                  @default(now())
+  completedAt        DateTime?
+  daysCompleted      Int                       @default(0)
+  lastActivityAt     DateTime?
+  statusDetails      Json?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  dailyVerifications DailyTesterVerification[]
+  dashboardAndHub    DashboardAndHub?          @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
+  tester             User                      @relation(fields: [testerId], references: [id])
+
+  @@unique([testerId, dashboardAndHubId])
+  @@map("tester_relation")
+}
+
+model DailyTesterVerification {
+  id               Int                @id @default(autoincrement())
+  testerRelationId Int
+  dayNumber        Int
+  proofImageUrl    String
+  status           VerificationStatus @default(PENDING)
+  verifiedAt       DateTime?
+  rejectionReason  String?
+  metaData         Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  testerRelation   TesterRelation     @relation(fields: [testerRelationId], references: [id], onDelete: Cascade)
+
+  @@unique([testerRelationId, dayNumber])
+  @@map("daily_tester_verification")
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Plans {
+  id        String     @id @default(uuid()) @map("_id")
+  name      String
+  price     Float
+  package   Int
+  features  Json
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  orders    Order[]
+  userPlans UserPlan[]
+
+  @@map("plans")
+}
+
+model UserPlan {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  planId    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  plan      Plans    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_plan")
+}
+
+model Blog {
+  id          Int      @id @default(autoincrement())
+  title       String
+  authorName  String
+  tags        String[]
+  description String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  media       Media[]
+
+  @@map("blog")
+}
+
+model Faq {
+  id          Int         @id @default(autoincrement())
+  title       String
+  description String
+  category    FaqCategory
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("faq")
+}
+
+model AppCategory {
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  androidApps AndroidApp[]
+
+  @@map("app_category")
+}
+
+model DashboardAndHub {
+  id                    Int                    @id @default(autoincrement())
+  appId                 Int                    @unique
+  appOwnerId            String
+  appType               DashboardAndHubAppType
+  currentTester         Int
+  totalTester           Int
+  currentDay            Int
+  totalDay              Int
+  instructionsForTester String?
+  rewardPoints          Float?
+  costPoints            Float?
+  rewardMoney           Float?
+  costMoney             Float?
+  averageTimeTesting    String?
+  minimumAndroidVersion Float
+  status                DashboardAndHubStatus
+  statusDetails         Json?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  androidApp            AndroidApp             @relation(fields: [appId], references: [id])
+  appOwner              User                   @relation("DashboardAndHubAppOwner", fields: [appOwnerId], references: [id])
+  feedback              Feedback[]
+  testerRelations       TesterRelation[]
+  activities            UserActivity[]
+  earningHistory        UserTransaction[]
+  testers               User[]                 @relation("DashboardAndHubTesters")
+
+  @@map("dashboard_and_hub")
+}
+
+model AndroidApp {
+  id                Int              @id @default(autoincrement())
+  appName           String           @unique
+  appLogoUrl        String           @unique
+  appScreenshotUrl1 String
+  appScreenshotUrl2 String
+  appCategoryId     Int
+  packageName       String           @unique
+  description       String?
+  isActive          Boolean          @default(true)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  appCategory       AppCategory      @relation(fields: [appCategoryId], references: [id])
+  dashboardAndHubs  DashboardAndHub?
+  media             Media[]
+  ratings           Rating[]
+  activities        UserActivity[]
+
+  @@map("android_app")
+}
+
+model Media {
+  id                         Int                         @id @default(autoincrement())
+  type                       MediaType
+  mime                       String?
+  category                   MediaCategory
+  src                        String
+  appId                      Int?
+  blogId                     Int?
+  feedbackId                 Int?                        @unique
+  notificationId             Int?
+  supportRequestId           Int?
+  supportMessageId           Int?
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  androidApp                 AndroidApp?                 @relation(fields: [appId], references: [id], onDelete: Cascade)
+  blog                       Blog?                       @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  feedback                   Feedback?                   @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  notification               Notification?               @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  supportMessage             SupportMessage?             @relation(fields: [supportMessageId], references: [id], onDelete: Cascade)
+  supportRequest             SupportRequest?             @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+  websiteFeedbackSuggestions WebsiteFeedbackSuggestion[] @relation("MediaToWebsiteFeedbackSuggestion")
+
+  @@map("media")
+}
+
+model Rating {
+  id         Int         @id @default(autoincrement())
+  rating     Float
+  ratingType RatingType
+  appId      Int?
+  userId     String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  androidApp AndroidApp? @relation(fields: [appId], references: [id])
+  user       User?       @relation(fields: [userId], references: [id])
+
+  @@map("rating")
+}
+
+model Feedback {
+  id                Int               @id @default(autoincrement())
+  message           String
+  type              FeedbackType
+  priority          FeedbackPriority?
+  testerId          String
+  dashboardAndHubId Int
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  dashboardAndHub   DashboardAndHub   @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
+  tester            User              @relation(fields: [testerId], references: [id])
+  media             Media?
+  userActivities    UserActivity[]
+
+  @@map("feedback")
+}
+
+model Notification {
+  id          Int              @id @default(autoincrement())
+  title       String
+  description String
+  type        NotificationType @default(OTHER)
+  url         String?
+  userId      String?
+  isActive    Boolean
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  media       Media[]
+  user        User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification")
+}
+
+model UserActivity {
+  id                Int              @id @default(autoincrement())
+  userId            String
+  dashboardAndHubId Int?
+  androidAppId      Int?
+  actionType        UserActionType
+  description       String?
+  context           Json?
+  ipAddress         String?
+  userAgent         String?
+  status            AuditResult
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  feedbackId        Int?
+  androidApp        AndroidApp?      @relation(fields: [androidAppId], references: [id])
+  dashboardAndHub   DashboardAndHub? @relation(fields: [dashboardAndHubId], references: [id])
+  feedback          Feedback?        @relation(fields: [feedbackId], references: [id])
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_activity")
+}
+
+model UserLogs {
+  id          Int          @id @default(autoincrement())
+  userId      String
+  logType     LogType
+  severity    LogSeverity?
+  description String
+  context     Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime     @default(now())
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_logs")
+}
+
+model WebsiteFeedbackSuggestion {
+  id        Int                    @id @default(autoincrement())
+  userId    String
+  type      FeedbackSuggestionType
+  title     String?
+  message   String
+  priority  FeedbackPriority?
+  status    FeedbackStatus         @default(PENDING)
+  reason    String?
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+  user      User                   @relation(fields: [userId], references: [id])
+  media     Media[]                @relation("MediaToWebsiteFeedbackSuggestion")
+
+  @@map("website_feedback_suggestion")
+}
+
+model SupportRequest {
+  id             Int              @id @default(autoincrement())
+  userId         String?
+  supportAgentId Int?
+  name           String?
+  email          String?
+  subject        String
+  description    String
+  status         SupportStatus    @default(PENDING)
+  category       SupportCategory  @default(GENERAL)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  media          Media[]
+  messages       SupportMessage[]
+  supportAgent   SupportAgent?    @relation(fields: [supportAgentId], references: [id])
+  user           User?            @relation(fields: [userId], references: [id])
+
+  @@map("support_request")
+}
+
+model SupportMessage {
+  id               Int            @id @default(autoincrement())
+  supportRequestId Int
+  senderId         String?
+  senderType       SenderType
+  message          String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  media            Media[]
+  senderUser       User?          @relation(fields: [senderId], references: [id])
+  supportRequest   SupportRequest @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+
+  @@map("support_message")
+}
+
+model SupportAgent {
+  id               Int              @id @default(autoincrement())
+  userId           String           @unique
+  user             User             @relation(fields: [userId], references: [id])
+  assignedRequests SupportRequest[]
+
+  @@map("support_agent")
+}
+
+model WithdrawalRequest {
+  id          Int              @id @default(autoincrement())
+  userId      String
+  amount      Float
+  currency    String           @default("USD")
+  status      WithdrawalStatus @default(PENDING)
+  requestedAt DateTime         @default(now())
+  processedAt DateTime?
+  note        String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  user        User             @relation(fields: [userId], references: [id])
+
+  @@map("withdrawal_request")
+}
+
+model UserTransaction {
+  id                Int                   @id @default(autoincrement())
+  userId            String
+  userWalletId      Int?
+  dashboardAndHubId Int?
+  action            EarningAction?
+  points            Float?                @default(0)
+  package           Float?                @default(0)
+  transactionType   UserTransactionType
+  status            UserTransactionStatus
+  createdAt         DateTime              @default(now())
+  dashboardAndHub   DashboardAndHub?      @relation(fields: [dashboardAndHubId], references: [id])
+  user              User                  @relation(fields: [userId], references: [id])
+  userWallet        UserWallet?           @relation(fields: [userWalletId], references: [id])
+
+  @@map("user_transactions")
+}
+
+model UserWallet {
+  id             Int               @id @default(autoincrement())
+  userId         String            @unique
+  totalPoints    Float             @default(0)
+  totalPackages  Float             @default(0)
+  lastUpdated    DateTime          @updatedAt
+  createdAt      DateTime          @default(now())
+  earningHistory UserTransaction[]
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_wallet")
+}
+
+model Role {
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  permissions Permission[]
+  usersDetail UserDetail[] @relation("UserRole")
+
+  @@map("role")
+}
+
+model Module {
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  permissions Permission[]
+
+  @@map("module")
+}
+
+model Permission {
+  id            Int      @id @default(autoincrement())
+  roleId        Int
+  moduleId      Int
+  canReadList   Boolean  @default(false)
+  canReadSingle Boolean  @default(false)
+  canCreate     Boolean  @default(false)
+  canUpdate     Boolean  @default(false)
+  canDelete     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  module        Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  role          Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@map("permission")
+}
+
+model AuditLog {
+  id        Int         @id @default(autoincrement())
+  actorId   String
+  actorRole String
+  module    String
+  action    String
+  targetId  String
+  result    AuditResult
+  reason    String?
+  ip        String
+  ua        String
+  ts        DateTime    @default(now())
+  actor     User        @relation(fields: [actorId], references: [id])
+
+  @@map("audit_log")
+}
+
+model Account {
+  id                    String    @id
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@map("verification")
+}
+
+model PasswordReset {
+  id                   Int      @id @default(autoincrement())
+  password_reset_token String   @unique
+  userId               String
+  expireAt             DateTime
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @default(now()) @updatedAt
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset")
+}
+
+model ControlRoom {
+  id                        Int      @id @default(autoincrement())
+  profileSurveyPoints       Int?
+  pointsWithdrawalLimit     Int?
+  pointsWithdrawalThreshold Int?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @default(now()) @updatedAt
+
+  @@map("control_room")
+}
+
+model Order {
+  id              Int         @id @default(autoincrement())
+  userId          String
+  planId          String?
+  packageCount    Int?        @default(1)
+  razorpayOrderId String      @unique
+  receipt         String      @unique
+  amount          Int
+  currency        String      @default("INR")
+  status          OrderStatus @default(CREATED)
+  notes           Json?
+  attempts        Int         @default(0)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  expiresAt       DateTime?
+  plan            Plans?      @relation(fields: [planId], references: [id])
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments        Payment[]
+
+  @@index([userId])
+  @@index([razorpayOrderId])
+  @@index([status])
+  @@map("order")
+}
+
+model Payment {
+  id                Int           @id @default(autoincrement())
+  orderId           Int
+  razorpayPaymentId String        @unique
+  razorpayOrderId   String
+  razorpaySignature String?
+  amount            Int
+  currency          String        @default("INR")
+  status            PaymentStatus @default(PENDING)
+  method            String?
+  bank              String?
+  wallet            String?
+  vpa               String?
+  email             String?
+  contact           String?
+  fee               Int?          @default(0)
+  tax               Int?          @default(0)
+  errorCode         String?
+  errorDescription  String?
+  errorReason       String?
+  amountRefunded    Int           @default(0)
+  refundStatus      RefundStatus?
+  notes             Json?
+  captured          Boolean       @default(false)
+  international     Boolean       @default(false)
+  webhookVerified   Boolean       @default(false)
+  webhookPayload    Json?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  refunds           Refund[]
+
+  @@index([orderId])
+  @@index([razorpayPaymentId])
+  @@index([razorpayOrderId])
+  @@index([status])
+  @@map("payment")
+}
+
+model Refund {
+  id                Int               @id @default(autoincrement())
+  paymentId         Int
+  razorpayRefundId  String            @unique
+  razorpayPaymentId String
+  amount            Int
+  currency          String            @default("INR")
+  status            RefundModelStatus @default(PENDING)
+  reason            String?
+  notes             Json?
+  speed             String?           @default("normal")
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  processedAt       DateTime?
+  payment           Payment           @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([razorpayRefundId])
+  @@map("refund")
+}
+
+model WebhookEventLog {
+  id              Int       @id @default(autoincrement())
+  eventId         String    @unique
+  eventType       String
+  payload         Json
+  processed       Boolean   @default(false)
+  processingError String?
+  createdAt       DateTime  @default(now())
+  processedAt     DateTime?
+
+  @@index([eventId])
+  @@index([eventType])
+  @@map("webhook_event_log")
+}
+
+model PromoCode {
+  id          Int              @id @default(autoincrement())
+  code        String           @unique
+  fixedPoints Float            @default(200)
+  isActive    Boolean          @default(true)
+  maxUses     Int?
+  maxPerUser  Int?
+  usedCount   Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  usages      UserPromoUsage[]
+
+  @@map("promo_code")
+}
+
+model UserPromoUsage {
+  id          Int       @id @default(autoincrement())
+  userId      String
+  promoCodeId Int
+  usedCount   Int       @default(0)
+  promoCode   PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, promoCodeId])
+  @@map("user_promo_usage")
 }
 
 enum UserAuthType {
   EMAIL_PASSWORD
   GOOGLE
-}
-
-model UserDetail {
-  id                        Int                           @id @default(autoincrement())
-  userId                    String                        @unique
-  first_name                String
-  last_name                 String
-  phone                     String?                       @unique
-  auth_type                 UserAuthType
-
-  roleId                    Int
-  banned                    Boolean?                      @default(false)
-  ban_reason                String?
-
-  country                   String?
-  profile_type              UserProfileType?
-  job_role                  UserJobRole?
-
-  company_name              String?
-  company_size              UserCompanySize?
-  position_in_company       UserCompanyPosition?
-  company_website           String?
-
-  experience_level          UserExperienceLevel?
-  total_published_apps      UserTotalPublishedApps?
-  platform_development      UserDevelopmentPlatform?
-  publish_frequency         UserPublishFrequency?
-
-  service_usage             UserTestingServiceReason?
-
-  communication_methods     UserCommunicationMethod[]      @default([])
-  notification_preference   UserNotificationPreference[]   @default([])
-
-  device_company            String?
-  device_model              String?
-  ram                       String?
-  os                        String?
-  screen_resolution         String?
-  language                  String?
-  network                   String?
-
-  availability              TesterAvailability?            @default(AVAILABLE)
-
-  initial                   Boolean                        @default(true)
-
-  createdAt                 DateTime                       @default(now())
-  updatedAt                 DateTime                       @updatedAt
-
-  role                      Role                           @relation("UserRole", fields: [roleId], references: [id])
-  user                      User?                          @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("user_detail")
 }
 
 enum UserProfileType {
@@ -222,29 +828,6 @@ enum TesterAvailability {
   DO_NOT_DISTURB
 }
 
-model TesterRelation {
-  id                Int               @id @default(autoincrement())
-  testerId          String
-  dashboardAndHubId Int?
-  isActive          Boolean           @default(true) // Deprecated in favor of status? Keep for backward compat or ease.
-  status            TesterStatus      @default(IN_PROGRESS)
-  joinedAt          DateTime          @default(now())
-  completedAt       DateTime?
-  daysCompleted     Int               @default(0)
-  lastActivityAt    DateTime?
-  statusDetails     Json?
-  
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-
-  tester            User              @relation(fields: [testerId], references: [id])
-  dashboardAndHub   DashboardAndHub?  @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
-  dailyVerifications DailyTesterVerification[]
-
-  @@unique([testerId, dashboardAndHubId])
-  @@map("tester_relation")
-}
-
 enum TesterStatus {
   PENDING
   IN_PROGRESS
@@ -254,98 +837,10 @@ enum TesterStatus {
   REJECTED
 }
 
-model DailyTesterVerification {
-  id                Int                @id @default(autoincrement())
-  testerRelationId  Int
-  dayNumber         Int                // e.g. 1, 2, 3... 14
-  proofImageUrl     String
-  status            VerificationStatus @default(PENDING)
-  verifiedAt        DateTime?
-  rejectionReason   String?
-  metaData          Json?              // For anti-cheat data capture
-
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-
-  testerRelation    TesterRelation     @relation(fields: [testerRelationId], references: [id], onDelete: Cascade)
-
-  @@unique([testerRelationId, dayNumber])
-  @@map("daily_tester_verification")
-}
-
 enum VerificationStatus {
   PENDING
   VERIFIED
   REJECTED
-}
-
-model Session {
-  id                 String   @id
-  userId             String
-  token              String   @unique
-  expiresAt          DateTime
-  ipAddress          String?
-  userAgent          String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("session")
-}
-
-model Plans {
-  id        String     @id @default(uuid()) @map("_id")
-  name      String
-  price     Float
-  package   Int
-  features  Json
-  isActive  Boolean    @default(true)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  userPlans UserPlan[]
-  orders    Order[]
-
-  @@map("plans")
-}
-
-model UserPlan {
-  id        Int      @id @default(autoincrement())
-  userId    String
-  planId    String
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan Plans @relation(fields: [planId], references: [id], onDelete: Cascade)
-
-  @@map("user_plan")
-}
-
-model Blog {
-  id          Int      @id @default(autoincrement())
-  title       String
-  authorName  String
-  tags        String[]
-  description String
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  media       Media[]
-
-  @@map("blog")
-}
-
-model Faq {
-  id          Int         @id @default(autoincrement())
-  title       String
-  description String
-  category    FaqCategory
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-
-  @@map("faq")
 }
 
 enum FaqCategory {
@@ -353,48 +848,6 @@ enum FaqCategory {
   community
   professional
   homepage
-}
-
-model AppCategory {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  androidApps AndroidApp[]
-
-  @@map("app_category")
-}
-
-model DashboardAndHub {
-  id                          Int                       @id @default(autoincrement())
-  appId                       Int                       @unique
-  appOwnerId                  String
-  appType                     DashboardAndHubAppType
-  currentTester               Int
-  totalTester                 Int
-  currentDay                  Int
-  totalDay                    Int
-  instructionsForTester       String?
-  rewardPoints                Float?                    // Points given to the tester upon completion (decided by Admin)
-  costPoints                  Float?                    // Points deducted from the owner (Free app)
-  averageTimeTesting          String?
-  minimumAndroidVersion       Int
-  status                      DashboardAndHubStatus
-  statusDetails               Json?
-  createdAt                   DateTime                  @default(now())
-  updatedAt                   DateTime                  @updatedAt
-
-  androidApp                  AndroidApp                @relation(fields: [appId], references: [id])
-  appOwner                    User                      @relation("DashboardAndHubAppOwner", fields: [appOwnerId], references: [id])
-  testers                     User[]                    @relation("DashboardAndHubTesters")
-  feedback                    Feedback[]
-  activities                  UserActivity[]
-  earningHistory              UserTransaction[]
-  testerRelations             TesterRelation[]
-
-  @@map("dashboard_and_hub")
 }
 
 enum DashboardAndHubAppType {
@@ -413,54 +866,6 @@ enum DashboardAndHubStatus {
   AVAILABLE
 }
 
-model AndroidApp {
-  id                  Int      @id @default(autoincrement())
-  appName             String   @unique
-  appLogoUrl          String   @unique
-  appScreenshotUrl1   String
-  appScreenshotUrl2   String
-  appCategoryId       Int
-  packageName         String   @unique
-  description         String?
-  isActive            Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  appCategory         AppCategory       @relation(fields: [appCategoryId], references: [id])
-  media               Media[]
-  ratings             Rating[]
-  activities          UserActivity[]
-  dashboardAndHubs    DashboardAndHub[]
-
-  @@map("android_app")
-}
-
-model Media {
-  id                          Int                         @id @default(autoincrement())
-  type                        MediaType
-  mime                        String?
-  category                    MediaCategory
-  src                         String
-  appId                       Int?
-  blogId                      Int?
-  feedbackId                  Int?                        @unique
-  notificationId              Int?
-  supportRequestId            Int?
-  supportMessageId            Int?
-  createdAt                   DateTime                    @default(now())
-  updatedAt                   DateTime                    @updatedAt
-
-  androidApp                  AndroidApp?                 @relation(fields: [appId], references: [id], onDelete: Cascade)
-  blog                        Blog?                       @relation(fields: [blogId], references: [id], onDelete: Cascade)
-  feedback                    Feedback?                   @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
-  notification                Notification?               @relation(fields: [notificationId], references: [id], onDelete: Cascade)
-  supportRequest              SupportRequest?             @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
-  supportMessage              SupportMessage?             @relation(fields: [supportMessageId], references: [id], onDelete: Cascade)
-  websiteFeedbackSuggestions  WebsiteFeedbackSuggestion[]
-
-  @@map("media")
-}
-
 enum MediaType {
   IMAGE
   VIDEO
@@ -475,42 +880,9 @@ enum MediaCategory {
   OTHER
 }
 
-model Rating {
-  id         Int        @id @default(autoincrement())
-  rating     Float
-  ratingType RatingType
-  appId      Int?
-  userId     String?
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-
-  androidApp AndroidApp? @relation(fields: [appId], references: [id])
-  user       User?       @relation(fields: [userId], references: [id])
-
-  @@map("rating")
-}
-
 enum RatingType {
   APP
   USER
-}
-
-model Feedback {
-  id                Int               @id @default(autoincrement())
-  message           String
-  type              FeedbackType
-  priority          FeedbackPriority?
-  testerId          String
-  dashboardAndHubId Int
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-
-  tester            User              @relation(fields: [testerId], references: [id])
-  dashboardAndHub   DashboardAndHub   @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
-  media             Media?
-  userActivities    UserActivity[]
-
-  @@map("feedback")
 }
 
 enum FeedbackType {
@@ -527,24 +899,6 @@ enum FeedbackPriority {
   LOW
 }
 
-model Notification {
-  id            Int               @id @default(autoincrement())
-  title         String
-  description   String
-  type          NotificationType  @default(OTHER)
-  url           String?
-  userId        String?
-  isActive      Boolean
-
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-
-  user          User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  media         Media[]
-
-  @@map("notification")
-}
-
 enum NotificationType {
   NEW_TEST
   FEEDBACK_RECEIVED
@@ -557,31 +911,7 @@ enum NotificationType {
   OTHER
 }
 
-model UserActivity {
-  id                Int            @id @default(autoincrement())
-  userId            String
-  dashboardAndHubId Int?
-  androidAppId      Int?
-  feedbackId        Int?
-  actionType        UserActionType
-  description       String?
-  context           Json?
-  ipAddress         String?
-  userAgent         String?
-  status            AuditResult
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
-
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  dashboardAndHub DashboardAndHub? @relation(fields: [dashboardAndHubId], references: [id])
-  androidApp      AndroidApp?      @relation(fields: [androidAppId], references: [id])
-  feedback        Feedback?        @relation(fields: [feedbackId], references: [id])
-
-  @@map("user_activity")
-}
-
 enum UserActionType {
-  DRAFT
   SUBMIT_APP
   JOIN_TEST_REQUEST
   JOIN_TEST_ACCEPT
@@ -595,22 +925,7 @@ enum UserActionType {
   REGISTER
   RENEW_TOKENS
   OTHER
-}
-
-model UserLogs {
-  id          Int                 @id @default(autoincrement())
-  userId      String
-  logType     LogType
-  severity    LogSeverity?
-  description String
-  context     Json?
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime            @default(now())
-
-  user        User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("user_logs")
+  DRAFT
 }
 
 enum LogType {
@@ -633,24 +948,6 @@ enum LogSeverity {
   INFO
 }
 
-model WebsiteFeedbackSuggestion {
-  id        Int                    @id @default(autoincrement())
-  userId    String
-  type      FeedbackSuggestionType
-  title     String?
-  message   String
-  priority  FeedbackPriority?
-  status    FeedbackStatus         @default(PENDING)
-  reason    String?
-  createdAt DateTime               @default(now())
-  updatedAt DateTime               @updatedAt
-
-  user  User    @relation(fields: [userId], references: [id])
-  media Media[]
-
-  @@map("website_feedback_suggestion")
-}
-
 enum FeedbackSuggestionType {
   BUG
   SUGGESTIONS
@@ -663,27 +960,6 @@ enum FeedbackStatus {
   REVIEWED
   IMPLEMENTED
   REJECTED
-}
-
-model SupportRequest {
-  id             Int             @id @default(autoincrement())
-  userId         String?
-  supportAgentId Int?
-  name           String?
-  email          String?
-  subject        String
-  description    String
-  status         SupportStatus   @default(PENDING)
-  category       SupportCategory @default(GENERAL)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-
-  user         User?            @relation(fields: [userId], references: [id])
-  messages     SupportMessage[]
-  media        Media[]
-  supportAgent SupportAgent?    @relation(fields: [supportAgentId], references: [id])
-
-  @@map("support_request")
 }
 
 enum SupportStatus {
@@ -701,52 +977,9 @@ enum SupportCategory {
   OTHER
 }
 
-model SupportMessage {
-  id               Int        @id @default(autoincrement())
-  supportRequestId Int
-  senderId         String?
-  senderType       SenderType
-  message          String
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-
-  supportRequest SupportRequest @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
-  senderUser     User?          @relation(fields: [senderId], references: [id])
-  media          Media[]
-
-  @@map("support_message")
-}
-
 enum SenderType {
   USER
   AGENT
-}
-
-model SupportAgent {
-  id               Int              @id @default(autoincrement())
-  userId           String           @unique
-  assignedRequests SupportRequest[]
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("support_agent")
-}
-
-model WithdrawalRequest {
-  id          Int              @id @default(autoincrement())
-  userId      String
-  amount      Float
-  currency    String           @default("USD")
-  status      WithdrawalStatus @default(PENDING)
-  requestedAt DateTime         @default(now())
-  processedAt DateTime?
-  note        String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("withdrawal_request")
 }
 
 enum WithdrawalStatus {
@@ -754,25 +987,6 @@ enum WithdrawalStatus {
   APPROVED
   REJECTED
   PAID
-}
-
-model UserTransaction {
-  id                  Int                      @id @default(autoincrement())
-  userId              String
-  userWalletId        Int?
-  dashboardAndHubId   Int?                     // optional if some transactions aren't dashboard-related
-  action              EarningAction?           // keep optional for non-earning transactions
-  points              Float?                   @default(0)
-  package             Float?                   @default(0)
-  transactionType     UserTransactionType      // NEW: type of transaction
-  status              UserTransactionStatus
-  createdAt           DateTime                 @default(now())
-
-  user                User                     @relation(fields: [userId], references: [id])
-  dashboardAndHub     DashboardAndHub?         @relation(fields: [dashboardAndHubId], references: [id])
-  userWallet          UserWallet?              @relation(fields: [userWalletId], references: [id])
-
-  @@map("user_transactions")
 }
 
 enum UserTransactionType {
@@ -799,180 +1013,9 @@ enum UserTransactionStatus {
   HOLD
 }
 
-model UserWallet {
-  id                Int                     @id @default(autoincrement())
-  userId            String                  @unique
-  totalPoints       Float                   @default(0)
-  totalPackages     Float                   @default(0)
-  lastUpdated       DateTime                @updatedAt
-  createdAt         DateTime                @default(now())
-
-  user              User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  earningHistory    UserTransaction[]
-
-  @@map("user_wallet")
-}
-
-model Role {
-  id                Int    @id @default(autoincrement())
-  name              String @unique
-
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  permissions       Permission[]
-  usersDetail       UserDetail[]       @relation("UserRole")
-
-  @@map("role")
-}
-
-model Module {
-  id   Int    @id @default(autoincrement())
-  name String @unique
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  permissions Permission[]
-
-  @@map("module")
-}
-
-model Permission {
-  id            Int     @id @default(autoincrement())
-  roleId        Int
-  moduleId      Int
-  canReadList   Boolean @default(false)
-  canReadSingle Boolean @default(false)
-  canCreate     Boolean @default(false)
-  canUpdate     Boolean @default(false)
-  canDelete     Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-
-  @@map("permission")
-}
-
-model AuditLog {
-  id         Int          @id @default(autoincrement())
-  actorId    String
-  actorRole  String
-  module     String
-  action     String
-  targetId   String
-  result     AuditResult
-  reason     String?
-  ip         String
-  ua         String
-  ts         DateTime     @default(now())
-
-  actor      User    @relation(fields: [actorId], references: [id])
-
-  @@map("audit_log")
-}
-
 enum AuditResult {
   SUCCESS
   FAIL
-}
-
-model Account {
-  id                        String            @id
-  userId                    String
-  accountId                 String
-  providerId                String
-  accessToken               String?
-  refreshToken              String?
-  accessTokenExpiresAt      DateTime?
-  refreshTokenExpiresAt     DateTime?
-  scope                     String?
-  idToken                   String?
-  password                  String?
-  createdAt                 DateTime          @default(now())
-  updatedAt                 DateTime          @updatedAt
-
-  user                      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("account")
-}
-
-model Verification {
-  id              String           @id
-  identifier      String
-  value           String
-  expiresAt       DateTime
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @default(now()) @updatedAt
-
-  @@map("verification")
-}
-
-model PasswordReset {
-  id                      Int                   @id @default(autoincrement())
-  password_reset_token    String                @unique
-  userId                  String
-  expireAt                DateTime
-  isActive                Boolean               @default(true)
-
-  createdAt               DateTime              @default(now())
-  updatedAt               DateTime              @default(now()) @updatedAt
-
-  user                    User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("password_reset")
-}
-
-model ControlRoom {
-  id                          Int                   @id @default(autoincrement())
-  profileSurveyPoints         Int?
-  pointsWithdrawalLimit       Int?
-  pointsWithdrawalThreshold   Int?
-
-  createdAt                   DateTime              @default(now())
-  updatedAt                   DateTime              @default(now()) @updatedAt
-
-  @@map("control_room")
-}
-
-// ==================== RAZORPAY PAYMENT MODELS ====================
-
-model Order {
-  id                  Int                 @id @default(autoincrement())
-  userId              String
-  planId              String?
-  packageCount        Int?                @default(1)
-  
-  // Razorpay specific fields
-  razorpayOrderId     String              @unique
-  receipt             String              @unique
-  
-  // Amount in smallest currency unit (paise for INR)
-  amount              Int
-  currency            String              @default("INR")
-  
-  status              OrderStatus         @default(CREATED)
-  
-  // Metadata for tracking
-  notes               Json?
-  attempts            Int                 @default(0)
-  
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
-  expiresAt           DateTime?
-
-  // Relations
-  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan                Plans?              @relation(fields: [planId], references: [id])
-  payments            Payment[]
-
-  @@index([userId])
-  @@index([razorpayOrderId])
-  @@index([status])
-  @@map("order")
 }
 
 enum OrderStatus {
@@ -983,66 +1026,6 @@ enum OrderStatus {
   CANCELLED
 }
 
-model Payment {
-  id                    Int                 @id @default(autoincrement())
-  orderId               Int
-  
-  // Razorpay specific fields
-  razorpayPaymentId     String              @unique
-  razorpayOrderId       String
-  razorpaySignature     String?
-  
-  // Amount in smallest currency unit (paise for INR)
-  amount                Int
-  currency              String              @default("INR")
-  
-  // Payment details
-  status                PaymentStatus       @default(PENDING)
-  method                String?             // card, netbanking, upi, wallet, etc.
-  bank                  String?
-  wallet                String?
-  vpa                   String?             // UPI VPA
-  
-  // Customer details from Razorpay
-  email                 String?
-  contact               String?
-  
-  // Transaction fees
-  fee                   Int?                @default(0)
-  tax                   Int?                @default(0)
-  
-  // Error tracking
-  errorCode             String?
-  errorDescription      String?
-  errorReason           String?
-  
-  // Refund tracking
-  amountRefunded        Int                 @default(0)
-  refundStatus          RefundStatus?
-  
-  // Metadata
-  notes                 Json?
-  captured              Boolean             @default(false)
-  international         Boolean             @default(false)
-  
-  // Webhook tracking
-  webhookVerified       Boolean             @default(false)
-  webhookPayload        Json?
-  
-  createdAt             DateTime            @default(now())
-  updatedAt             DateTime            @updatedAt
-
-  // Relations
-  order                 Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  refunds               Refund[]
-
-  @@index([orderId])
-  @@index([razorpayPaymentId])
-  @@index([razorpayOrderId])
-  @@index([status])
-  @@map("payment")
-}
-
 enum PaymentStatus {
   PENDING
   AUTHORIZED
@@ -1050,37 +1033,6 @@ enum PaymentStatus {
   FAILED
   REFUNDED
   PARTIALLY_REFUNDED
-}
-
-model Refund {
-  id                  Int                 @id @default(autoincrement())
-  paymentId           Int
-  
-  // Razorpay specific fields
-  razorpayRefundId    String              @unique
-  razorpayPaymentId   String
-  
-  // Amount in smallest currency unit
-  amount              Int
-  currency            String              @default("INR")
-  
-  status              RefundModelStatus   @default(PENDING)
-  reason              String?
-  notes               Json?
-  
-  // Speed of refund
-  speed               String?             @default("normal") // normal or optimum
-  
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
-  processedAt         DateTime?
-
-  // Relations
-  payment             Payment             @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-
-  @@index([paymentId])
-  @@index([razorpayRefundId])
-  @@map("refund")
 }
 
 enum RefundStatus {
@@ -1093,50 +1045,4 @@ enum RefundModelStatus {
   PENDING
   PROCESSED
   FAILED
-}
-
-// Webhook event log for idempotency and debugging
-model WebhookEventLog {
-  id                  Int                 @id @default(autoincrement())
-  eventId             String              @unique  // Razorpay event ID for idempotency
-  eventType           String
-  payload             Json
-  processed           Boolean             @default(false)
-  processingError     String?
-  
-  createdAt           DateTime            @default(now())
-  processedAt         DateTime?
-
-  @@index([eventId])
-  @@index([eventType])
-  @@map("webhook_event_log")
-}
-
-model PromoCode {
-  id          Int      @id @default(autoincrement())
-  code        String   @unique
-  fixedPoints Float    @default(200) // The cost when this code is used
-  isActive    Boolean  @default(true)
-  maxUses     Int?     // Total global limits across all users
-  maxPerUser  Int?     // Max times a single user can use this code
-  usedCount   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  usages      UserPromoUsage[]
-
-  @@map("promo_code")
-}
-
-model UserPromoUsage {
-  id          Int      @id @default(autoincrement())
-  userId      String
-  promoCodeId Int
-  usedCount   Int      @default(0)
-  
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  promoCode   PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, promoCodeId])
-  @@map("user_promo_usage")
 }

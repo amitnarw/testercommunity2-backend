@@ -85,16 +85,30 @@ export const getSubmittedApps = async (req: Request, res: Response) => {
 export const acceptApp = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
-    const { id } = payload;
+    const { id, totalTester, totalDay, minimumAndroidVersion, rewardPoints } =
+      payload;
     if (!id) {
       return sendError(res, 400, "App ID is required");
     }
 
+    const dataToUpdate: any = {
+      status: "AVAILABLE",
+    };
+
+    if (totalTester !== undefined)
+      dataToUpdate.totalTester = parseInt(totalTester);
+    if (totalDay !== undefined) dataToUpdate.totalDay = parseInt(totalDay);
+    if (minimumAndroidVersion !== undefined)
+      dataToUpdate.minimumAndroidVersion = parseFloat(minimumAndroidVersion);
+    if (rewardPoints !== undefined) {
+      dataToUpdate.rewardPoints = parseFloat(rewardPoints);
+      // Persist rewardMoney as the actual money payout per tester
+      dataToUpdate.rewardMoney = parseFloat(rewardPoints);
+    }
+
     const updatedApp = await prismaClient.dashboardAndHub.update({
       where: { id: parseInt(id) },
-      data: {
-        status: "AVAILABLE",
-      },
+      data: dataToUpdate,
     });
 
     return sendSuccess(res, updatedApp as any, "App approved successfully");
@@ -1614,9 +1628,11 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
     const newCurrentTester = app.currentTester + newTesterIds.length;
     let newStatus = app.status;
 
-    // Optional logic: if the required number of testers is reached, we can move the app to IN_TESTING.
-    // However, if the admin assigns less than required, it might stay AVAILABLE.
-    if (newCurrentTester > 0 && app.status === "AVAILABLE") {
+    // Move to IN_TESTING only if the required number of testers is reached
+    if (
+      app.status === "AVAILABLE" &&
+      newCurrentTester >= (app.totalTester || 0)
+    ) {
       newStatus = "IN_TESTING";
     }
 
@@ -1680,8 +1696,11 @@ export const unassignTesterFromApp = async (req: Request, res: Response) => {
     const newCurrentTester = Math.max(0, app.currentTester - 1);
     let newStatus = app.status;
 
-    // If no testers are left, move from IN_TESTING back to AVAILABLE
-    if (newCurrentTester === 0 && app.status === "IN_TESTING") {
+    // If testers are left but below required, move from IN_TESTING back to AVAILABLE
+    if (
+      app.status === "IN_TESTING" &&
+      newCurrentTester < (app.totalTester || 0)
+    ) {
       newStatus = "AVAILABLE";
     }
 

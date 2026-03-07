@@ -4,6 +4,7 @@ import { decryptPayload } from "@/middlewares/decyptPayload";
 import {
   getTesterProjects,
   updateTesterAvailability,
+  rateApp,
 } from "@/controllers/tester.controller";
 
 const router = Router();
@@ -15,5 +16,6 @@ router.put(
   decryptPayload,
   updateTesterAvailability,
 );
+router.post("/rate-app", checkAuthentication, decryptPayload, rateApp);
 
 export default router;

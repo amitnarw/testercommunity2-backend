@@ -722,6 +722,7 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
         androidApp: {
           include: {
             appCategory: true,
+            ratings: true,
           },
         },
         appOwner: true,
@@ -774,7 +775,7 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
       },
     });
 
-    const result = {
+    const result: any = {
       ...hubAppDetails,
       statusDetails: JSON.parse(JSON.stringify(hubAppDetails?.statusDetails)),
       testerRelations:
@@ -790,6 +791,73 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
             }))
           : [],
     };
+
+    if (result.testerRelations && result.testerRelations.length > 0) {
+      result.testerRelations = result.testerRelations.map((tr: any) => {
+        const rating =
+          hubAppDetails?.androidApp?.ratings?.find(
+            (r) => r.userId === tr.testerId,
+          )?.rating || 0;
+        return {
+          ...tr,
+          tester: {
+            ...tr.tester,
+            ratings: [{ rating }],
+          },
+        };
+      });
+    }
+
+    // Add payment info for Admins
+    const userRole = req?.role?.toUpperCase();
+    if (userRole === "ADMIN" || userRole === "SUPER_ADMIN") {
+      // Use persisted costMoney if it exists (the new robust way)
+      if (hubAppDetails?.costMoney) {
+        result.paymentInfo = {
+          amountPaid:
+            hubAppDetails.costMoney * (hubAppDetails.totalTester || 1), // It was 1 package per app submission
+          currency: "INR", // Default currency as per user request
+          isPersisted: true,
+        };
+      } else {
+        // Fallback for legacy data (older submissions that don't have costMoney)
+        const submissionTx = await prismaClient.userTransaction.findFirst({
+          where: {
+            dashboardAndHubId: Number(id),
+            action: "APP_SUBMISSION",
+          },
+          orderBy: { createdAt: "desc" },
+        });
+
+        if (submissionTx) {
+          const lastOrder = await prismaClient.order.findFirst({
+            where: {
+              userId: (hubAppDetails as any)?.appOwnerId,
+              status: "PAID",
+            },
+            orderBy: { createdAt: "desc" },
+          });
+
+          if (
+            lastOrder &&
+            lastOrder.packageCount &&
+            lastOrder.packageCount > 0
+          ) {
+            const unitPrice = lastOrder.amount / 100 / lastOrder.packageCount;
+            result.paymentInfo = {
+              amountPaid: unitPrice * (submissionTx.package || 1),
+              currency: lastOrder.currency,
+              isPersisted: false,
+            };
+          }
+        }
+      }
+
+      // Add persisted rewardMoney if available
+      if (hubAppDetails?.rewardMoney) {
+        result.rewardMoney = hubAppDetails.rewardMoney;
+      }
+    }
 
     return sendSuccess(res, result, "ok");
   } catch (error) {

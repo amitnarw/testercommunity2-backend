@@ -27,6 +27,15 @@ export const getTesterProjects = async (req: Request, res: Response) => {
         androidApp: {
           include: {
             appCategory: true,
+            ratings: {
+              where: {
+                userId: req?.userId,
+                ratingType: "APP",
+              },
+              select: {
+                rating: true,
+              },
+            },
           },
         },
         testerRelations: {
@@ -73,6 +82,7 @@ export const getTesterProjects = async (req: Request, res: Response) => {
         appScreenshot1: project.androidApp?.appScreenshotUrl1,
         appScreenshot2: project.androidApp?.appScreenshotUrl2,
         appStatus: project.status,
+        testerRating: project.androidApp?.ratings?.[0]?.rating || 0,
         testerStatus: relation?.status || null,
         totalDay: project.totalDay,
         currentDay: project.currentDay,
@@ -101,6 +111,62 @@ export const getTesterProjects = async (req: Request, res: Response) => {
       actorRole: req?.role as string,
       module: "tester",
       action: "getTesterProjects",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+export const rateApp = async (req: Request, res: Response) => {
+  try {
+    const { appId, rating } = req.body;
+
+    if (!appId || rating === undefined) {
+      return sendError(res, 400, "App ID and rating are required");
+    }
+
+    const userId = req?.userId;
+
+    const existingRating = await prismaClient?.rating?.findFirst({
+      where: {
+        appId: Number(appId),
+        userId: userId,
+        ratingType: "APP",
+      },
+    });
+
+    if (existingRating) {
+      await prismaClient?.rating?.update({
+        where: { id: existingRating.id },
+        data: { rating: Number(rating) },
+      });
+    } else {
+      await prismaClient?.rating?.create({
+        data: {
+          rating: Number(rating),
+          appId: Number(appId),
+          userId: userId,
+          ratingType: "APP",
+        },
+      });
+    }
+
+    return sendSuccess(res, null, "Rating saved successfully");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "tester",
+      action: "rateApp",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
