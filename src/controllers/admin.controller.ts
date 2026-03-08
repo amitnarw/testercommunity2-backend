@@ -91,9 +91,20 @@ export const acceptApp = async (req: Request, res: Response) => {
       return sendError(res, 400, "App ID is required");
     }
 
-    const dataToUpdate: any = {
-      status: "AVAILABLE",
-    };
+    const existingApp = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: parseInt(id) },
+    });
+
+    if (!existingApp) {
+      return sendError(res, 404, "App not found");
+    }
+
+    const dataToUpdate: any = {};
+
+    // Only set AVAILABLE status if it was IN_REVIEW
+    if (existingApp.status === "IN_REVIEW") {
+      dataToUpdate.status = "AVAILABLE";
+    }
 
     if (totalTester !== undefined)
       dataToUpdate.totalTester = parseInt(totalTester);
@@ -101,9 +112,14 @@ export const acceptApp = async (req: Request, res: Response) => {
     if (minimumAndroidVersion !== undefined)
       dataToUpdate.minimumAndroidVersion = parseFloat(minimumAndroidVersion);
     if (rewardPoints !== undefined) {
-      dataToUpdate.rewardPoints = parseFloat(rewardPoints);
-      // Persist rewardMoney as the actual money payout per tester
-      dataToUpdate.rewardMoney = parseFloat(rewardPoints);
+      if (existingApp.appType === "PAID") {
+        // Persist rewardMoney as the actual money payout per tester
+        dataToUpdate.rewardMoney = parseFloat(rewardPoints);
+        dataToUpdate.rewardPoints = 0; // reset points for paid apps
+      } else {
+        dataToUpdate.rewardPoints = parseFloat(rewardPoints);
+        dataToUpdate.rewardMoney = 0;
+      }
     }
 
     const updatedApp = await prismaClient.dashboardAndHub.update({
@@ -853,6 +869,11 @@ export const updateUserStatus = async (req: Request, res: Response) => {
       return sendError(res, 400, "User ID is required");
     }
 
+    // Prevention: User cannot ban themselves
+    if (id === req.userId) {
+      return sendError(res, 400, "You cannot ban your own account");
+    }
+
     const updatedUser = await prismaClient.userDetail.update({
       where: { userId: id },
       data: {
@@ -905,6 +926,115 @@ export const updateUserRole = async (req: Request, res: Response) => {
       "User role updated successfully",
     );
   } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const deleteUser = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return sendError(res, 400, "User ID is required");
+    }
+
+    // Check if user exists
+    const user = await prismaClient.user.findUnique({
+      where: { id },
+      include: {
+        userDetail: {
+          include: {
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      return sendError(res, 404, "User not found");
+    }
+
+    const actorRole = req.role;
+    const targetRole = user.userDetail?.role?.name;
+
+    // Prevention: No user can be deleted if they are a Super Admin
+    if (targetRole === "Super Admin") {
+      return sendError(
+        res,
+        403,
+        "Super Admin accounts cannot be deleted for safety and security reasons",
+      );
+    }
+
+    // Prevention: Admin cannot delete themselves (redundant now but good for clarity)
+    if (user.id === req.userId) {
+      return sendError(res, 400, "You cannot delete your own account");
+    }
+
+    // Permission check: Admins can only delete regular Users/Testers.
+    // Super Admins can delete anyone (except Super Admins).
+    if (actorRole !== "Super Admin" && targetRole === "Admin") {
+      return sendError(res, 403, "Only Super Admins can delete Admin accounts");
+    }
+
+    // Handle relations that don't cascade automatically or need special care
+    await prismaClient.$transaction(async (tx) => {
+      // 1. Delete tester relations and their verifications (manually just in case)
+      await tx.testerRelation.deleteMany({ where: { testerId: id } });
+
+      // 2. Delete apps owned by user (must delete dependencies first)
+      const ownedApps = await tx.dashboardAndHub.findMany({
+        where: { appOwnerId: id },
+      });
+
+      for (const app of ownedApps) {
+        // Feedbacks for this app
+        await tx.feedback.deleteMany({ where: { dashboardAndHubId: app.id } });
+        // Tester relations for this app
+        await tx.testerRelation.deleteMany({
+          where: { dashboardAndHubId: app.id },
+        });
+        // Transactions for this app
+        await tx.userTransaction.deleteMany({
+          where: { dashboardAndHubId: app.id },
+        });
+        // Finally delete the dashboard entry
+        await tx.dashboardAndHub.delete({ where: { id: app.id } });
+        // NOTE: The AndroidApp model might still exist, we can keep it for historical data or delete it too.
+        // Let's delete it if it's not referenced elsewhere (though here it's 1-1 with DashboardAndHub mostly).
+        await tx.androidApp.delete({ where: { id: app.appId } });
+      }
+
+      // 3. Delete feedback given by user
+      await tx.feedback.deleteMany({ where: { testerId: id } });
+
+      // 4. Delete withdrawal requests
+      await tx.withdrawalRequest.deleteMany({ where: { userId: id } });
+
+      // 5. Delete website feedback suggestions
+      await tx.websiteFeedbackSuggestion.deleteMany({ where: { userId: id } });
+
+      // 6. Delete audit logs where user is actor
+      await tx.auditLog.deleteMany({ where: { actorId: id } });
+
+      // 7. Delete ratings
+      await tx.rating.deleteMany({ where: { userId: id } });
+
+      // Finally delete the user - most other data (userDetail, session, etc.) will cascade delete
+      await tx.user.delete({ where: { id } });
+    });
+
+    return sendSuccess(
+      res,
+      null,
+      "User and all associated data deleted successfully",
+    );
+  } catch (error) {
+    console.error("Error deleting user:", error);
     return sendError(
       res,
       500,
@@ -1647,6 +1777,19 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
       },
     });
 
+    // Create notifications for the newly assigned testers
+    const notificationsData = newTesterIds.map((tId) => ({
+      title: "New Paid Testing Assignment",
+      description: `You have been assigned to test "${updatedApp.androidApp?.appName}". You can now begin testing.`,
+      type: "OTHER" as const,
+      userId: tId,
+      isActive: true,
+    }));
+
+    await prismaClient.notification.createMany({
+      data: notificationsData,
+    });
+
     return sendSuccess(res, updatedApp as any, "Testers assigned successfully");
   } catch (error) {
     console.error("Error assigning testers:", error);
@@ -1820,6 +1963,191 @@ export const deletePromoCode = async (req: Request, res: Response) => {
       where: { id: parseInt(id) },
     });
     return sendSuccess(res, null, "Promo code deleted successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+// ==================== VERIFICATION MANAGEMENT ====================
+
+export const updateDailyVerificationStatus = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const { payload } = req.body;
+    const { id, status, reason } = payload;
+
+    if (!id || !status) {
+      return sendError(res, 400, "Verification ID and status are required");
+    }
+
+    const verification = await prismaClient.dailyTesterVerification.update({
+      where: { id: parseInt(id) },
+      data: {
+        status,
+        rejectionReason: reason || null,
+        verifiedAt: new Date(),
+      },
+      include: {
+        testerRelation: {
+          include: {
+            dashboardAndHub: {
+              include: {
+                androidApp: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (status === "REJECTED") {
+      await prismaClient.notification.create({
+        data: {
+          title: "Testing Verification Rejected",
+          description: `Your proof for Day ${verification.dayNumber} of "${verification.testerRelation.dashboardAndHub?.androidApp?.appName || "the app"}" was rejected. Reason: ${reason || "No reason provided."}`,
+          type: "REJECTED",
+          userId: verification.testerRelation.testerId,
+          isActive: true,
+        },
+      });
+    }
+
+    return sendSuccess(
+      res,
+      verification as any,
+      "Verification status updated successfully",
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const adminCompleteApp = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id } = payload; // id is DashboardAndHub ID
+
+    if (!id) {
+      return sendError(res, 400, "App ID is required");
+    }
+
+    const hubId = typeof id === "string" ? parseInt(id) : id;
+
+    const existingApp = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: hubId },
+      include: { androidApp: true },
+    });
+
+    if (!existingApp) {
+      return sendError(res, 404, "App not found");
+    }
+
+    if (existingApp.status === "COMPLETED") {
+      return sendSuccess(res, existingApp as any, "App is already completed");
+    }
+
+    const updatedApp = await prismaClient.$transaction(async (tx) => {
+      const app = await tx.dashboardAndHub.update({
+        where: { id: hubId },
+        data: {
+          status: "COMPLETED",
+        },
+        include: {
+          androidApp: true,
+        },
+      });
+
+      // Find all testers who COMPLETED the test cycle for this app
+      const testersToReward = await tx.testerRelation.findMany({
+        where: {
+          dashboardAndHubId: hubId,
+          status: "COMPLETED",
+        },
+      });
+
+      const isPaidApp = app.appType === "PAID";
+      const rewardAmount = isPaidApp
+        ? app.rewardMoney || 0
+        : app.rewardPoints || 0;
+
+      if (rewardAmount > 0 && testersToReward.length > 0) {
+        for (const rel of testersToReward) {
+          const createData: any = {
+            userId: rel.testerId,
+            totalPackages: 0,
+          };
+          const updateData: any = {};
+
+          if (isPaidApp) {
+            createData.balanceMoney = rewardAmount;
+            updateData.balanceMoney = { increment: rewardAmount };
+          } else {
+            createData.totalPoints = rewardAmount;
+            updateData.totalPoints = { increment: rewardAmount };
+          }
+
+          const wallet = await tx.userWallet.upsert({
+            where: { userId: rel.testerId },
+            create: createData,
+            update: updateData,
+          });
+
+          await tx.userTransaction.create({
+            data: {
+              userId: rel.testerId,
+              userWalletId: wallet.id,
+              dashboardAndHubId: hubId,
+              action: "TESTING",
+              points: rewardAmount, // Using points field generically for the transaction amount
+              transactionType: "EARNING",
+              status: "CREDIT",
+            },
+          });
+
+          // Notify Tester
+          await tx.notification.create({
+            data: {
+              title: isPaidApp ? "Payment Received!" : "Points Awarded!",
+              description: isPaidApp
+                ? `You've earned ₹${rewardAmount} for completing the testing of "${app.androidApp.appName}".`
+                : `You've earned ${rewardAmount} points for completing the testing of "${app.androidApp.appName}".`,
+              type: "POINTS_AWARDED",
+              userId: rel.testerId,
+              isActive: true,
+            },
+          });
+        }
+      }
+
+      // Notify owner
+      await tx.notification.create({
+        data: {
+          title: "Project Completed",
+          description: `Administration has marked your project "${app.androidApp?.appName}" as COMPLETED.`,
+          type: "OTHER",
+          userId: app.appOwnerId,
+          isActive: true,
+        },
+      });
+
+      return app;
+    });
+
+    return sendSuccess(
+      res,
+      updatedApp as any,
+      "App status updated to COMPLETED successfully",
+    );
   } catch (error) {
     return sendError(
       res,

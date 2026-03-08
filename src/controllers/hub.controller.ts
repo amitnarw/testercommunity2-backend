@@ -190,6 +190,20 @@ export const addHubApp = async (req: Request, res: Response) => {
 
     const package_name = extractPackageName(app_url);
 
+    // Transparency Validation: Calculate cost on server to prevent tampering
+    const baseTesterRate = 80;
+    const baseDayRate = 10;
+    const expectedCost =
+      total_tester * baseTesterRate + total_days * baseDayRate;
+
+    if (points_cost < expectedCost && !promo_code) {
+      return sendError(
+        res,
+        400,
+        `Invalid points cost. Expected at least ${expectedCost} points.`,
+      );
+    }
+
     let final_points_cost = points_cost;
     let appliedPromoCodeId: number | null = null;
 
@@ -254,6 +268,7 @@ export const addHubApp = async (req: Request, res: Response) => {
             totalDay: total_days,
             instructionsForTester: instruction_for_tester,
             costPoints: final_points_cost,
+            // rewardPoints will be set by admin later
             // averageTimeTesting
             minimumAndroidVersion: minimum_android_version,
             status: "IN_REVIEW",
@@ -733,7 +748,7 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
           include: {
             media: true,
             tester: {
-              select: { name: true },
+              select: { name: true, image: true },
             },
           },
         },
@@ -814,8 +829,7 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
       // Use persisted costMoney if it exists (the new robust way)
       if (hubAppDetails?.costMoney) {
         result.paymentInfo = {
-          amountPaid:
-            hubAppDetails.costMoney * (hubAppDetails.totalTester || 1), // It was 1 package per app submission
+          amountPaid: hubAppDetails.costMoney,
           currency: "INR", // Default currency as per user request
           isPersisted: true,
         };
@@ -1504,14 +1518,13 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
     }
 
     const { hubId, proofImage, metaData } = payload;
-    if (!hubId || !proofImage) {
-      return sendError(res, 400, "hubId and proofImage are required");
+    if (!hubId) {
+      return sendError(res, 400, "hubId is required");
     }
 
     const userId = req.userId;
 
-    // 1. Find the relation (Using explicit composite key lookup or findFirst)
-    // Since unique is on [testerId, dashboardAndHubId], but prisma naming might vary, findFirst is safer if composite naming is complex
+    // 1. Find the relation
     const relation = await prismaClient.testerRelation.findFirst({
       where: {
         testerId: userId!,
@@ -1524,6 +1537,15 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
 
     if (!relation) {
       return sendError(res, 404, "You are not a tester for this app.");
+    }
+
+    // Now that we have relation, we can check if it's a FREE app and proofImage is missing
+    if (relation.dashboardAndHub?.appType !== "PAID" && !proofImage) {
+      return sendError(
+        res,
+        400,
+        "proofImage is required for free community testing.",
+      );
     }
 
     if (relation.status !== "IN_PROGRESS") {
@@ -1568,13 +1590,14 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
         data: {
           testerRelationId: relation.id,
           dayNumber: nextDay,
-          proofImageUrl: proofImage,
-          status: "PENDING",
+          proofImageUrl: proofImage || "",
+          status: "VERIFIED", // Auto-approved as requested
           verifiedAt: new Date(),
-          metaData: JSON.stringify({
-            ...metaData,
-            ipAddress: req?.userIpAddress,
-          }) || { ipAddress: req?.userIpAddress },
+          metaData:
+            JSON.stringify({
+              ...metaData,
+              ipAddress: req?.userIpAddress,
+            }) || JSON.stringify({ ipAddress: req?.userIpAddress }),
         },
       });
 
@@ -1584,6 +1607,17 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       if (nextDay >= totalDaysRequired) {
         newStatus = "COMPLETED";
         completedAt = new Date();
+
+        // 5. Notify App Owner
+        await tx.notification.create({
+          data: {
+            title: "Tester Completed!",
+            description: `A tester has completed the full 14-day testing period for your app.`,
+            type: "TEST_COMPLETED",
+            userId: relation.dashboardAndHub?.appOwnerId || "",
+            isActive: true,
+          },
+        });
       }
 
       await tx.testerRelation.update({
@@ -1602,7 +1636,10 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
           userId: userId!,
           dashboardAndHubId: Number(hubId),
           actionType: "COMPLETE_TEST",
-          description: `Completed daily testing verification for Day ${nextDay}`,
+          description:
+            newStatus === "COMPLETED"
+              ? "Completed full 14-day testing period"
+              : `Completed daily testing verification for Day ${nextDay}`,
           status: "SUCCESS",
         },
       });
@@ -1663,13 +1700,62 @@ export const completeHostedApp = async (req: Request, res: Response) => {
     }
 
     await prismaClient.$transaction(async (tx) => {
-      // Update App Status
-      await tx.dashboardAndHub.update({
+      // Update App Status to COMPLETED
+      const updatedApp = await tx.dashboardAndHub.update({
         where: { id: app.id },
         data: {
           status: "COMPLETED",
         },
       });
+
+      // Find all testers who COMPLETED the test cycle for this app
+      const testersToReward = await tx.testerRelation.findMany({
+        where: {
+          dashboardAndHubId: app.id,
+          status: "COMPLETED",
+        },
+      });
+
+      const rewardAmount = app.rewardPoints || 0;
+
+      if (rewardAmount > 0 && testersToReward.length > 0) {
+        for (const rel of testersToReward) {
+          const wallet = await tx.userWallet.upsert({
+            where: { userId: rel.testerId },
+            create: {
+              userId: rel.testerId,
+              totalPoints: rewardAmount,
+              totalPackages: 0,
+            },
+            update: {
+              totalPoints: { increment: rewardAmount },
+            },
+          });
+
+          await tx.userTransaction.create({
+            data: {
+              userId: rel.testerId,
+              userWalletId: wallet.id,
+              dashboardAndHubId: app.id,
+              action: "TESTING",
+              points: rewardAmount,
+              transactionType: "EARNING",
+              status: "CREDIT",
+            },
+          });
+
+          // Notify Tester
+          await tx.notification.create({
+            data: {
+              title: "Points Awarded!",
+              description: `You've earned ${rewardAmount} points for completing the testing of "${app.androidApp.appName}".`,
+              type: "POINTS_AWARDED",
+              userId: rel.testerId,
+              isActive: true,
+            },
+          });
+        }
+      }
 
       // Log Activity
       await tx.userActivity.create({

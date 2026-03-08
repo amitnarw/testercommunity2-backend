@@ -80,19 +80,7 @@ export const addDashboardAppSubmit = async (req: Request, res: Response) => {
 
     const package_name = extractPackageName(testingUrl);
 
-    // Calculate costMoney for persistence
-    const lastOrder = await prismaClient.order.findFirst({
-      where: {
-        userId: req.userId!,
-        status: "PAID",
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    let costMoney = 0;
-    if (lastOrder && lastOrder.packageCount && lastOrder.packageCount > 0) {
-      costMoney = lastOrder.amount / 100 / lastOrder.packageCount;
-    }
+    let costMoney = 999;
 
     const { androidAppData, dashboardAndHub } = await prismaClient.$transaction(
       async (tx) => {

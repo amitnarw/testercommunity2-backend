@@ -460,6 +460,7 @@ model UserWallet {
   userId         String            @unique
   totalPoints    Float             @default(0)
   totalPackages  Float             @default(0)
+  balanceMoney   Float             @default(0)
   lastUpdated    DateTime          @updatedAt
   createdAt      DateTime          @default(now())
   earningHistory UserTransaction[]

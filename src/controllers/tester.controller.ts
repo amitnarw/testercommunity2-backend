@@ -90,6 +90,8 @@ export const getTesterProjects = async (req: Request, res: Response) => {
         currentTester: project.currentTester,
         rewardPoints: project.rewardPoints,
         costPoints: project.costPoints,
+        rewardMoney: project.rewardMoney,
+        costMoney: project.costMoney,
         instructionsForTester: project.instructionsForTester,
         minimumAndroidVersion: project.minimumAndroidVersion,
         daysCompleted: relation?.daysCompleted || 0,
@@ -205,6 +207,302 @@ export const updateTesterAvailability = async (req: Request, res: Response) => {
       res,
       { availability: updatedDetail.availability },
       "Availability updated successfully",
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const getTesterEarnings = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+
+    const wallet = await prismaClient?.userWallet.findUnique({
+      where: { userId },
+    });
+
+    const totalEarned = wallet?.balanceMoney ?? 0;
+
+    // Subtract already-requested withdrawals (PENDING/APPROVED/PAID)
+    const previousWithdrawals = await prismaClient?.withdrawalRequest.aggregate(
+      {
+        where: {
+          userId,
+          status: { in: ["PENDING", "APPROVED", "PAID"] },
+        },
+        _sum: { amount: true },
+      },
+    );
+
+    const withdrawnSoFar = previousWithdrawals?._sum?.amount ?? 0;
+    const availableBalance = Math.max(0, totalEarned - withdrawnSoFar);
+
+    // Get pending (IN_PROGRESS) balance from rewardMoney
+    const inProgressRelations = await prismaClient?.testerRelation.findMany({
+      where: { testerId: userId, status: "IN_PROGRESS" },
+      include: {
+        dashboardAndHub: { select: { rewardMoney: true } },
+      },
+    });
+
+    const pendingBalance =
+      inProgressRelations?.reduce(
+        (sum, rel) => sum + (rel.dashboardAndHub?.rewardMoney ?? 0),
+        0,
+      ) ?? 0;
+
+    const pendingProjectsCount = inProgressRelations?.length ?? 0;
+
+    return sendSuccess(
+      res,
+      {
+        availableBalance,
+        pendingBalance,
+        pendingProjectsCount,
+        lifetimeEarnings: totalEarned,
+      },
+      "ok",
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const getTesterEarningHistory = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(50, parseInt(req.query.limit as string) || 10);
+    const skip = (page - 1) * limit;
+
+    const [transactions, total] = await Promise.all([
+      prismaClient?.userTransaction.findMany({
+        where: {
+          userId,
+          transactionType: "EARNING",
+        },
+        include: {
+          dashboardAndHub: {
+            include: {
+              androidApp: {
+                select: { appName: true },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      prismaClient?.userTransaction.count({
+        where: {
+          userId,
+          transactionType: "EARNING",
+        },
+      }),
+    ]);
+
+    const history = transactions?.map((tx) => ({
+      id: tx.id,
+      date: tx.createdAt,
+      project: tx.dashboardAndHub?.androidApp?.appName ?? "—",
+      amount: tx.points ?? 0,
+      status: tx.status, // CREDIT | DEBIT | HOLD
+      action: tx.action,
+    }));
+
+    return sendSuccess(
+      res,
+      {
+        history,
+        pagination: {
+          page,
+          limit,
+          total: total ?? 0,
+          totalPages: Math.ceil((total ?? 0) / limit),
+        },
+      },
+      "ok",
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const requestWithdrawal = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    const { amount, note } = req.body;
+
+    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+      return sendError(res, 400, "A valid withdrawal amount is required");
+    }
+
+    const amountNum = Number(amount);
+
+    // Check available balance (sum of rewardMoney from COMPLETED tester relations)
+    const completedRelations = await prismaClient?.testerRelation.findMany({
+      where: { testerId: userId, status: "COMPLETED" },
+      include: {
+        dashboardAndHub: { select: { rewardMoney: true } },
+      },
+    });
+
+    const totalEarned =
+      completedRelations?.reduce(
+        (sum, rel) => sum + (rel.dashboardAndHub?.rewardMoney ?? 0),
+        0,
+      ) ?? 0;
+
+    // Get already requested/paid withdrawals
+    const previousWithdrawals = await prismaClient?.withdrawalRequest.aggregate(
+      {
+        where: {
+          userId,
+          status: { in: ["PENDING", "APPROVED", "PAID"] },
+        },
+        _sum: { amount: true },
+      },
+    );
+
+    const withdrawnSoFar = previousWithdrawals?._sum?.amount ?? 0;
+    const availableBalance = totalEarned - withdrawnSoFar;
+
+    if (amountNum > availableBalance) {
+      return sendError(
+        res,
+        400,
+        `Insufficient balance. Available: ₹${availableBalance.toFixed(2)}`,
+      );
+    }
+
+    const withdrawal = await prismaClient?.withdrawalRequest.create({
+      data: {
+        userId: userId!,
+        amount: amountNum,
+        currency: "INR",
+        status: "PENDING",
+        note: note ?? null,
+      },
+    });
+
+    return sendSuccess(
+      res,
+      withdrawal,
+      "Withdrawal request submitted successfully",
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const getWithdrawalHistory = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(50, parseInt(req.query.limit as string) || 10);
+    const skip = (page - 1) * limit;
+
+    const [withdrawals, total] = await Promise.all([
+      prismaClient?.withdrawalRequest.findMany({
+        where: { userId },
+        orderBy: { requestedAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      prismaClient?.withdrawalRequest.count({ where: { userId } }),
+    ]);
+
+    return sendSuccess(
+      res,
+      {
+        withdrawals,
+        pagination: {
+          page,
+          limit,
+          total: total ?? 0,
+          totalPages: Math.ceil((total ?? 0) / limit),
+        },
+      },
+      "ok",
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const getTesterActivities = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(50, parseInt(req.query.limit as string) || 10);
+    const skip = (page - 1) * limit;
+    const actionType = req.query.actionType as string | undefined;
+
+    const where: any = { userId };
+    if (actionType) {
+      where.actionType = actionType;
+    }
+
+    const [activities, total] = await Promise.all([
+      prismaClient?.userActivity.findMany({
+        where,
+        include: {
+          dashboardAndHub: {
+            include: {
+              androidApp: { select: { appName: true, appLogoUrl: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      prismaClient?.userActivity.count({ where }),
+    ]);
+
+    const result = activities?.map((a) => ({
+      id: a.id,
+      actionType: a.actionType,
+      description: a.description,
+      status: a.status,
+      appName: a.dashboardAndHub?.androidApp?.appName ?? null,
+      appLogo: a.dashboardAndHub?.androidApp?.appLogoUrl ?? null,
+      createdAt: a.createdAt,
+    }));
+
+    return sendSuccess(
+      res,
+      {
+        activities: result,
+        pagination: {
+          page,
+          limit,
+          total: total ?? 0,
+          totalPages: Math.ceil((total ?? 0) / limit),
+        },
+      },
+      "ok",
     );
   } catch (error) {
     return sendError(

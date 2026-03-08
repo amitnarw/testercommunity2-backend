@@ -17,6 +17,7 @@ import {
   getUserById,
   updateUserStatus,
   updateUserRole,
+  deleteUser,
   getUserCounts,
   // Suggestions
   getAllSuggestions,
@@ -44,6 +45,8 @@ import {
   createPromoCode,
   updatePromoCode,
   deletePromoCode,
+  updateDailyVerificationStatus,
+  adminCompleteApp,
 } from "@/controllers/admin.controller";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 import Router from "express";
@@ -76,6 +79,7 @@ router.get("/users/counts", getUserCounts);
 router.get("/users/:id", getUserById);
 router.post("/users/update-status", decryptPayload, updateUserStatus);
 router.post("/users/update-role", decryptPayload, updateUserRole);
+router.delete("/users/:id", deleteUser);
 
 // Suggestions
 router.get("/suggestions", getAllSuggestions);
@@ -114,5 +118,13 @@ router.get("/promo-codes", getAllPromoCodes);
 router.post("/promo-codes", decryptPayload, createPromoCode);
 router.post("/promo-codes/update", decryptPayload, updatePromoCode);
 router.delete("/promo-codes/:id", deletePromoCode);
+
+// Verification and Completion
+router.post(
+  "/update-verification-status",
+  decryptPayload,
+  updateDailyVerificationStatus,
+);
+router.post("/admin-complete-app", decryptPayload, adminCompleteApp);
 
 export default router;
