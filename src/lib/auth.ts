@@ -181,7 +181,7 @@ export const auth = betterAuth({
         process.env.CORS_ORIGIN?.split(",")[0]
       }/auth/verification?token=${token}`;
       await sendEmail({
-        from: "Acme <onboarding@resend.dev>",
+        from: "Your Brand <noreply@system.intesters.com>",
         to: user.email,
         subject: "Verify your email address",
         html: `Click the link to verify your email: ${frontendUrl}`,

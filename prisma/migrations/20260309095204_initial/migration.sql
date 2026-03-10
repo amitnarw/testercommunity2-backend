@@ -35,7 +35,13 @@ CREATE TYPE "UserCommunicationMethod" AS ENUM ('EMAIL', 'PHONE', 'WHATSAPP', 'TE
 CREATE TYPE "UserNotificationPreference" AS ENUM ('APP_SUBMITTED', 'TEST_COMPLETED', 'TEST_ASSIGNED', 'COMMENT_ADDED', 'PROMOTIONS', 'OTHER');
 
 -- CreateEnum
+CREATE TYPE "TesterAvailability" AS ENUM ('AVAILABLE', 'BUSY', 'AWAY', 'DO_NOT_DISTURB');
+
+-- CreateEnum
 CREATE TYPE "TesterStatus" AS ENUM ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'DROPPED', 'REMOVED', 'REJECTED');
+
+-- CreateEnum
+CREATE TYPE "VerificationStatus" AS ENUM ('PENDING', 'VERIFIED', 'REJECTED');
 
 -- CreateEnum
 CREATE TYPE "FaqCategory" AS ENUM ('general', 'community', 'professional', 'homepage');
@@ -50,7 +56,7 @@ CREATE TYPE "DashboardAndHubStatus" AS ENUM ('IN_REVIEW', 'DRAFT', 'REJECTED', '
 CREATE TYPE "MediaType" AS ENUM ('IMAGE', 'VIDEO');
 
 -- CreateEnum
-CREATE TYPE "MediaCategory" AS ENUM ('APP_LOGO', 'SCREENSHOT', 'FEEDBACK_MEDIA', 'FEATURED_IMAGE', 'AUTHOR_IMAGE', 'OTHER');
+CREATE TYPE "MediaCategory" AS ENUM ('APP_LOGO', 'SCREENSHOT', 'FEATURED_VIDEO', 'FEATURED_IMAGE', 'AUTHOR_IMAGE', 'OTHER');
 
 -- CreateEnum
 CREATE TYPE "RatingType" AS ENUM ('APP', 'USER');
@@ -65,7 +71,7 @@ CREATE TYPE "FeedbackPriority" AS ENUM ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW');
 CREATE TYPE "NotificationType" AS ENUM ('NEW_TEST', 'FEEDBACK_RECEIVED', 'TEST_COMPLETED', 'BUG_REPORT', 'POINTS_AWARDED', 'NEW_JOIN_REQUEST', 'NEW_JOIN_ACCEPT', 'REJECTED', 'OTHER');
 
 -- CreateEnum
-CREATE TYPE "UserActionType" AS ENUM ('SUBMIT_APP', 'JOIN_TEST_REQUEST', 'JOIN_TEST_ACCEPT', 'JOIN_TEST_REJECTED', 'COMPLETE_TEST', 'GIVE_FEEDBACK', 'RATE_APP', 'LOGIN', 'LOGOUT', 'UPDATE_PROFILE', 'REGISTER', 'RENEW_TOKENS', 'OTHER');
+CREATE TYPE "UserActionType" AS ENUM ('SUBMIT_APP', 'JOIN_TEST_REQUEST', 'JOIN_TEST_ACCEPT', 'JOIN_TEST_REJECTED', 'COMPLETE_TEST', 'GIVE_FEEDBACK', 'RATE_APP', 'LOGIN', 'LOGOUT', 'UPDATE_PROFILE', 'REGISTER', 'RENEW_TOKENS', 'OTHER', 'DRAFT');
 
 -- CreateEnum
 CREATE TYPE "LogType" AS ENUM ('LOGIN', 'REGISTER', 'LOGOUT', 'PASSWORD_RESET', 'RENEW_TOKENS', 'ERROR', 'ADMIN_ACTION', 'SYSTEM_ACTION', 'OTHER');
@@ -102,6 +108,18 @@ CREATE TYPE "UserTransactionStatus" AS ENUM ('CREDIT', 'DEBIT', 'HOLD');
 
 -- CreateEnum
 CREATE TYPE "AuditResult" AS ENUM ('SUCCESS', 'FAIL');
+
+-- CreateEnum
+CREATE TYPE "OrderStatus" AS ENUM ('CREATED', 'ATTEMPTED', 'PAID', 'EXPIRED', 'CANCELLED');
+
+-- CreateEnum
+CREATE TYPE "PaymentStatus" AS ENUM ('PENDING', 'AUTHORIZED', 'CAPTURED', 'FAILED', 'REFUNDED', 'PARTIALLY_REFUNDED');
+
+-- CreateEnum
+CREATE TYPE "RefundStatus" AS ENUM ('NONE', 'PARTIAL', 'FULL');
+
+-- CreateEnum
+CREATE TYPE "RefundModelStatus" AS ENUM ('PENDING', 'PROCESSED', 'FAILED');
 
 -- CreateTable
 CREATE TABLE "user" (
@@ -151,6 +169,7 @@ CREATE TABLE "user_detail" (
     "initial" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "availability" "TesterAvailability" DEFAULT 'AVAILABLE',
 
     CONSTRAINT "user_detail_pkey" PRIMARY KEY ("id")
 );
@@ -171,6 +190,22 @@ CREATE TABLE "tester_relation" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "tester_relation_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "daily_tester_verification" (
+    "id" SERIAL NOT NULL,
+    "testerRelationId" INTEGER NOT NULL,
+    "dayNumber" INTEGER NOT NULL,
+    "proofImageUrl" TEXT NOT NULL,
+    "status" "VerificationStatus" NOT NULL DEFAULT 'PENDING',
+    "verifiedAt" TIMESTAMP(3),
+    "rejectionReason" TEXT,
+    "metaData" JSONB,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "daily_tester_verification_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -263,8 +298,10 @@ CREATE TABLE "dashboard_and_hub" (
     "instructionsForTester" TEXT,
     "rewardPoints" DOUBLE PRECISION,
     "costPoints" DOUBLE PRECISION,
+    "rewardMoney" DOUBLE PRECISION,
+    "costMoney" DOUBLE PRECISION,
     "averageTimeTesting" TEXT,
-    "minimumAndroidVersion" INTEGER NOT NULL,
+    "minimumAndroidVersion" DOUBLE PRECISION NOT NULL,
     "status" "DashboardAndHubStatus" NOT NULL,
     "statusDetails" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -365,6 +402,7 @@ CREATE TABLE "user_activity" (
     "status" "AuditResult" NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "feedbackId" INTEGER,
 
     CONSTRAINT "user_activity_pkey" PRIMARY KEY ("id")
 );
@@ -476,6 +514,7 @@ CREATE TABLE "user_wallet" (
     "userId" TEXT NOT NULL,
     "totalPoints" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "totalPackages" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "balanceMoney" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "lastUpdated" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -592,6 +631,118 @@ CREATE TABLE "control_room" (
 );
 
 -- CreateTable
+CREATE TABLE "order" (
+    "id" SERIAL NOT NULL,
+    "userId" TEXT NOT NULL,
+    "planId" TEXT,
+    "packageCount" INTEGER DEFAULT 1,
+    "razorpayOrderId" TEXT NOT NULL,
+    "receipt" TEXT NOT NULL,
+    "amount" INTEGER NOT NULL,
+    "currency" TEXT NOT NULL DEFAULT 'INR',
+    "status" "OrderStatus" NOT NULL DEFAULT 'CREATED',
+    "notes" JSONB,
+    "attempts" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "expiresAt" TIMESTAMP(3),
+
+    CONSTRAINT "order_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "payment" (
+    "id" SERIAL NOT NULL,
+    "orderId" INTEGER NOT NULL,
+    "razorpayPaymentId" TEXT NOT NULL,
+    "razorpayOrderId" TEXT NOT NULL,
+    "razorpaySignature" TEXT,
+    "amount" INTEGER NOT NULL,
+    "currency" TEXT NOT NULL DEFAULT 'INR',
+    "status" "PaymentStatus" NOT NULL DEFAULT 'PENDING',
+    "method" TEXT,
+    "bank" TEXT,
+    "wallet" TEXT,
+    "vpa" TEXT,
+    "email" TEXT,
+    "contact" TEXT,
+    "fee" INTEGER DEFAULT 0,
+    "tax" INTEGER DEFAULT 0,
+    "errorCode" TEXT,
+    "errorDescription" TEXT,
+    "errorReason" TEXT,
+    "amountRefunded" INTEGER NOT NULL DEFAULT 0,
+    "refundStatus" "RefundStatus",
+    "notes" JSONB,
+    "captured" BOOLEAN NOT NULL DEFAULT false,
+    "international" BOOLEAN NOT NULL DEFAULT false,
+    "webhookVerified" BOOLEAN NOT NULL DEFAULT false,
+    "webhookPayload" JSONB,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "payment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "refund" (
+    "id" SERIAL NOT NULL,
+    "paymentId" INTEGER NOT NULL,
+    "razorpayRefundId" TEXT NOT NULL,
+    "razorpayPaymentId" TEXT NOT NULL,
+    "amount" INTEGER NOT NULL,
+    "currency" TEXT NOT NULL DEFAULT 'INR',
+    "status" "RefundModelStatus" NOT NULL DEFAULT 'PENDING',
+    "reason" TEXT,
+    "notes" JSONB,
+    "speed" TEXT DEFAULT 'normal',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "processedAt" TIMESTAMP(3),
+
+    CONSTRAINT "refund_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "webhook_event_log" (
+    "id" SERIAL NOT NULL,
+    "eventId" TEXT NOT NULL,
+    "eventType" TEXT NOT NULL,
+    "payload" JSONB NOT NULL,
+    "processed" BOOLEAN NOT NULL DEFAULT false,
+    "processingError" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "processedAt" TIMESTAMP(3),
+
+    CONSTRAINT "webhook_event_log_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "promo_code" (
+    "id" SERIAL NOT NULL,
+    "code" TEXT NOT NULL,
+    "fixedPoints" DOUBLE PRECISION NOT NULL DEFAULT 200,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "maxUses" INTEGER,
+    "maxPerUser" INTEGER,
+    "usedCount" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "promo_code_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "user_promo_usage" (
+    "id" SERIAL NOT NULL,
+    "userId" TEXT NOT NULL,
+    "promoCodeId" INTEGER NOT NULL,
+    "usedCount" INTEGER NOT NULL DEFAULT 0,
+
+    CONSTRAINT "user_promo_usage_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "_DashboardAndHubTesters" (
     "A" INTEGER NOT NULL,
     "B" TEXT NOT NULL,
@@ -620,6 +771,9 @@ CREATE UNIQUE INDEX "user_detail_phone_key" ON "user_detail"("phone");
 CREATE UNIQUE INDEX "tester_relation_testerId_dashboardAndHubId_key" ON "tester_relation"("testerId", "dashboardAndHubId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "daily_tester_verification_testerRelationId_dayNumber_key" ON "daily_tester_verification"("testerRelationId", "dayNumber");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "session_token_key" ON "session"("token");
 
 -- CreateIndex
@@ -638,6 +792,9 @@ CREATE UNIQUE INDEX "android_app_appLogoUrl_key" ON "android_app"("appLogoUrl");
 CREATE UNIQUE INDEX "android_app_packageName_key" ON "android_app"("packageName");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "media_feedbackId_key" ON "media"("feedbackId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "support_agent_userId_key" ON "support_agent"("userId");
 
 -- CreateIndex
@@ -653,6 +810,60 @@ CREATE UNIQUE INDEX "module_name_key" ON "module"("name");
 CREATE UNIQUE INDEX "password_reset_password_reset_token_key" ON "password_reset"("password_reset_token");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "order_razorpayOrderId_key" ON "order"("razorpayOrderId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "order_receipt_key" ON "order"("receipt");
+
+-- CreateIndex
+CREATE INDEX "order_userId_idx" ON "order"("userId");
+
+-- CreateIndex
+CREATE INDEX "order_razorpayOrderId_idx" ON "order"("razorpayOrderId");
+
+-- CreateIndex
+CREATE INDEX "order_status_idx" ON "order"("status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "payment_razorpayPaymentId_key" ON "payment"("razorpayPaymentId");
+
+-- CreateIndex
+CREATE INDEX "payment_orderId_idx" ON "payment"("orderId");
+
+-- CreateIndex
+CREATE INDEX "payment_razorpayPaymentId_idx" ON "payment"("razorpayPaymentId");
+
+-- CreateIndex
+CREATE INDEX "payment_razorpayOrderId_idx" ON "payment"("razorpayOrderId");
+
+-- CreateIndex
+CREATE INDEX "payment_status_idx" ON "payment"("status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "refund_razorpayRefundId_key" ON "refund"("razorpayRefundId");
+
+-- CreateIndex
+CREATE INDEX "refund_paymentId_idx" ON "refund"("paymentId");
+
+-- CreateIndex
+CREATE INDEX "refund_razorpayRefundId_idx" ON "refund"("razorpayRefundId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "webhook_event_log_eventId_key" ON "webhook_event_log"("eventId");
+
+-- CreateIndex
+CREATE INDEX "webhook_event_log_eventId_idx" ON "webhook_event_log"("eventId");
+
+-- CreateIndex
+CREATE INDEX "webhook_event_log_eventType_idx" ON "webhook_event_log"("eventType");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "promo_code_code_key" ON "promo_code"("code");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "user_promo_usage_userId_promoCodeId_key" ON "user_promo_usage"("userId", "promoCodeId");
+
+-- CreateIndex
 CREATE INDEX "_DashboardAndHubTesters_B_index" ON "_DashboardAndHubTesters"("B");
 
 -- CreateIndex
@@ -665,19 +876,22 @@ ALTER TABLE "user_detail" ADD CONSTRAINT "user_detail_roleId_fkey" FOREIGN KEY (
 ALTER TABLE "user_detail" ADD CONSTRAINT "user_detail_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "tester_relation" ADD CONSTRAINT "tester_relation_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "tester_relation" ADD CONSTRAINT "tester_relation_testerId_fkey" FOREIGN KEY ("testerId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "tester_relation" ADD CONSTRAINT "tester_relation_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "daily_tester_verification" ADD CONSTRAINT "daily_tester_verification_testerRelationId_fkey" FOREIGN KEY ("testerRelationId") REFERENCES "tester_relation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "session" ADD CONSTRAINT "session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_plan" ADD CONSTRAINT "user_plan_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_plan" ADD CONSTRAINT "user_plan_planId_fkey" FOREIGN KEY ("planId") REFERENCES "plans"("_id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_plan" ADD CONSTRAINT "user_plan_planId_fkey" FOREIGN KEY ("planId") REFERENCES "plans"("_id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_plan" ADD CONSTRAINT "user_plan_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "dashboard_and_hub" ADD CONSTRAINT "dashboard_and_hub_appId_fkey" FOREIGN KEY ("appId") REFERENCES "android_app"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -701,10 +915,10 @@ ALTER TABLE "media" ADD CONSTRAINT "media_feedbackId_fkey" FOREIGN KEY ("feedbac
 ALTER TABLE "media" ADD CONSTRAINT "media_notificationId_fkey" FOREIGN KEY ("notificationId") REFERENCES "notification"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "media" ADD CONSTRAINT "media_supportRequestId_fkey" FOREIGN KEY ("supportRequestId") REFERENCES "support_request"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "media" ADD CONSTRAINT "media_supportMessageId_fkey" FOREIGN KEY ("supportMessageId") REFERENCES "support_message"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "media" ADD CONSTRAINT "media_supportMessageId_fkey" FOREIGN KEY ("supportMessageId") REFERENCES "support_message"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "media" ADD CONSTRAINT "media_supportRequestId_fkey" FOREIGN KEY ("supportRequestId") REFERENCES "support_request"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "rating" ADD CONSTRAINT "rating_appId_fkey" FOREIGN KEY ("appId") REFERENCES "android_app"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -713,22 +927,25 @@ ALTER TABLE "rating" ADD CONSTRAINT "rating_appId_fkey" FOREIGN KEY ("appId") RE
 ALTER TABLE "rating" ADD CONSTRAINT "rating_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "feedback" ADD CONSTRAINT "feedback_testerId_fkey" FOREIGN KEY ("testerId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "feedback" ADD CONSTRAINT "feedback_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "feedback" ADD CONSTRAINT "feedback_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "feedback" ADD CONSTRAINT "feedback_testerId_fkey" FOREIGN KEY ("testerId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "notification" ADD CONSTRAINT "notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_androidAppId_fkey" FOREIGN KEY ("androidAppId") REFERENCES "android_app"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_androidAppId_fkey" FOREIGN KEY ("androidAppId") REFERENCES "android_app"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_feedbackId_fkey" FOREIGN KEY ("feedbackId") REFERENCES "feedback"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "user_activity" ADD CONSTRAINT "user_activity_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "user_logs" ADD CONSTRAINT "user_logs_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -737,16 +954,16 @@ ALTER TABLE "user_logs" ADD CONSTRAINT "user_logs_userId_fkey" FOREIGN KEY ("use
 ALTER TABLE "website_feedback_suggestion" ADD CONSTRAINT "website_feedback_suggestion_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "support_request" ADD CONSTRAINT "support_request_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "support_request" ADD CONSTRAINT "support_request_supportAgentId_fkey" FOREIGN KEY ("supportAgentId") REFERENCES "support_agent"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "support_message" ADD CONSTRAINT "support_message_supportRequestId_fkey" FOREIGN KEY ("supportRequestId") REFERENCES "support_request"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "support_request" ADD CONSTRAINT "support_request_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "support_message" ADD CONSTRAINT "support_message_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "support_message" ADD CONSTRAINT "support_message_supportRequestId_fkey" FOREIGN KEY ("supportRequestId") REFERENCES "support_request"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "support_agent" ADD CONSTRAINT "support_agent_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -755,10 +972,10 @@ ALTER TABLE "support_agent" ADD CONSTRAINT "support_agent_userId_fkey" FOREIGN K
 ALTER TABLE "withdrawal_request" ADD CONSTRAINT "withdrawal_request_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_transactions" ADD CONSTRAINT "user_transactions_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "user_transactions" ADD CONSTRAINT "user_transactions_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "user_transactions" ADD CONSTRAINT "user_transactions_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "user_transactions" ADD CONSTRAINT "user_transactions_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "user_transactions" ADD CONSTRAINT "user_transactions_userWalletId_fkey" FOREIGN KEY ("userWalletId") REFERENCES "user_wallet"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -767,10 +984,10 @@ ALTER TABLE "user_transactions" ADD CONSTRAINT "user_transactions_userWalletId_f
 ALTER TABLE "user_wallet" ADD CONSTRAINT "user_wallet_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "permission" ADD CONSTRAINT "permission_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "role"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "permission" ADD CONSTRAINT "permission_moduleId_fkey" FOREIGN KEY ("moduleId") REFERENCES "module"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "permission" ADD CONSTRAINT "permission_moduleId_fkey" FOREIGN KEY ("moduleId") REFERENCES "module"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "permission" ADD CONSTRAINT "permission_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "role"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "audit_log" ADD CONSTRAINT "audit_log_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -780,6 +997,24 @@ ALTER TABLE "account" ADD CONSTRAINT "account_userId_fkey" FOREIGN KEY ("userId"
 
 -- AddForeignKey
 ALTER TABLE "password_reset" ADD CONSTRAINT "password_reset_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "order" ADD CONSTRAINT "order_planId_fkey" FOREIGN KEY ("planId") REFERENCES "plans"("_id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "order" ADD CONSTRAINT "order_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "payment" ADD CONSTRAINT "payment_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "order"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "refund" ADD CONSTRAINT "refund_paymentId_fkey" FOREIGN KEY ("paymentId") REFERENCES "payment"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "user_promo_usage" ADD CONSTRAINT "user_promo_usage_promoCodeId_fkey" FOREIGN KEY ("promoCodeId") REFERENCES "promo_code"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "user_promo_usage" ADD CONSTRAINT "user_promo_usage_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "_DashboardAndHubTesters" ADD CONSTRAINT "_DashboardAndHubTesters_A_fkey" FOREIGN KEY ("A") REFERENCES "dashboard_and_hub"("id") ON DELETE CASCADE ON UPDATE CASCADE;
