@@ -73,6 +73,11 @@ model UserDetail {
   screen_resolution       String?
   language                String?
   network                 String?
+  bio                     String?
+  years_of_experience     String?
+  testing_types           String[]                    @default([])
+  tester_devices          String[]                    @default([])
+  tester_os_versions      String[]                    @default([])
   initial                 Boolean                      @default(true)
   createdAt               DateTime                     @default(now())
   updatedAt               DateTime                     @updatedAt

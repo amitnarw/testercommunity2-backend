@@ -181,9 +181,9 @@ export const auth = betterAuth({
         process.env.CORS_ORIGIN?.split(",")[0]
       }/auth/verification?token=${token}`;
       await sendEmail({
-        from: "Your Brand <noreply@system.intesters.com>",
+        from: "InTesters <noreply@system.intesters.com>",
         to: user.email,
-        subject: "Verify your email address",
+        subject: "Verify your email address | InTesters",
         html: `Click the link to verify your email: ${frontendUrl}`,
       });
     },
@@ -226,6 +226,13 @@ export const auth = betterAuth({
           let first_name = ctx?.body?.first_name as string;
           let last_name = ctx?.body?.last_name as string;
 
+          let bio = ctx?.body?.bio as string;
+          let years_of_experience = ctx?.body?.experience as string;
+          let testing_types = ctx?.body?.testingTypes as string[];
+          let tester_devices = ctx?.body?.devices as string[];
+          let tester_os_versions = ctx?.body?.osVersions as string[];
+          let language = ctx?.body?.languages as string;
+
           // If names are missing (e.g. OAuth), parse from user.name
           if (!first_name || !last_name) {
             const parts = user.name.split(" ");
@@ -244,6 +251,12 @@ export const auth = betterAuth({
             },
             update: {
               roleId: roleRecord?.id,
+              bio,
+              years_of_experience,
+              testing_types,
+              tester_devices,
+              tester_os_versions,
+              language,
             },
             create: {
               userId: user?.id,
@@ -251,6 +264,12 @@ export const auth = betterAuth({
               last_name: last_name,
               auth_type: auth_type as UserAuthType,
               roleId: roleRecord?.id,
+              bio,
+              years_of_experience,
+              testing_types,
+              tester_devices,
+              tester_os_versions,
+              language,
             },
           });
         },
