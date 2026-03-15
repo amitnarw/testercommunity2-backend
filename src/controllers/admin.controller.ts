@@ -99,6 +99,24 @@ export const acceptApp = async (req: Request, res: Response) => {
       return sendError(res, 404, "App not found");
     }
 
+    // Validation for testing parameters
+    if (totalTester === undefined || parseInt(totalTester) <= 0) {
+      return sendError(res, 400, "Total Testers must be a positive number");
+    }
+    if (totalDay === undefined || parseInt(totalDay) <= 0) {
+      return sendError(res, 400, "Total Duration must be a positive number");
+    }
+    if (minimumAndroidVersion === undefined) {
+      return sendError(res, 400, "Minimum Android Version is required");
+    }
+    if (rewardPoints === undefined || parseFloat(rewardPoints) < 0) {
+      return sendError(
+        res,
+        400,
+        "Reward Points/Payout must be a non-negative number",
+      );
+    }
+
     const dataToUpdate: any = {};
 
     // Only set AVAILABLE status if it was IN_REVIEW
