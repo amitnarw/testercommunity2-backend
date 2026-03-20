@@ -1556,7 +1556,7 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       );
     }
 
-    if (relation.status !== "IN_PROGRESS") {
+    if (relation.status !== "IN_PROGRESS" || relation.dashboardAndHub?.status !== "IN_TESTING") {
       return sendError(
         res,
         400,
