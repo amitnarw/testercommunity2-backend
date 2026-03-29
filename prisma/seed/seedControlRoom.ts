@@ -1,9 +1,10 @@
+import logger from "../../src/utils/logger";
 import { prismaClient } from "../../src/lib/prisma";
 
 const prisma = prismaClient;
 
 export async function seedControlRoom() {
-  console.log("Seeding control room values...");
+  logger.info("Seeding control room values...");
 
   await prisma.controlRoom.create({
     data: {
@@ -13,7 +14,7 @@ export async function seedControlRoom() {
     },
   });
 
-  console.log("Control room values seeded successfully!");
+  logger.info("Control room values seeded successfully!");
 }
 
 // function is already exported above

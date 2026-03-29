@@ -1,3 +1,6 @@
+import fs from "fs";
+import path from "path";
+import logger from "../utils/logger";
 import { prismaClient } from "@/lib/prisma";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
@@ -2172,5 +2175,197 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
       500,
       error instanceof Error ? error.message : "Internal Server Error",
     );
+  }
+};
+
+// ==================== SYSTEM LOGS ====================
+
+// Helper to safely resolve log file paths
+const getLogFilePath = (filename: string) => {
+  const logDir = path.resolve(process.cwd(), "logs");
+  const safePath = path.resolve(logDir, filename);
+
+  // Prevent directory traversal attacks
+  if (!safePath.startsWith(logDir)) {
+    throw new Error("Invalid file path");
+  }
+  return safePath;
+};
+
+// @desc    Get all log files
+// @route   GET /api/admin/logs
+// @access  Private (Admin)
+export const getLogs = async (req: Request, res: Response) => {
+  try {
+    const logDir = path.resolve(process.cwd(), "logs");
+    
+    if (!fs.existsSync(logDir)) {
+      return sendSuccess(res, [], "No logs directory found");
+    }
+
+    const files = fs.readdirSync(logDir);
+    const logFiles = files
+      .filter((file) => file.endsWith(".log") || file.endsWith(".gz"))
+      .map((file) => {
+        const stats = fs.statSync(path.join(logDir, file));
+        return {
+          filename: file,
+          size: stats.size,
+          mtime: stats.mtime,
+        };
+      })
+      .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+
+    return sendSuccess(res, logFiles, "Logs retrieved successfully");
+  } catch (error) {
+    logger.error("Error getting logs:", error);
+    return sendError(res, 500, "Server Error fetching logs");
+  }
+};
+
+// @desc    Get log content
+// @route   GET /api/admin/logs/:filename
+// @access  Private (Admin)
+export const getLogContent = async (req: Request, res: Response) => {
+  try {
+    const { filename } = req.params;
+    const filePath = getLogFilePath(filename);
+
+    if (!fs.existsSync(filePath)) {
+      return sendError(res, 404, "Log file not found");
+    }
+
+    // Only allow reading text/log files directly
+    if (filename.endsWith('.gz')) {
+         return sendError(res, 400, "Cannot read compressed logs directly");
+    }
+
+    const stats = fs.statSync(filePath);
+    if (stats.size > 10 * 1024 * 1024) { // 10MB limit
+      return sendError(res, 400, "Log file too large to display directly");
+    }
+
+    const content = fs.readFileSync(filePath, "utf-8");
+    return sendSuccess(res, { content, filename }, "Log content fetched");
+  } catch (error) {
+    logger.error("Error reading log content:", error);
+    if (error instanceof Error && error.message === "Invalid file path") {
+      return sendError(res, 400, "Invalid file name");
+    }
+    return sendError(res, 500, "Server Error fetching log content");
+  }
+};
+
+// @desc    Delete a log file
+// @route   DELETE /api/admin/logs/:filename
+// @access  Private (Admin)
+export const deleteLog = async (req: Request, res: Response) => {
+  try {
+    const { filename } = req.params;
+    const filePath = getLogFilePath(filename);
+
+    if (!fs.existsSync(filePath)) {
+      return sendError(res, 404, "Log file not found");
+    }
+
+    fs.unlinkSync(filePath);
+    return sendSuccess(res, null, "Log file deleted successfully");
+  } catch (error) {
+    logger.error("Error deleting log:", error);
+    if (error instanceof Error && error.message === "Invalid file path") {
+      return sendError(res, 400, "Invalid file name");
+    }
+    return sendError(res, 500, "Server Error deleting log file");
+  }
+};
+
+// @desc    Delete multiple log files
+// @route   POST /api/admin/logs/batch-delete
+// @access  Private (Admin)
+export const deleteLogsBatch = async (req: Request, res: Response) => {
+  try {
+    const { filenames } = req.body;
+    
+    if (!filenames || !Array.isArray(filenames)) {
+      return sendError(res, 400, "Invalid request payload. Expected an array of filenames.");
+    }
+
+    let deletedCount = 0;
+    const errors: string[] = [];
+
+    for (const filename of filenames) {
+      if (typeof filename !== "string") continue;
+      
+      try {
+        const filePath = getLogFilePath(filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          deletedCount++;
+        }
+      } catch (err) {
+        errors.push(`Failed to delete ${filename}: ${err instanceof Error ? err.message : "Unknown error"}`);
+      }
+    }
+
+    if (deletedCount === 0 && errors.length > 0) {
+      return sendError(res, 500, `Failed to delete files. Errors: ${errors.join(", ")}`);
+    }
+
+    return sendSuccess(
+      res, 
+      { deletedCount, errors }, 
+      `Successfully deleted ${deletedCount} log files`
+    );
+  } catch (error) {
+    logger.error("Error in batch deleting logs:", error);
+    return sendError(res, 500, "Server Error deleting log files");
+  }
+};
+
+// @desc    Delete a specific log entry (line) from a log file
+// @route   DELETE /api/admin/logs/:filename/entry/:index
+// @access  Private (Admin)
+export const deleteLogEntry = async (req: Request, res: Response) => {
+  try {
+    const { filename, index } = req.params;
+    const entryIndex = parseInt(index, 10);
+
+    if (isNaN(entryIndex)) {
+      return sendError(res, 400, "Invalid entry index");
+    }
+
+    const filePath = getLogFilePath(filename);
+
+    if (!fs.existsSync(filePath)) {
+      return sendError(res, 404, "Log file not found");
+    }
+
+    // Only allow operations on text/log files
+    if (filename.endsWith('.gz')) {
+      return sendError(res, 400, "Cannot modify compressed logs");
+    }
+
+    // Read file and filter entries
+    const fileContent = fs.readFileSync(filePath, "utf-8");
+    const lines = fileContent.split(/\r?\n/).filter(line => line.trim() !== "");
+    
+    if (entryIndex < 0 || entryIndex >= lines.length) {
+      return sendError(res, 400, "Entry index out of bounds");
+    }
+
+    lines.splice(entryIndex, 1);
+    
+    // Write back the file
+    // Join with newline and append one at the end if the original had one
+    const newContent = lines.join("\n") + (lines.length > 0 ? "\n" : "");
+    fs.writeFileSync(filePath, newContent, "utf-8");
+
+    return sendSuccess(res, null, "Log entry deleted successfully");
+  } catch (error) {
+    logger.error("Error deleting log entry:", error);
+    if (error instanceof Error && error.message === "Invalid file path") {
+      return sendError(res, 400, "Invalid file name");
+    }
+    return sendError(res, 500, "Server Error deleting log entry");
   }
 };

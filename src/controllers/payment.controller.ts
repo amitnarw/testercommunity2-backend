@@ -1,3 +1,4 @@
+import logger from "../utils/logger";
 /**
  * Payment Controller - Razorpay Integration
  * 
@@ -72,7 +73,7 @@ export const getConfig = async (_req: Request, res: Response) => {
             description: "Tester Community Payment Gateway",
         });
     } catch (error) {
-        console.error("Error getting payment config:", error);
+        logger.error("Error getting payment config:", error);
         return sendError(res, 500, "Failed to get payment configuration");
     }
 };
@@ -170,7 +171,7 @@ export const createOrder = async (req: Request, res: Response) => {
             },
         }, "Order created successfully");
     } catch (error: any) {
-        console.error("Error creating order:", error);
+        logger.error("Error creating order:", error);
         return sendError(
             res,
             error.message || "Failed to create order",
@@ -209,7 +210,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
         );
 
         if (!isValid) {
-            console.error("Payment signature verification failed:", {
+            logger.error("Payment signature verification failed:", {
                 orderId: razorpay_order_id,
                 paymentId: razorpay_payment_id,
             });
@@ -336,7 +337,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
             isNew: result.isNew,
         }, "Payment verified successfully");
     } catch (error: any) {
-        console.error("Error verifying payment:", error);
+        logger.error("Error verifying payment:", error);
         return sendError(
             res,
             error.message || "Payment verification failed",
@@ -398,7 +399,7 @@ export const getPaymentStatus = async (req: Request, res: Response) => {
             } : null,
         });
     } catch (error: any) {
-        console.error("Error getting payment status:", error);
+        logger.error("Error getting payment status:", error);
         return sendError(res, 500, "Failed to get payment status");
     }
 };
@@ -463,7 +464,7 @@ export const getPaymentHistory = async (req: Request, res: Response) => {
             },
         });
     } catch (error: any) {
-        console.error("Error getting payment history:", error);
+        logger.error("Error getting payment history:", error);
         return sendError(res, 500, "Failed to get payment history");
     }
 };
@@ -479,13 +480,13 @@ export const handleWebhook = async (req: Request, res: Response) => {
         const signature = req.headers["x-razorpay-signature"] as string;
 
         if (!signature) {
-            console.error("Webhook: Missing signature header");
+            logger.error("Webhook: Missing signature header");
             return res.status(400).json({ error: "Missing signature" });
         }
 
         // Verify webhook signature
         if (!verifyWebhookSignature(rawBody, signature, RAZORPAY_WEBHOOK_SECRET)) {
-            console.error("Webhook: Invalid signature");
+            logger.error("Webhook: Invalid signature");
             return res.status(400).json({ error: "Invalid signature" });
         }
 
@@ -498,7 +499,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
         });
 
         if (existingEvent?.processed) {
-            console.log(`Webhook: Duplicate event ${eventId}, skipping`);
+            logger.info(`Webhook: Duplicate event ${eventId}, skipping`);
             return res.status(200).json({ status: "already_processed" });
         }
 
@@ -536,11 +537,11 @@ export const handleWebhook = async (req: Request, res: Response) => {
                 },
             });
 
-            console.error("Webhook processing error:", processingError);
+            logger.error("Webhook processing error:", processingError);
             return res.status(200).json({ status: "processing_error" });
         }
     } catch (error: any) {
-        console.error("Webhook handler error:", error);
+        logger.error("Webhook handler error:", error);
         return res.status(500).json({ error: "Internal server error" });
     }
 };
@@ -574,7 +575,7 @@ async function processWebhookEvent(event: RazorpayWebhookEvent): Promise<void> {
             break;
 
         default:
-            console.log(`Webhook: Unhandled event type: ${eventType}`);
+            logger.info(`Webhook: Unhandled event type: ${eventType}`);
     }
 }
 
@@ -712,7 +713,7 @@ async function handleOrderPaid(event: RazorpayWebhookEvent): Promise<void> {
 async function handleRefundEvent(event: RazorpayWebhookEvent): Promise<void> {
     // Refund handling would go here
     // Implementation depends on your refund processing requirements
-    console.log("Refund event received:", event.event);
+    logger.info("Refund event received:", event.event);
 }
 
 /**
@@ -815,7 +816,7 @@ export const initiateRefund = async (req: Request, res: Response) => {
             },
         }, "Refund initiated successfully");
     } catch (error: any) {
-        console.error("Error initiating refund:", error);
+        logger.error("Error initiating refund:", error);
         return sendError(res, 500, error.message || "Failed to initiate refund");
     }
 };

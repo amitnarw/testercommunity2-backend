@@ -27,13 +27,15 @@
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "device-detector-js": "^3.0.3",
-    "dotenv": "^17.2.3",
+    "dotenv": "^17.3.1",
     "express": "^5.1.0",
     "geoip-lite": "^1.4.10",
     "jose": "^6.1.1",
     "razorpay": "^2.9.6",
     "resend": "^6.5.2",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",

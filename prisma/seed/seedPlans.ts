@@ -1,3 +1,4 @@
+import logger from "../../src/utils/logger";
 import { prismaClient } from "../../src/lib/prisma";
 
 const prisma = prismaClient;
@@ -22,11 +23,11 @@ const plans = [
 ];
 
 export async function seedPlans() {
-  console.log(`Start seeding plans...`);
+  logger.info(`Start seeding plans...`);
 
   // Remove all existing plans before inserting fresh data
   await prisma.plans.deleteMany();
-  console.log(`Cleared existing plans.`);
+  logger.info(`Cleared existing plans.`);
 
   for (const planData of plans) {
     const plan = await prisma.plans.upsert({
@@ -46,8 +47,8 @@ export async function seedPlans() {
         features: planData.features,
       },
     });
-    console.log(`Created/updated plan: ${plan.name} (id: ${plan.id})`);
+    logger.info(`Created/updated plan: ${plan.name} (id: ${plan.id})`);
   }
 
-  console.log(`Plans seeding finished.`);
+  logger.info(`Plans seeding finished.`);
 }

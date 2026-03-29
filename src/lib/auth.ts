@@ -6,6 +6,7 @@ import { sendEmail } from "@/services/resend";
 import { createAuthMiddleware, customSession } from "better-auth/plugins";
 import type { UserAuthType } from "prisma/generated/prisma";
 import { SignJWT } from "jose";
+import logger from "../utils/logger";
 
 const rolePlugin = customSession(async ({ user, session }, ctx) => {
   const role = await prismaClient?.userDetail?.findUnique({
@@ -188,7 +189,7 @@ export const auth = betterAuth({
       });
     },
     async afterEmailVerification(user, request) {
-      console.log(`${user.email} has been successfully verified!`);
+      logger.info(`${user.email} has been successfully verified!`);
     },
   },
 

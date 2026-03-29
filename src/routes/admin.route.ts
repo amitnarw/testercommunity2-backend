@@ -47,6 +47,11 @@ import {
   deletePromoCode,
   updateDailyVerificationStatus,
   adminCompleteApp,
+  getLogs,
+  getLogContent,
+  deleteLog,
+  deleteLogsBatch,
+  deleteLogEntry,
 } from "@/controllers/admin.controller";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 import Router from "express";
@@ -126,5 +131,12 @@ router.post(
   updateDailyVerificationStatus,
 );
 router.post("/admin-complete-app", decryptPayload, adminCompleteApp);
+
+// System Logs
+router.get("/logs", getLogs);
+router.get("/logs/:filename", getLogContent);
+router.delete("/logs/:filename", deleteLog);
+router.post("/logs/batch-delete", decryptPayload, deleteLogsBatch);
+router.delete("/logs/:filename/entry/:index", deleteLogEntry);
 
 export default router;

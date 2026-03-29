@@ -1,3 +1,4 @@
+import logger from "../utils/logger";
 import { type Request, type Response } from "express";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
@@ -110,10 +111,8 @@ export const createOrder = async (req: Request, res: Response) => {
       return sendError(res, 503, "Payment service is not configured");
     }
 
-    // Handle both decrypted payload and direct body
-    const body = req.body.payload || req.body;
-    const { planId } = body;
-
+    const { payload } = await req.body;
+    const { planId } = payload;
     if (!planId) {
       return sendError(res, 400, "Plan ID is required");
     }
@@ -183,7 +182,7 @@ export const createOrder = async (req: Request, res: Response) => {
       "Order created successfully",
     );
   } catch (error) {
-    console.error("Create order error:", error);
+    logger.error("Create order error:", error);
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
@@ -214,8 +213,9 @@ export const verifyPayment = async (req: Request, res: Response) => {
       return sendError(res, 401, "Unauthorized");
     }
 
-    const body = req.body.payload || req.body;
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = body;
+    const { payload } = await req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
+      payload;
 
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
       return sendError(res, 400, "Missing payment verification data");
@@ -356,7 +356,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
       "Payment verified and packages credited successfully",
     );
   } catch (error) {
-    console.error("Verify payment error:", error);
+    logger.error("Verify payment error:", error);
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
@@ -526,7 +526,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
     return res.status(200).json({ status: "processed" });
   } catch (error) {
-    console.error("Webhook error:", error);
+    logger.error("Webhook error:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
 };

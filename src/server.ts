@@ -5,6 +5,7 @@ import routes from "./routes/common";
 import { sendSuccess } from "./utils/response";
 import cookieParser from "cookie-parser";
 import extractInfo from "./middlewares/extractInfo";
+import logger from "./utils/logger";
 
 const PORT = process.env.PORT;
 const allowedOrigins = process.env.CORS_ORIGIN?.split(",") || [];
@@ -19,7 +20,7 @@ const corsOptions: CorsOptions = {
 
     // In development, be more permissive
     if (process.env.NODE_ENV !== "production") {
-      console.warn(`CORS: Allowing origin '${origin}' in development mode`);
+      logger.warn(`CORS: Allowing origin '${origin}' in development mode`);
       return callback(null, true);
     }
 
@@ -64,5 +65,5 @@ app.get("/health", (_, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server is running on port: ${PORT}`);
+  logger.info(`Server is running on port: ${PORT}`);
 });

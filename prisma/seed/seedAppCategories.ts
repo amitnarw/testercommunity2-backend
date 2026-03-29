@@ -1,3 +1,4 @@
+import logger from "../../src/utils/logger";
 import { prismaClient } from "../../src/lib/prisma";
 
 const prisma = prismaClient;
@@ -27,7 +28,7 @@ const categories = [
 ];
 
 async function seedAppCategories() {
-  console.log("Start seeding app categories...");
+  logger.info("Start seeding app categories...");
 
   for (const name of categories) {
     await prisma.appCategory.upsert({
@@ -40,7 +41,7 @@ async function seedAppCategories() {
     });
   }
 
-  console.log("App categories seeding finished.");
+  logger.info("App categories seeding finished.");
 }
 
 export { seedAppCategories };

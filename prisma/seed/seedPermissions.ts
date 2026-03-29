@@ -1,9 +1,10 @@
+import logger from "../../src/utils/logger";
 import { prismaClient } from "../../src/lib/prisma";
 
 const prisma = prismaClient;
 
 async function seedRolesModulesPermissions() {
-  console.log("Seeding roles, modules, and permissions...");
+  logger.info("Seeding roles, modules, and permissions...");
 
   // 1️⃣ Roles
   const roles = [
@@ -73,7 +74,7 @@ async function seedRolesModulesPermissions() {
     }
   }
 
-  console.log("Roles, modules, and permissions seeded successfully!");
+  logger.info("Roles, modules, and permissions seeded successfully!");
 }
 
 // Export the function for use in the master seed file

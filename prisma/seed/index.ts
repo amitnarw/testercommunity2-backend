@@ -1,3 +1,4 @@
+import logger from "../../src/utils/logger";
 import { prismaClient } from "../../src/lib/prisma";
 import { seedRolesModulesPermissions } from "./seedPermissions";
 import { seedControlRoom } from "./seedControlRoom";
@@ -10,32 +11,32 @@ import { seedPromoCodes } from "./seedPromoCodes";
 const prisma = prismaClient;
 
 async function main() {
-  console.log("🌱 Starting master seed...");
+  logger.info("🌱 Starting master seed...");
 
   try {
     await seedRolesModulesPermissions();
-    console.log("✅ Permissions seeded");
+    logger.info("✅ Permissions seeded");
 
     await seedControlRoom();
-    console.log("✅ Control Room seeded");
+    logger.info("✅ Control Room seeded");
 
     await seedPlans();
-    console.log("✅ Plans seeded");
+    logger.info("✅ Plans seeded");
 
     await seedAppCategories();
-    console.log("✅ App Categories seeded");
+    logger.info("✅ App Categories seeded");
 
     await seedAdmin();
-    console.log("✅ Admin seeded");
+    logger.info("✅ Admin seeded");
 
     await seedTester();
-    console.log("✅ Tester seeded");
+    logger.info("✅ Tester seeded");
 
     await seedPromoCodes();
 
-    console.log("🏁 All seeds completed successfully!");
+    logger.info("🏁 All seeds completed successfully!");
   } catch (e) {
-    console.error("❌ Seeding failed:", e);
+    logger.error("❌ Seeding failed:", e);
     process.exit(1);
   } finally {
     await prisma.$disconnect();

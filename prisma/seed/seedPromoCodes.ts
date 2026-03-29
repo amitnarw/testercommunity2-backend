@@ -1,9 +1,10 @@
+import logger from "../../src/utils/logger";
 import { prismaClient } from "../../src/lib/prisma";
 
 const prisma = prismaClient;
 
 export async function seedPromoCodes() {
-  console.log("🌱 Seeding promo codes...");
+  logger.info("🌱 Seeding promo codes...");
 
   await prisma.promoCode.upsert({
     where: { code: "WELCOME200" },
@@ -16,5 +17,5 @@ export async function seedPromoCodes() {
     },
   });
 
-  console.log("✅ Promo codes seeded");
+  logger.info("✅ Promo codes seeded");
 }

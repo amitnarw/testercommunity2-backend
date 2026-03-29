@@ -1,10 +1,11 @@
+import logger from "../../src/utils/logger";
 import { auth } from "../../src/lib/auth";
 import { prismaClient } from "../../src/lib/prisma";
 
 const prisma = prismaClient;
 
 async function seedAdmin() {
-  console.log("🌱 Seeding Admin User via Better Auth...");
+  logger.info("🌱 Seeding Admin User via Better Auth...");
 
   const adminEmail = "admin@gmail.com";
   const adminPassword = "Admin@123Password"; // Change this in production
@@ -15,7 +16,7 @@ async function seedAdmin() {
   });
 
   if (existingAdmin) {
-    console.log(
+    logger.info(
       "ℹ️ Admin user already exists (checked via Prisma). Skipping...",
     );
     return;
@@ -50,17 +51,17 @@ async function seedAdmin() {
       },
     });
 
-    console.log("✅ Admin user created successfully via Better Auth!");
-    console.log(`📧 Email: ${adminEmail}`);
-    console.log(`🔑 Password: ${adminPassword}`);
+    logger.info("✅ Admin user created successfully via Better Auth!");
+    logger.info(`📧 Email: ${adminEmail}`);
+    logger.info(`🔑 Password: ${adminPassword}`);
   } catch (error: any) {
     if (
       error.message?.includes("already exists") ||
       error.code === "user_already_exists"
     ) {
-      console.log("ℹ️ Admin user already exists (caught error). Skipping...");
+      logger.info("ℹ️ Admin user already exists (caught error). Skipping...");
     } else {
-      console.error("❌ Failed to seed admin:", error);
+      logger.error("❌ Failed to seed admin:", error);
       throw error;
     }
   }

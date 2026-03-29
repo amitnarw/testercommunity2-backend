@@ -1,16 +1,3 @@
-/**
- * Razorpay SDK Configuration
- * 
- * This module initializes the Razorpay instance with API credentials
- * and exports utility functions for payment processing.
- * 
- * Best Practices Implemented:
- * 1. Environment-based configuration
- * 2. Singleton pattern for Razorpay instance
- * 3. Type safety with TypeScript
- * 4. Centralized configuration management
- */
-
 import Razorpay from "razorpay";
 import crypto from "crypto";
 
@@ -20,17 +7,18 @@ const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
 
 if (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET) {
   console.warn(
-    "⚠️ Razorpay credentials not configured. Payment features will be disabled."
+    "⚠️ Razorpay credentials not configured. Payment features will be disabled.",
   );
 }
 
 // Initialize Razorpay instance
-const razorpayInstance = RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET
-  ? new Razorpay({
-      key_id: RAZORPAY_KEY_ID,
-      key_secret: RAZORPAY_KEY_SECRET,
-    })
-  : null;
+const razorpayInstance =
+  RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET
+    ? new Razorpay({
+        key_id: RAZORPAY_KEY_ID,
+        key_secret: RAZORPAY_KEY_SECRET,
+      })
+    : null;
 
 /**
  * Get the Razorpay instance
@@ -38,7 +26,9 @@ const razorpayInstance = RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET
  */
 export const getRazorpayInstance = (): Razorpay => {
   if (!razorpayInstance) {
-    throw new Error("Razorpay is not configured. Please set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in environment variables.");
+    throw new Error(
+      "Razorpay is not configured. Please set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in environment variables.",
+    );
   }
   return razorpayInstance;
 };
@@ -46,7 +36,7 @@ export const getRazorpayInstance = (): Razorpay => {
 /**
  * Verify the Razorpay payment signature
  * This is critical for security - ensures payment is authentic
- * 
+ *
  * @param orderId - Razorpay order ID
  * @param paymentId - Razorpay payment ID
  * @param signature - Signature received from checkout
@@ -55,7 +45,7 @@ export const getRazorpayInstance = (): Razorpay => {
 export const verifyPaymentSignature = (
   orderId: string,
   paymentId: string,
-  signature: string
+  signature: string,
 ): boolean => {
   if (!RAZORPAY_KEY_SECRET) {
     throw new Error("Razorpay key secret not configured");
@@ -69,14 +59,14 @@ export const verifyPaymentSignature = (
 
   return crypto.timingSafeEqual(
     Buffer.from(expectedSignature),
-    Buffer.from(signature)
+    Buffer.from(signature),
   );
 };
 
 /**
  * Verify Razorpay webhook signature
  * Ensures webhook payloads are from Razorpay
- * 
+ *
  * @param body - Raw request body (string)
  * @param signature - X-Razorpay-Signature header value
  * @param secret - Webhook secret from Razorpay dashboard
@@ -85,7 +75,7 @@ export const verifyPaymentSignature = (
 export const verifyWebhookSignature = (
   body: string,
   signature: string,
-  secret: string
+  secret: string,
 ): boolean => {
   const expectedSignature = crypto
     .createHmac("sha256", secret)
@@ -95,7 +85,7 @@ export const verifyWebhookSignature = (
   try {
     return crypto.timingSafeEqual(
       Buffer.from(expectedSignature),
-      Buffer.from(signature)
+      Buffer.from(signature),
     );
   } catch {
     return false;
