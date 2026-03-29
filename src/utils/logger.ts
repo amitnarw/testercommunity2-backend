@@ -17,7 +17,7 @@ const logFormat = winston.format.combine(
   winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
   winston.format.errors({ stack: true }),
   winston.format.splat(),
-  winston.format.json()
+  winston.format.json(),
 );
 
 // Console format for development: readable and colorized
@@ -30,7 +30,7 @@ const consoleFormat = winston.format.combine(
       msg += ` ${JSON.stringify(meta)}`;
     }
     return msg;
-  })
+  }),
 );
 
 const transports: winston.transport[] = [
@@ -49,7 +49,7 @@ transports.push(
     level: "error",
     maxSize: "5m",
     maxFiles: "14d", // Keep logs for 14 days
-    zippedArchive: true, // Compress old logs
+    zippedArchive: true,
   }),
 
   // Combined log rotation
@@ -59,7 +59,7 @@ transports.push(
     maxSize: "5m",
     maxFiles: "14d",
     zippedArchive: true,
-  })
+  }),
 );
 
 export const logger = winston.createLogger({
@@ -78,7 +78,7 @@ export const logger = winston.createLogger({
     }),
     new winston.transports.Console({
       format: nodeEnv === "production" ? logFormat : consoleFormat,
-    })
+    }),
   ],
   rejectionHandlers: [
     new DailyRotateFile({
@@ -90,7 +90,7 @@ export const logger = winston.createLogger({
     }),
     new winston.transports.Console({
       format: nodeEnv === "production" ? logFormat : consoleFormat,
-    })
+    }),
   ],
 });
 
