@@ -2,7 +2,7 @@ import { type Request, type Response } from "express";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient } from "@/lib/prisma";
-import type { DashboardAndHubStatus } from "prisma/generated/prisma";
+import type { DashboardAndHubStatus } from "@prisma/client";
 import { deleteFunction } from "./r2.controller";
 import { extractPackageName } from "@/services/common";
 

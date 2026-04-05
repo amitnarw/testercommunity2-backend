@@ -2,7 +2,7 @@ import { type Request, type Response } from "express";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient } from "@/lib/prisma";
-import type { UserDetail } from "prisma/generated/prisma";
+import { type DashboardAndHubStatus, type UserDetail } from "@prisma/client";
 import DeviceDetector from "device-detector-js";
 import geoip from "geoip-lite";
 import { auth } from "@/lib/auth";

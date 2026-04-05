@@ -6,7 +6,7 @@ import { parseTimeString } from "@/utils/helperFunctions";
 import { createToken } from "@/utils/tokenUtils";
 import { v4 as uuidv4 } from "uuid";
 import type { AuditLogPayload } from "@/types/audit_log";
-import type { Prisma } from "prisma/generated/prisma";
+import type { Prisma } from "@prisma/client";
 
 const checkUser = async (req: Request) => {
   const userId = req?.userId;

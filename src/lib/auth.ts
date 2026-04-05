@@ -4,7 +4,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prismaClient } from "./prisma";
 import { sendEmail } from "@/services/resend";
 import { createAuthMiddleware, customSession } from "better-auth/plugins";
-import type { UserAuthType } from "prisma/generated/prisma";
+import type { UserAuthType } from "@prisma/client";
 import { SignJWT } from "jose";
 import logger from "../utils/logger";
 

@@ -20,9 +20,11 @@
 		"resolveFullPaths": true
 	},
 	"include": [
-  		"src/**/*",
-		"seed/**/*",
-	  	"types/**/*.d.ts"
-	]
+   		"src/**/*",
+ 		"seed/**/*",
+ 	  	"src/types/**/*.d.ts",
+		"prisma/generated/prisma/**/*.d.ts"
+ 	]
+
 
 }

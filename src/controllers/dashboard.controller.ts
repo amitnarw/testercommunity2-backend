@@ -27,7 +27,7 @@ export const getDashboardStats = async (req: Request, res: Response) => {
       where: { appOwnerId: userId, appType: "PAID", status: "IN_REVIEW" },
     });
 
-    const inReviewAppsList = inReviewApps?.map((item) => ({
+    const inReviewAppsList = inReviewApps?.map((item: any) => ({
       ...item,
       statusDetails: JSON.parse(JSON.stringify(item?.statusDetails)),
       updatedAt: item?.updatedAt?.toString(),
@@ -279,7 +279,7 @@ export const getDashboardApps = async (req: Request, res: Response) => {
       return sendError(res, 400, "Type is required");
     }
 
-    const typeArray = type.split(",");
+    const typeArray = (type as string).split(",");
 
     const apps = await prismaClient.dashboardAndHub.findMany({
       where: {
@@ -302,7 +302,7 @@ export const getDashboardApps = async (req: Request, res: Response) => {
     // But for getDashboardApps, usually just mapping the DB object is enough.
     // The statusDetails JSON field might need parsing.
 
-    const formattedApps = apps.map((app) => ({
+    const formattedApps = apps.map((app: any) => ({
       ...app,
       statusDetails: app.statusDetails
         ? JSON.parse(JSON.stringify(app.statusDetails))
@@ -341,7 +341,7 @@ export const getAppsCount = async (req: Request, res: Response) => {
     });
 
     const result: Record<string, number> = {};
-    counts.forEach((item) => {
+    counts.forEach((item: any) => {
       result[item.status] = item._count._all;
     });
 

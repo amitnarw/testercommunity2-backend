@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { toNodeHandler } from "better-auth/node";
 import Router from "express";
-// import { Prisma } from "prisma/generated/prisma";
+// import { Prisma } from "@prisma/client";
 
 const router = Router();
 

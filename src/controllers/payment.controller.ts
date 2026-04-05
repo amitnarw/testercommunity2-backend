@@ -358,13 +358,27 @@ export const getPaymentStatus = async (req: Request, res: Response) => {
 
         const { orderId } = req.params;
 
+        const search = (req.query.search as string) || "";
+        const status = (req.query.status as string) || "All";
+
+        const where: any = { userId };
+        if (search) {
+            where.OR = [
+                { razorpayOrderId: { contains: search, mode: "insensitive" } },
+                { receipt: { contains: search, mode: "insensitive" } },
+            ];
+        }
+        if (status !== "All") {
+            where.status = status;
+        }
+
         const order = await prismaClient?.order.findFirst({
             where: {
                 OR: [
-                    { razorpayOrderId: orderId },
-                    { id: parseInt(orderId) || 0 },
+                    { razorpayOrderId: orderId as string },
+                    { id: parseInt(orderId as string) || 0 },
                 ],
-                userId,
+                userId: userId as string,
             },
             include: {
                 payments: {
@@ -378,7 +392,7 @@ export const getPaymentStatus = async (req: Request, res: Response) => {
             return sendError(res, 404, "Order not found");
         }
 
-        const latestPayment = order.payments[0];
+        const latestPayment = (order as any).payments?.[0];
 
         return sendSuccess(res, {
             order: {
@@ -415,11 +429,35 @@ export const getPaymentHistory = async (req: Request, res: Response) => {
         }
 
         const { page = 1, limit = 10 } = req.query;
+        const appType = req.query.appType ?? "ALL";
+        const status = req.query.status ?? "All";
+        const search = req.query.search ?? "";
         const skip = (Number(page) - 1) * Number(limit);
+
+        const where: any = {
+            userId,
+            appType: appType !== "ALL" ? (appType as string) : undefined,
+            status: status !== "All" ? (status as string) : undefined,
+        };
+
+        if (search) {
+            where.OR = [
+                {
+                    androidApp: {
+                        appName: { contains: search as string, mode: "insensitive" },
+                    },
+                },
+                {
+                    appOwner: {
+                        name: { contains: search as string, mode: "insensitive" },
+                    },
+                },
+            ];
+        }
 
         const [orders, total] = await Promise.all([
             prismaClient?.order.findMany({
-                where: { userId },
+                where,
                 include: {
                     payments: {
                         orderBy: { createdAt: "desc" },

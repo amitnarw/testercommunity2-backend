@@ -527,7 +527,7 @@ export const getFeedbackById = async (req: Request, res: Response) => {
     const { id } = req.params;
 
     const feedback = await prismaClient.feedback.findUnique({
-      where: { id: parseInt(id) },
+      where: { id: parseInt(id as string) },
       include: {
         tester: {
           select: {
@@ -601,7 +601,7 @@ export const deleteFeedback = async (req: Request, res: Response) => {
     const { id } = req.params;
 
     await prismaClient.feedback.delete({
-      where: { id: parseInt(id) },
+      where: { id: parseInt(id as string) },
     });
 
     return sendSuccess(res, null, "Feedback deleted successfully");
@@ -767,7 +767,7 @@ export const getUserById = async (req: Request, res: Response) => {
     const { id } = req.params;
 
     const user = await prismaClient.user.findUnique({
-      where: { id },
+      where: { id: id as string },
       include: {
         userDetail: {
           include: {
@@ -965,7 +965,7 @@ export const deleteUser = async (req: Request, res: Response) => {
 
     // Check if user exists
     const user = await prismaClient.user.findUnique({
-      where: { id },
+      where: { id: id as string },
       include: {
         userDetail: {
           include: {
@@ -1005,11 +1005,11 @@ export const deleteUser = async (req: Request, res: Response) => {
     // Handle relations that don't cascade automatically or need special care
     await prismaClient.$transaction(async (tx) => {
       // 1. Delete tester relations and their verifications (manually just in case)
-      await tx.testerRelation.deleteMany({ where: { testerId: id } });
+      await tx.testerRelation.deleteMany({ where: { testerId: id as string } });
 
       // 2. Delete apps owned by user (must delete dependencies first)
       const ownedApps = await tx.dashboardAndHub.findMany({
-        where: { appOwnerId: id },
+        where: { appOwnerId: id as string },
       });
 
       for (const app of ownedApps) {
@@ -1031,22 +1031,22 @@ export const deleteUser = async (req: Request, res: Response) => {
       }
 
       // 3. Delete feedback given by user
-      await tx.feedback.deleteMany({ where: { testerId: id } });
+      await tx.feedback.deleteMany({ where: { testerId: id as string } });
 
       // 4. Delete withdrawal requests
-      await tx.withdrawalRequest.deleteMany({ where: { userId: id } });
+      await tx.withdrawalRequest.deleteMany({ where: { userId: id as string } });
 
       // 5. Delete website feedback suggestions
-      await tx.websiteFeedbackSuggestion.deleteMany({ where: { userId: id } });
+      await tx.websiteFeedbackSuggestion.deleteMany({ where: { userId: id as string } });
 
       // 6. Delete audit logs where user is actor
-      await tx.auditLog.deleteMany({ where: { actorId: id } });
+      await tx.auditLog.deleteMany({ where: { actorId: id as string } });
 
       // 7. Delete ratings
-      await tx.rating.deleteMany({ where: { userId: id } });
+      await tx.rating.deleteMany({ where: { userId: id as string } });
 
       // Finally delete the user - most other data (userDetail, session, etc.) will cascade delete
-      await tx.user.delete({ where: { id } });
+      await tx.user.delete({ where: { id: id as string } });
     });
 
     return sendSuccess(
@@ -1161,7 +1161,7 @@ export const getSuggestionById = async (req: Request, res: Response) => {
     const { id } = req.params;
 
     const suggestion = await prismaClient.websiteFeedbackSuggestion.findUnique({
-      where: { id: parseInt(id) },
+      where: { id: parseInt(id as string) },
       include: {
         user: {
           select: {
@@ -1264,7 +1264,7 @@ export const deleteSuggestion = async (req: Request, res: Response) => {
     const { id } = req.params;
 
     await prismaClient.websiteFeedbackSuggestion.delete({
-      where: { id: parseInt(id) },
+      where: { id: parseInt(id as string) },
     });
 
     return sendSuccess(res, null, "Suggestion deleted successfully");
@@ -1426,7 +1426,7 @@ export const deleteNotification = async (req: Request, res: Response) => {
     const { id } = req.params;
 
     await prismaClient.notification.delete({
-      where: { id: parseInt(id) },
+      where: { id: parseInt(id as string) },
     });
 
     return sendSuccess(res, null, "Notification deleted successfully");
@@ -1540,7 +1540,7 @@ export const getTesterApplications = async (req: Request, res: Response) => {
     });
 
     // Transform data to match frontend expectations
-    const transformedApplications = applications.map((app) => ({
+    const transformedApplications = applications.map((app: any) => ({
       id: app.id,
       name: app.name,
       email: app.email,
@@ -1639,7 +1639,7 @@ export const getTesterApplicationById = async (req: Request, res: Response) => {
 
     const application = await prismaClient.user.findUnique({
       where: {
-        id,
+        id: id as string,
       },
       include: {
         userDetail: true,
@@ -1981,7 +1981,7 @@ export const deletePromoCode = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     await prismaClient.promoCode.delete({
-      where: { id: parseInt(id) },
+      where: { id: parseInt(id as string) },
     });
     return sendSuccess(res, null, "Promo code deleted successfully");
   } catch (error) {
@@ -2229,14 +2229,14 @@ export const getLogs = async (req: Request, res: Response) => {
 export const getLogContent = async (req: Request, res: Response) => {
   try {
     const { filename } = req.params;
-    const filePath = getLogFilePath(filename);
+    const filePath = getLogFilePath(filename as string);
 
     if (!fs.existsSync(filePath)) {
       return sendError(res, 404, "Log file not found");
     }
 
     // Only allow reading text/log files directly
-    if (filename.endsWith('.gz')) {
+    if ((filename as string).endsWith('.gz')) {
          return sendError(res, 400, "Cannot read compressed logs directly");
     }
 
@@ -2256,13 +2256,14 @@ export const getLogContent = async (req: Request, res: Response) => {
   }
 };
 
+
 // @desc    Delete a log file
 // @route   DELETE /api/admin/logs/:filename
 // @access  Private (Admin)
 export const deleteLog = async (req: Request, res: Response) => {
   try {
     const { filename } = req.params;
-    const filePath = getLogFilePath(filename);
+    const filePath = getLogFilePath(filename as string);
 
     if (!fs.existsSync(filePath)) {
       return sendError(res, 404, "Log file not found");
@@ -2297,7 +2298,7 @@ export const deleteLogsBatch = async (req: Request, res: Response) => {
       if (typeof filename !== "string") continue;
       
       try {
-        const filePath = getLogFilePath(filename);
+        const filePath = getLogFilePath(filename as string);
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
           deletedCount++;
@@ -2328,26 +2329,26 @@ export const deleteLogsBatch = async (req: Request, res: Response) => {
 export const deleteLogEntry = async (req: Request, res: Response) => {
   try {
     const { filename, index } = req.params;
-    const entryIndex = parseInt(index, 10);
+    const entryIndex = parseInt(index as string, 10);
 
     if (isNaN(entryIndex)) {
       return sendError(res, 400, "Invalid entry index");
     }
 
-    const filePath = getLogFilePath(filename);
+    const filePath = getLogFilePath(filename as string);
 
     if (!fs.existsSync(filePath)) {
       return sendError(res, 404, "Log file not found");
     }
 
     // Only allow operations on text/log files
-    if (filename.endsWith('.gz')) {
+    if ((filename as string).endsWith('.gz')) {
       return sendError(res, 400, "Cannot modify compressed logs");
     }
 
     // Read file and filter entries
     const fileContent = fs.readFileSync(filePath, "utf-8");
-    const lines = fileContent.split(/\r?\n/).filter(line => line.trim() !== "");
+    const lines = fileContent.split(/\r?\n/).filter((line: string) => line.trim() !== "");
     
     if (entryIndex < 0 || entryIndex >= lines.length) {
       return sendError(res, 400, "Entry index out of bounds");
