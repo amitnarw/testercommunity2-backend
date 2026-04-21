@@ -396,10 +396,10 @@ export const getPaymentConfig = async (req: Request, res: Response) => {
         isConfigured: true,
         keyId: getRazorpayKeyId(),
         currency: "INR",
-        name: "Tester Community",
+        name: "InTesters",
         description: "Testing Packages",
         theme: {
-          color: "#7c3aed",
+          color: "#3c83f6",
         },
       },
       "Payment config fetched successfully",

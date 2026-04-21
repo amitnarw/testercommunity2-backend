@@ -2178,6 +2178,120 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
   }
 };
 
+// ==================== BLOG MANAGEMENT ====================
+
+export const getAllBlogs = async (req: Request, res: Response) => {
+  try {
+    const blogs = await prismaClient.blog.findMany({
+      include: { media: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return sendSuccess(res, blogs, "Blogs fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const getBlogById = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const blog = await prismaClient.blog.findUnique({
+      where: { id: parseInt(id as string) },
+      include: { media: true },
+    });
+    if (!blog) return sendError(res, 404, "Blog not found");
+    return sendSuccess(res, blog, "Blog fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const createBlog = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { title, authorName, tags, description, isActive } = payload;
+
+    if (!title || !authorName || !description) {
+      return sendError(res, 400, "Title, author name, and description are required");
+    }
+
+    const newBlog = await prismaClient.blog.create({
+      data: {
+        title,
+        authorName,
+        tags: tags || [],
+        description,
+        isActive: isActive !== undefined ? isActive : true,
+      },
+    });
+
+    return sendSuccess(res, newBlog, "Blog created successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const updateBlog = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id, title, authorName, tags, description, isActive } = payload;
+
+    if (!id) return sendError(res, 400, "Blog ID is required");
+
+    const updateData: any = {
+      title: title !== undefined ? title : undefined,
+      authorName: authorName !== undefined ? authorName : undefined,
+      tags: tags !== undefined ? tags : undefined,
+      description: description !== undefined ? description : undefined,
+      isActive: isActive !== undefined ? isActive : undefined,
+    };
+
+    // Remove undefined values
+    Object.keys(updateData).forEach((key) => {
+      if (updateData[key] === undefined) delete updateData[key];
+    });
+
+    const updatedBlog = await prismaClient.blog.update({
+      where: { id: parseInt(id) },
+      data: updateData,
+    });
+
+    return sendSuccess(res, updatedBlog, "Blog updated successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const deleteBlog = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await prismaClient.blog.delete({ where: { id: parseInt(id as string) } });
+    return sendSuccess(res, null, "Blog deleted successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
 // ==================== SYSTEM LOGS ====================
 
 // Helper to safely resolve log file paths

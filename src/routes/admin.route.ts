@@ -52,6 +52,12 @@ import {
   deleteLog,
   deleteLogsBatch,
   deleteLogEntry,
+  // Blog
+  getAllBlogs,
+  getBlogById,
+  createBlog,
+  updateBlog,
+  deleteBlog,
 } from "@/controllers/admin.controller";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 import Router from "express";
@@ -123,6 +129,13 @@ router.get("/promo-codes", getAllPromoCodes);
 router.post("/promo-codes", decryptPayload, createPromoCode);
 router.post("/promo-codes/update", decryptPayload, updatePromoCode);
 router.delete("/promo-codes/:id", deletePromoCode);
+
+// Blog
+router.get("/blogs", getAllBlogs);
+router.get("/blogs/:id", getBlogById);
+router.post("/blogs", decryptPayload, createBlog);
+router.post("/blogs/update", decryptPayload, updateBlog);
+router.delete("/blogs/:id", deleteBlog);
 
 // Verification and Completion
 router.post(
