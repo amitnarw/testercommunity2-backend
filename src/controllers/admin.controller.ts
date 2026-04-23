@@ -1448,26 +1448,21 @@ export const broadcastNotification = async (req: Request, res: Response) => {
       return sendError(res, 400, "Title and description are required");
     }
 
-    // Get all users
-    const users = await prismaClient.user.findMany({
-      select: { id: true },
-    });
-
-    // Create notifications for all users
-    const notifications = await prismaClient.notification.createMany({
-      data: users.map((user) => ({
+    // Create a single global notification
+    const notification = await prismaClient.notification.create({
+      data: {
         title,
         description,
         type: type || "OTHER",
         url: url || null,
-        userId: user.id,
+        userId: null,
         isActive: true,
-      })),
+      },
     });
 
     return sendSuccess(
       res,
-      { count: notifications.count },
+      { count: 1, id: notification.id },
       "Notification broadcasted successfully",
     );
   } catch (error) {
@@ -2217,19 +2212,49 @@ export const getBlogById = async (req: Request, res: Response) => {
 export const createBlog = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
-    const { title, authorName, tags, description, isActive } = payload;
+    const {
+      title,
+      slug,
+      excerpt,
+      content,
+      authorName,
+      authorAvatarUrl,
+      authorDataAiHint,
+      imageUrl,
+      dataAiHint,
+      tags,
+      isActive,
+      date,
+    } = payload;
 
-    if (!title || !authorName || !description) {
-      return sendError(res, 400, "Title, author name, and description are required");
+    if (!title || !slug || !excerpt || !authorName || !authorAvatarUrl || !imageUrl) {
+      return sendError(
+        res,
+        400,
+        "Title, slug, excerpt, author name, author avatar URL, and image URL are required",
+      );
     }
+
+    // Generate slug from title if not provided
+    const finalSlug = slug || title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "");
 
     const newBlog = await prismaClient.blog.create({
       data: {
         title,
+        slug: finalSlug,
+        excerpt,
+        content: content || "",
         authorName,
+        authorAvatarUrl,
+        authorDataAiHint: authorDataAiHint || null,
+        imageUrl,
+        dataAiHint: dataAiHint || null,
         tags: tags || [],
-        description,
         isActive: isActive !== undefined ? isActive : true,
+        date: date ? new Date(date) : new Date(),
       },
     });
 
@@ -2246,16 +2271,37 @@ export const createBlog = async (req: Request, res: Response) => {
 export const updateBlog = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
-    const { id, title, authorName, tags, description, isActive } = payload;
+    const {
+      id,
+      title,
+      slug,
+      excerpt,
+      content,
+      authorName,
+      authorAvatarUrl,
+      authorDataAiHint,
+      imageUrl,
+      dataAiHint,
+      tags,
+      isActive,
+      date,
+    } = payload;
 
     if (!id) return sendError(res, 400, "Blog ID is required");
 
     const updateData: any = {
       title: title !== undefined ? title : undefined,
+      slug: slug !== undefined ? slug : undefined,
+      excerpt: excerpt !== undefined ? excerpt : undefined,
+      content: content !== undefined ? content : undefined,
       authorName: authorName !== undefined ? authorName : undefined,
+      authorAvatarUrl: authorAvatarUrl !== undefined ? authorAvatarUrl : undefined,
+      authorDataAiHint: authorDataAiHint !== undefined ? authorDataAiHint : undefined,
+      imageUrl: imageUrl !== undefined ? imageUrl : undefined,
+      dataAiHint: dataAiHint !== undefined ? dataAiHint : undefined,
       tags: tags !== undefined ? tags : undefined,
-      description: description !== undefined ? description : undefined,
       isActive: isActive !== undefined ? isActive : undefined,
+      date: date !== undefined ? new Date(date) : undefined,
     };
 
     // Remove undefined values

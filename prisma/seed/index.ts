@@ -7,6 +7,7 @@ import { seedAppCategories } from "./seedAppCategories";
 import { seedAdmin } from "./seedAdmin";
 import { seedTester } from "./seedTester";
 import { seedPromoCodes } from "./seedPromoCodes";
+import { seedBlogs } from "./seedBlogs";
 
 const prisma = prismaClient;
 
@@ -33,6 +34,8 @@ async function main() {
     logger.info("✅ Tester seeded");
 
     await seedPromoCodes();
+
+    await seedBlogs();
 
     logger.info("🏁 All seeds completed successfully!");
   } catch (e) {
