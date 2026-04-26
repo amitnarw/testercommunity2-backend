@@ -1,4 +1,4 @@
-import fs from "fs";
+import { parsePrismaError } from "@/utils/prismaErrorHandler";
 import path from "path";
 import logger from "../utils/logger";
 import { prismaClient } from "@/lib/prisma";
@@ -41,10 +41,9 @@ export const getSubmittedApps = async (req: Request, res: Response) => {
   try {
     const status = req.query.status as string;
 
-    // Build filter - always exclude DRAFT status (drafts are not submitted yet)
-    const where: any = {
-      status: { not: "DRAFT" },
-    };
+    // Build filter - exclude DRAFT status unless includeDrafts is true
+    const includeDrafts = req.query.includeDrafts === "true";
+    const where: any = includeDrafts ? {} : { status: { not: "DRAFT" } };
 
     if (status) {
       if (status === "ACCEPTED" || status === "AVAILABLE") {
@@ -231,10 +230,9 @@ export const getSubmittedAppsCount = async (req: Request, res: Response) => {
   try {
     const appType = req.query.appType as string;
 
-    // Build where clause - always exclude DRAFT status (drafts are not submitted yet)
-    const where: any = {
-      status: { not: "DRAFT" },
-    };
+    // Build where clause - exclude DRAFT status unless includeDrafts is true
+    const includeDrafts = req.query.includeDrafts === "true";
+    const where: any = includeDrafts ? {} : { status: { not: "DRAFT" } };
 
     // Add appType filter if provided and not ALL
     if (appType && appType !== "ALL") {
@@ -1362,6 +1360,30 @@ export const createNotification = async (req: Request, res: Response) => {
       return sendError(res, 400, "Title and description are required");
     }
 
+    const validTypes = [
+      "FEEDBACK_RECEIVED",
+      "TEST_COMPLETED",
+      "BUG_REPORT",
+      "POINTS_AWARDED",
+      "POINTS_DEDUCTED",
+      "NEW_JOIN_REQUEST",
+      "NEW_JOIN_ACCEPT",
+      "REJECTED",
+      "APP_APPROVED",
+      "APP_REJECTED",
+      "TEST_INVITATION",
+      "GENERAL_MESSAGE",
+      "REMINDER",
+      "ANNOUNCEMENT",
+      "ACCOUNT_UPDATE",
+      "INSUFFICIENT_BALANCE",
+      "OTHER",
+    ];
+
+    if (type && !validTypes.includes(type)) {
+      return sendError(res, 400, `Invalid notification type. Must be one of: ${validTypes.join(", ")}`);
+    }
+
     const notification = await prismaClient.notification.create({
       data: {
         title,
@@ -1379,11 +1401,8 @@ export const createNotification = async (req: Request, res: Response) => {
       "Notification created successfully",
     );
   } catch (error) {
-    return sendError(
-      res,
-      500,
-      error instanceof Error ? error.message : "Internal Server Error",
-    );
+    const { userMessage, technicalMessage } = parsePrismaError(error);
+    return sendError(res, 500, userMessage, undefined, technicalMessage);
   }
 };
 
@@ -1448,26 +1467,21 @@ export const broadcastNotification = async (req: Request, res: Response) => {
       return sendError(res, 400, "Title and description are required");
     }
 
-    // Get all users
-    const users = await prismaClient.user.findMany({
-      select: { id: true },
-    });
-
-    // Create notifications for all users
-    const notifications = await prismaClient.notification.createMany({
-      data: users.map((user) => ({
+    // Create a single global notification
+    const notification = await prismaClient.notification.create({
+      data: {
         title,
         description,
         type: type || "OTHER",
         url: url || null,
-        userId: user.id,
+        userId: null,
         isActive: true,
-      })),
+      },
     });
 
     return sendSuccess(
       res,
-      { count: notifications.count },
+      { count: 1, id: notification.id },
       "Notification broadcasted successfully",
     );
   } catch (error) {
@@ -1504,6 +1518,39 @@ export const getNotificationCounts = async (req: Request, res: Response) => {
       formattedCounts,
       "Notification counts fetched successfully",
     );
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+// ==================== NOTIFICATION TYPES ====================
+
+export const getNotificationTypes = async (req: Request, res: Response) => {
+  try {
+    const types = [
+      "FEEDBACK_RECEIVED",
+      "TEST_COMPLETED",
+      "BUG_REPORT",
+      "POINTS_AWARDED",
+      "POINTS_DEDUCTED",
+      "NEW_JOIN_REQUEST",
+      "NEW_JOIN_ACCEPT",
+      "REJECTED",
+      "APP_APPROVED",
+      "APP_REJECTED",
+      "TEST_INVITATION",
+      "GENERAL_MESSAGE",
+      "REMINDER",
+      "ANNOUNCEMENT",
+      "ACCOUNT_UPDATE",
+      "INSUFFICIENT_BALANCE",
+      "OTHER",
+    ];
+    return sendSuccess(res, types, "Notification types fetched successfully");
   } catch (error) {
     return sendError(
       res,
@@ -1918,10 +1965,21 @@ export const createPromoCode = async (req: Request, res: Response) => {
 
     if (!code) return sendError(res, 400, "Code is required");
 
+    // Check if promo code already exists
+    const existing = await prismaClient.promoCode.findUnique({
+      where: { code: code.trim().toUpperCase() },
+    });
+    if (existing) {
+      return sendError(res, 400, "A promo code with this code already exists");
+    }
+
+    const parsedFixedPoints = parseFloat(fixedPoints);
+    const finalFixedPoints = Number.isNaN(parsedFixedPoints) ? 200 : parsedFixedPoints;
+
     const newPromo = await prismaClient.promoCode.create({
       data: {
         code: code.trim().toUpperCase(),
-        fixedPoints: parseFloat(fixedPoints) || 200,
+        fixedPoints: finalFixedPoints,
         isActive: isActive !== undefined ? isActive : true,
         maxUses: maxUses ? parseInt(maxUses) : null,
         maxPerUser: maxPerUser ? parseInt(maxPerUser) : null,
@@ -1930,6 +1988,10 @@ export const createPromoCode = async (req: Request, res: Response) => {
 
     return sendSuccess(res, newPromo, "Promo code created successfully");
   } catch (error) {
+    // Handle unique constraint error
+    if (error instanceof Error && error.message.includes("Unique constraint")) {
+      return sendError(res, 400, "A promo code with this code already exists");
+    }
     return sendError(
       res,
       500,
@@ -2217,19 +2279,49 @@ export const getBlogById = async (req: Request, res: Response) => {
 export const createBlog = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
-    const { title, authorName, tags, description, isActive } = payload;
+    const {
+      title,
+      slug,
+      excerpt,
+      content,
+      authorName,
+      authorAvatarUrl,
+      authorDataAiHint,
+      imageUrl,
+      dataAiHint,
+      tags,
+      isActive,
+      date,
+    } = payload;
 
-    if (!title || !authorName || !description) {
-      return sendError(res, 400, "Title, author name, and description are required");
+    if (!title || !slug || !excerpt || !authorName || !authorAvatarUrl || !imageUrl) {
+      return sendError(
+        res,
+        400,
+        "Title, slug, excerpt, author name, author avatar URL, and image URL are required",
+      );
     }
+
+    // Generate slug from title if not provided
+    const finalSlug = slug || title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "");
 
     const newBlog = await prismaClient.blog.create({
       data: {
         title,
+        slug: finalSlug,
+        excerpt,
+        content: content || "",
         authorName,
+        authorAvatarUrl,
+        authorDataAiHint: authorDataAiHint || null,
+        imageUrl,
+        dataAiHint: dataAiHint || null,
         tags: tags || [],
-        description,
         isActive: isActive !== undefined ? isActive : true,
+        date: date ? new Date(date) : new Date(),
       },
     });
 
@@ -2246,16 +2338,37 @@ export const createBlog = async (req: Request, res: Response) => {
 export const updateBlog = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
-    const { id, title, authorName, tags, description, isActive } = payload;
+    const {
+      id,
+      title,
+      slug,
+      excerpt,
+      content,
+      authorName,
+      authorAvatarUrl,
+      authorDataAiHint,
+      imageUrl,
+      dataAiHint,
+      tags,
+      isActive,
+      date,
+    } = payload;
 
     if (!id) return sendError(res, 400, "Blog ID is required");
 
     const updateData: any = {
       title: title !== undefined ? title : undefined,
+      slug: slug !== undefined ? slug : undefined,
+      excerpt: excerpt !== undefined ? excerpt : undefined,
+      content: content !== undefined ? content : undefined,
       authorName: authorName !== undefined ? authorName : undefined,
+      authorAvatarUrl: authorAvatarUrl !== undefined ? authorAvatarUrl : undefined,
+      authorDataAiHint: authorDataAiHint !== undefined ? authorDataAiHint : undefined,
+      imageUrl: imageUrl !== undefined ? imageUrl : undefined,
+      dataAiHint: dataAiHint !== undefined ? dataAiHint : undefined,
       tags: tags !== undefined ? tags : undefined,
-      description: description !== undefined ? description : undefined,
       isActive: isActive !== undefined ? isActive : undefined,
+      date: date !== undefined ? new Date(date) : undefined,
     };
 
     // Remove undefined values

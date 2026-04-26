@@ -7,6 +7,7 @@ import hubRouter from "./hub.route";
 import r2Router from "./r2.route";
 import billingRouter from "./billing.route";
 import testerRouter from "./tester.route";
+import blogRouter from "./blog.route";
 
 const router = Router();
 
@@ -18,5 +19,6 @@ router.use("/hub", hubRouter);
 router.use("/R2", r2Router);
 router.use("/billing", billingRouter);
 router.use("/tester", testerRouter);
+router.use("/blog", blogRouter);
 
 export default router;

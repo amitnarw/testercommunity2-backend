@@ -17,5 +17,15 @@ export async function seedPromoCodes() {
     },
   });
 
+  await prisma.promoCode.upsert({
+    where: { code: "TEST" },
+    update: {},
+    create: {
+      code: "TEST",
+      fixedPoints: 0,
+      isActive: true,
+    },
+  });
+
   logger.info("✅ Promo codes seeded");
 }

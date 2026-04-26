@@ -5,6 +5,7 @@ import {
   getDashboardStats,
   getDashboardApps,
   getAppsCount,
+  deleteDashboardApp,
 } from "@/controllers/dashboard.controller";
 import { checkAuthentication } from "@/middlewares/checkAuthentication";
 import { decryptPayload } from "@/middlewares/decyptPayload";
@@ -25,6 +26,11 @@ router.post(
   checkAuthentication,
   decryptPayload,
   addDashboardAppDraft,
+);
+router.delete(
+  "/delete-dashboard-app/:id",
+  checkAuthentication,
+  deleteDashboardApp,
 );
 
 export default router;

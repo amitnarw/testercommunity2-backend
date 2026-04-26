@@ -169,15 +169,22 @@ model UserPlan {
 }
 
 model Blog {
-  id          Int      @id @default(autoincrement())
-  title       String
-  authorName  String
-  tags        String[]
-  description String
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  media       Media[]
+  id               Int       @id @default(autoincrement())
+  title            String
+  slug             String    @unique
+  excerpt          String
+  content          String
+  authorName       String
+  authorAvatarUrl  String
+  authorDataAiHint String?
+  imageUrl         String
+  dataAiHint       String?
+  tags             String[]
+  isActive         Boolean   @default(true)
+  date             DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  media            Media[]
 
   @@map("blog")
 }
@@ -911,9 +918,18 @@ enum NotificationType {
   TEST_COMPLETED
   BUG_REPORT
   POINTS_AWARDED
+  POINTS_DEDUCTED
   NEW_JOIN_REQUEST
   NEW_JOIN_ACCEPT
   REJECTED
+  APP_APPROVED
+  APP_REJECTED
+  TEST_INVITATION
+  GENERAL_MESSAGE
+  REMINDER
+  ANNOUNCEMENT
+  ACCOUNT_UPDATE
+  INSUFFICIENT_BALANCE
   OTHER
 }
 

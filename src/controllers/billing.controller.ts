@@ -9,8 +9,10 @@ import {
   isRazorpayConfigured,
   verifyPaymentSignature,
   verifyWebhookSignature,
+  refundPayment,
   type RazorpayWebhookEvent,
 } from "@/lib/razorpay";
+import { sendEmail } from "@/services/resend";
 import crypto from "crypto";
 
 // Environment variables
@@ -344,6 +346,34 @@ export const verifyPayment = async (req: Request, res: Response) => {
       };
     });
 
+    // Send receipt email
+    const userEmail = paymentDetails.email || "";
+    if (userEmail && process.env.RESEND_API_KEY) {
+      const orderDate = order.createdAt.toISOString();
+      const invoiceId = `INV-${order.id.toString().padStart(4, "0")}`;
+
+      await sendEmail({
+        from: "InTesters <noreply@intesters.com>",
+        to: userEmail,
+        subject: `Payment Receipt - ${invoiceId}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #7c3aed;">Payment Successful!</h2>
+            <p>Thank you for your purchase on InTesters.</p>
+            <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <p><strong>Invoice ID:</strong> ${invoiceId}</p>
+              <p><strong>Date:</strong> ${orderDate}</p>
+              <p><strong>Amount:</strong> ₹${(order.amount / 100).toLocaleString("en-IN")}</p>
+              <p><strong>Packages Awarded:</strong> ${result.packagesAwarded}</p>
+              <p><strong>Total Packages:</strong> ${result.wallet.totalPackages}</p>
+            </div>
+            <p>You can view your packages and transaction history in your wallet.</p>
+            <p>Thank you for choosing InTesters!</p>
+          </div>
+        `,
+      });
+    }
+
     return sendSuccess(
       res,
       {
@@ -563,13 +593,86 @@ export const initiateRefund = async (req: Request, res: Response) => {
       return sendError(res, 403, "Unauthorized");
     }
 
-    // Logic to interact with Razorpay API would go here
-    // For now preventing action as it requires careful handling
+    // Check if payment is eligible for refund (must be captured)
+    if (payment.status !== "CAPTURED") {
+      return sendError(res, 400, "Payment is not eligible for refund");
+    }
+
+    // Check if already refunded
+    if (payment.refundStatus === "full" || payment.amountRefunded > 0) {
+      return sendError(res, 400, "Payment has already been refunded");
+    }
+
+    // Call Razorpay refund API
+    const amountInPaise = amount ? Math.round(amount * 100) : undefined;
+    const refundResult = await refundPayment(paymentId, amountInPaise, {
+      reason: reason || "Customer requested refund",
+    });
+
+    // Create refund record in database
+    const refund = await prismaClient.refund.create({
+      data: {
+        paymentId: payment.id,
+        razorpayRefundId: refundResult.razorpayRefundId,
+        razorpayPaymentId: paymentId,
+        amount: refundResult.amount,
+        currency: payment.currency,
+        status: refundResult.status === "processed" ? "PROCESSED" : "PENDING",
+        reason,
+        speed: "normal",
+        processedAt: refundResult.status === "processed" ? new Date() : null,
+      },
+    });
+
+    // Update payment record with refund info
+    await prismaClient.payment.update({
+      where: { id: payment.id },
+      data: {
+        amountRefunded: refundResult.amount,
+        refundStatus:
+          refundResult.status === "processed" ? "full" : "partial",
+      },
+    });
+
+    // If full refund, deduct packages from wallet
+    if (refundResult.status === "processed") {
+      const order = await prismaClient.order.findUnique({
+        where: { id: payment.orderId },
+      });
+
+      if (order) {
+        const packagesToDeduct = order.packageCount || 0;
+
+        // Update user wallet
+        await prismaClient.userWallet.update({
+          where: { userId },
+          data: {
+            totalPackages: { decrement: packagesToDeduct },
+          },
+        });
+
+        // Create transaction record
+        await prismaClient.userTransaction.create({
+          data: {
+            userId,
+            action: null,
+            package: packagesToDeduct,
+            transactionType: "REFUND",
+            status: "DEBIT",
+          },
+        });
+      }
+    }
 
     return sendSuccess(
       res,
-      { status: "Refund initiated" },
-      "Refund flow started",
+      {
+        refundId: refund.id,
+        razorpayRefundId: refundResult.razorpayRefundId,
+        status: refundResult.status,
+        amount: refundResult.amount,
+      },
+      "Refund processed successfully",
     );
   } catch (error) {
     return sendError(res, 500, "Refund failed");

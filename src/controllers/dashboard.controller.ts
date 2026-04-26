@@ -2,7 +2,7 @@ import { type Request, type Response } from "express";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient } from "@/lib/prisma";
-import { extractPackageName } from "@/services/common";
+import { extractPackageName, isValidPlayStoreUrl, isValidPlayStoreLogoUrl } from "@/services/common";
 
 export const getDashboardStats = async (req: Request, res: Response) => {
   try {
@@ -75,6 +75,21 @@ export const addDashboardAppSubmit = async (req: Request, res: Response) => {
         res,
         400,
         "testingUrl, appName, logoUrl and categoryId are required",
+      );
+    }
+
+    if (!isValidPlayStoreUrl(testingUrl)) {
+      return sendError(
+        res,
+        400,
+        "Testing URL must be a valid Google Play Store link (e.g., https://play.google.com/store/apps/details?id=com.example.app)",
+      );
+    }
+    if (!isValidPlayStoreLogoUrl(logoUrl)) {
+      return sendError(
+        res,
+        400,
+        "Logo URL must be from play-lh.googleusercontent.com. Copy the URL from your app's Play Console store listing.",
       );
     }
 
@@ -193,6 +208,21 @@ export const addDashboardAppDraft = async (req: Request, res: Response) => {
       );
     }
 
+    if (!isValidPlayStoreUrl(testingUrl)) {
+      return sendError(
+        res,
+        400,
+        "Testing URL must be a valid Google Play Store link (e.g., https://play.google.com/store/apps/details?id=com.example.app)",
+      );
+    }
+    if (!isValidPlayStoreLogoUrl(logoUrl)) {
+      return sendError(
+        res,
+        400,
+        "Logo URL must be from play-lh.googleusercontent.com. Copy the URL from your app's Play Console store listing.",
+      );
+    }
+
     const package_name = extractPackageName(testingUrl);
 
     const { androidAppData, dashboardAndHub } = await prismaClient.$transaction(
@@ -245,7 +275,34 @@ export const addDashboardAppDraft = async (req: Request, res: Response) => {
     };
 
     return sendSuccess(res, { androidAppData, dashboardAndHubResult }, "ok");
-  } catch (error) {
+  } catch (error: any) {
+    // Handle Prisma unique constraint errors (e.g., duplicate app name)
+    if (error?.code === 'P2002') {
+      const fieldMatch = error?.message?.match(/Unique constraint failed on the fields: \(`(.+?)`\)/);
+      const fieldName = fieldMatch ? fieldMatch[1] : 'record';
+      let friendlyMessage;
+      if (fieldName === 'appName') {
+        friendlyMessage = "An app with this name already exists in your account. Please use a different app name or update the existing one.";
+      } else if (fieldName === 'packageName') {
+        friendlyMessage = "This app has already been added. Please check your existing submissions.";
+      } else {
+        friendlyMessage = `This ${fieldName} is already in use. Please use a different one.`;
+      }
+
+      const auditLogPayloadFail: AuditLogPayload = {
+        actorId: req?.userId || "",
+        actorRole: req?.role as string,
+        module: "user",
+        action: "addDashboardAppDraft",
+        targetId: req?.userId || "",
+        result: "fail",
+        reason: friendlyMessage,
+        ip: req?.userIpAddress || "",
+        ua: req?.userAgent || "",
+      };
+      return sendError(res, 400, friendlyMessage, auditLogPayloadFail);
+    }
+
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
@@ -351,6 +408,84 @@ export const getAppsCount = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+export const deleteDashboardApp = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    const { id } = req.params;
+
+    if (!userId) {
+      return sendError(res, 400, "UserId not found");
+    }
+
+    if (!id) {
+      return sendError(res, 400, "App ID is required");
+    }
+
+    // Verify the app exists and belongs to the user
+    const app = await prismaClient.dashboardAndHub.findFirst({
+      where: {
+        id: id,
+        appOwnerId: userId,
+      },
+    });
+
+    if (!app) {
+      return sendError(res, 404, "App not found or access denied");
+    }
+
+    // Only allow deleting DRAFT apps
+    if (app.status !== "DRAFT") {
+      return sendError(res, 400, "Only draft apps can be deleted");
+    }
+
+    await prismaClient.$transaction(async (tx) => {
+      // Delete related user activities
+      await tx.userActivity.deleteMany({
+        where: {
+          dashboardAndHubId: id,
+        },
+      });
+
+      // Delete related user transactions
+      await tx.userTransaction.deleteMany({
+        where: {
+          dashboardAndHubId: id,
+        },
+      });
+
+      // Delete the dashboardAndHub record
+      await tx.dashboardAndHub.delete({
+        where: { id },
+      });
+
+      // Delete the androidApp record
+      await tx.androidApp.delete({
+        where: { id: app.appId },
+      });
+    });
+
+    return sendSuccess(res, null, "App deleted successfully");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "dashboard",
+      action: "deleteDashboardApp",
+      targetId: id || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
     );
   }
 };

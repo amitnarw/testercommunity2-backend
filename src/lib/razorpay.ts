@@ -110,6 +110,44 @@ export const isRazorpayConfigured = (): boolean => {
   return !!(RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET);
 };
 
+/**
+ * Process a refund for a payment
+ * @param paymentId - Razorpay payment ID
+ * @param amount - Amount to refund in paise (optional, for partial refunds)
+ * @param notes - Optional notes about the refund
+ */
+export const refundPayment = async (
+  paymentId: string,
+  amount?: number,
+  notes?: Record<string, string>,
+): Promise<{
+  razorpayRefundId: string;
+  status: string;
+  amount: number;
+}> => {
+  const razorpay = getRazorpayInstance();
+
+  const refundParams: Record<string, any> = {
+    payment_id: paymentId,
+  };
+
+  if (amount) {
+    refundParams.amount = amount;
+  }
+
+  if (notes) {
+    refundParams.notes = notes;
+  }
+
+  const refund = await razorpay.payments.refund(refundParams);
+
+  return {
+    razorpayRefundId: refund.id,
+    status: refund.status,
+    amount: refund.amount,
+  };
+};
+
 // Razorpay order creation options interface
 export interface CreateOrderOptions {
   amount: number; // Amount in paise (smallest currency unit)
