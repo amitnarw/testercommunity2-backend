@@ -7,6 +7,7 @@ interface ApiResponse {
   success: boolean;
   message?: string;
   data: string | null;
+  error?: string; // Technical error details for developers
 }
 
 export async function sendSuccess<T extends JSONValue>(
@@ -38,16 +39,18 @@ export async function sendError(
   res: Response,
   code: number,
   message: string,
-  auditLogPayload?: AuditLogPayload
+  auditLogPayload?: AuditLogPayload,
+  technicalError?: string // Optional: actual error for developers
 ) {
   if (auditLogPayload) {
     await addAuditLog(auditLogPayload);
   }
 
-  const response: ApiResponse = {
-    success: false,
+  const response = {
+    success: false as const,
     data: null,
     message,
+    error: technicalError || message, // Fallback to same message if no technical details
   };
   return res.status(code || 500).json(response);
 }

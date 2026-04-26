@@ -33,6 +33,7 @@ import {
   deleteNotification,
   broadcastNotification,
   getNotificationCounts,
+  getNotificationTypes,
   // Tester Applications
   getTesterApplications,
   getTesterApplicationCounts,
@@ -103,6 +104,7 @@ router.delete("/suggestions/:id", deleteSuggestion);
 // Notifications
 router.get("/notifications", getAllNotifications);
 router.get("/notifications/counts", getNotificationCounts);
+router.get("/notification-types", getNotificationTypes);
 router.post("/notifications", decryptPayload, createNotification);
 router.post("/notifications/update", decryptPayload, updateNotification);
 router.post("/notifications/broadcast", decryptPayload, broadcastNotification);

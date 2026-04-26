@@ -149,10 +149,14 @@ export const addHubApp = async (req: Request, res: Response) => {
       !app_screenshot_url_2 ||
       !category_id ||
       !app_description ||
-      !minimum_android_version ||
-      !total_tester ||
-      !total_days ||
-      !points_cost
+      minimum_android_version === undefined ||
+      minimum_android_version === null ||
+      total_tester === undefined ||
+      total_tester === null ||
+      total_days === undefined ||
+      total_days === null ||
+      points_cost === undefined ||
+      points_cost === null
     ) {
       return sendError(
         res,
