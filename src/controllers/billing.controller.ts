@@ -599,7 +599,7 @@ export const initiateRefund = async (req: Request, res: Response) => {
     }
 
     // Check if already refunded
-    if (payment.refundStatus === "full" || payment.amountRefunded > 0) {
+    if (payment.refundStatus === "FULL" || payment.amountRefunded > 0) {
       return sendError(res, 400, "Payment has already been refunded");
     }
 
@@ -630,7 +630,7 @@ export const initiateRefund = async (req: Request, res: Response) => {
       data: {
         amountRefunded: refundResult.amount,
         refundStatus:
-          refundResult.status === "processed" ? "full" : "partial",
+          refundResult.status === "processed" ? "FULL" : "PARTIAL",
       },
     });
 

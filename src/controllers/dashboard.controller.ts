@@ -413,10 +413,11 @@ export const getAppsCount = async (req: Request, res: Response) => {
 };
 
 export const deleteDashboardApp = async (req: Request, res: Response) => {
-  try {
-    const userId = req?.userId;
-    const { id } = req.params;
+  const userId = req?.userId;
+  const { id } = req.params;
+  const appIdNum = parseInt(id as string);
 
+  try {
     if (!userId) {
       return sendError(res, 400, "UserId not found");
     }
@@ -428,7 +429,7 @@ export const deleteDashboardApp = async (req: Request, res: Response) => {
     // Verify the app exists and belongs to the user
     const app = await prismaClient.dashboardAndHub.findFirst({
       where: {
-        id: id,
+        id: appIdNum,
         appOwnerId: userId,
       },
     });
@@ -446,20 +447,20 @@ export const deleteDashboardApp = async (req: Request, res: Response) => {
       // Delete related user activities
       await tx.userActivity.deleteMany({
         where: {
-          dashboardAndHubId: id,
+          dashboardAndHubId: appIdNum,
         },
       });
 
       // Delete related user transactions
       await tx.userTransaction.deleteMany({
         where: {
-          dashboardAndHubId: id,
+          dashboardAndHubId: appIdNum,
         },
       });
 
       // Delete the dashboardAndHub record
       await tx.dashboardAndHub.delete({
-        where: { id },
+        where: { id: appIdNum },
       });
 
       // Delete the androidApp record
@@ -475,7 +476,7 @@ export const deleteDashboardApp = async (req: Request, res: Response) => {
       actorRole: req?.role as string,
       module: "dashboard",
       action: "deleteDashboardApp",
-      targetId: id || "",
+      targetId: appIdNum?.toString() || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",

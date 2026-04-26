@@ -139,12 +139,12 @@ export const refundPayment = async (
     refundParams.notes = notes;
   }
 
-  const refund = await razorpay.payments.refund(refundParams);
+  const refund = await razorpay.payments.refund(paymentId, refundParams);
 
   return {
     razorpayRefundId: refund.id,
     status: refund.status,
-    amount: refund.amount,
+    amount: refund.amount ?? 0,
   };
 };
 
