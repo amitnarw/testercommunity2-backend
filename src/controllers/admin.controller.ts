@@ -1,5 +1,6 @@
 import { parsePrismaError } from "@/utils/prismaErrorHandler";
 import path from "path";
+import fs from "fs";
 import logger from "../utils/logger";
 import { prismaClient } from "@/lib/prisma";
 import type { AuditLogPayload } from "@/types/audit_log";
