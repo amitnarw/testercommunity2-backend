@@ -339,7 +339,7 @@ export const addHubApp = async (req: Request, res: Response) => {
             androidAppId: androidAppData?.id,
             actionType: "SUBMIT_APP",
             description: appliedPromoCodeId
-              ? `${app_description} (Promo: ${dbPromo.code})`
+              ? `${app_description} (Promo: ${promo_code})`
               : app_description,
             ipAddress: req?.userIpAddress,
             userAgent: req?.userAgent,
@@ -1852,7 +1852,7 @@ export const validatePromoCode = async (req: Request, res: Response) => {
 
     return sendSuccess(
       res,
-      { fixedPoints: promoCode.fixedPoints },
+      { discountValue: promoCode.discountValue },
       "Promo code is valid",
     );
   } catch (error) {
