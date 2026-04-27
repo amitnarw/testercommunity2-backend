@@ -691,7 +691,8 @@ export const getActivePromoCodes = async (req: Request, res: Response) => {
       select: {
         id: true,
         code: true,
-        fixedPoints: true,
+        discountType: true,
+        discountValue: true,
         maxUses: true,
         usedCount: true,
         updatedAt: true,

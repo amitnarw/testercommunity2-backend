@@ -2084,7 +2084,7 @@ export const deletePromoCode = async (req: Request, res: Response) => {
 
 export const getPromoCodeApps = async (req: Request, res: Response) => {
   try {
-    const promoCodeId = parseInt(req.params.id);
+    const promoCodeId = parseInt(req.params.id as string);
     if (isNaN(promoCodeId)) {
       return sendError(res, 400, "Invalid promo code ID");
     }
@@ -2108,7 +2108,8 @@ export const getPromoCodeApps = async (req: Request, res: Response) => {
       orderBy: { createdAt: "desc" },
     });
 
-    return sendSuccess(res, apps, "Apps fetched successfully");
+    const serializedApps = JSON.parse(JSON.stringify(apps));
+    return sendSuccess(res, serializedApps, "Apps fetched successfully");
   } catch (error) {
     return sendError(
       res,
