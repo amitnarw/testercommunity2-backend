@@ -69,6 +69,14 @@ export const getSubmittedApps = async (req: Request, res: Response) => {
             emailVerified: true,
           },
         },
+        promoCode: {
+          select: {
+            id: true,
+            code: true,
+            discountType: true,
+            discountValue: true,
+          },
+        },
       },
       orderBy: {
         createdAt: "desc",
@@ -1947,9 +1955,20 @@ export const unassignTesterFromApp = async (req: Request, res: Response) => {
 export const getAllPromoCodes = async (req: Request, res: Response) => {
   try {
     const promoCodes = await prismaClient.promoCode.findMany({
+      include: {
+        _count: {
+          select: { dashboardAndHubs: true },
+        },
+      },
       orderBy: { createdAt: "desc" },
     });
-    return sendSuccess(res, promoCodes, "Promo codes fetched successfully");
+
+    const result = promoCodes.map((pc) => ({
+      ...pc,
+      appCount: pc._count.dashboardAndHubs,
+    }));
+
+    return sendSuccess(res, result, "Promo codes fetched successfully");
   } catch (error) {
     return sendError(
       res,
@@ -1962,7 +1981,8 @@ export const getAllPromoCodes = async (req: Request, res: Response) => {
 export const createPromoCode = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
-    const { code, fixedPoints, isActive, maxUses, maxPerUser } = payload;
+    const { code, discountType, discountValue, isActive, maxUses, maxPerUser } =
+      payload;
 
     if (!code) return sendError(res, 400, "Code is required");
 
@@ -1974,13 +1994,16 @@ export const createPromoCode = async (req: Request, res: Response) => {
       return sendError(res, 400, "A promo code with this code already exists");
     }
 
-    const parsedFixedPoints = parseFloat(fixedPoints);
-    const finalFixedPoints = Number.isNaN(parsedFixedPoints) ? 200 : parsedFixedPoints;
+    const parsedDiscountValue = parseFloat(discountValue);
+    const finalDiscountValue = Number.isNaN(parsedDiscountValue)
+      ? 200
+      : parsedDiscountValue;
 
     const newPromo = await prismaClient.promoCode.create({
       data: {
         code: code.trim().toUpperCase(),
-        fixedPoints: finalFixedPoints,
+        discountType: discountType || "FIXED",
+        discountValue: finalDiscountValue,
         isActive: isActive !== undefined ? isActive : true,
         maxUses: maxUses ? parseInt(maxUses) : null,
         maxPerUser: maxPerUser ? parseInt(maxPerUser) : null,
@@ -2004,7 +2027,8 @@ export const createPromoCode = async (req: Request, res: Response) => {
 export const updatePromoCode = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
-    const { id, code, fixedPoints, isActive, maxUses, maxPerUser } = payload;
+    const { id, code, discountType, discountValue, isActive, maxUses, maxPerUser } =
+      payload;
 
     if (!id) return sendError(res, 400, "Promo code ID is required");
 
@@ -2012,8 +2036,10 @@ export const updatePromoCode = async (req: Request, res: Response) => {
       where: { id: parseInt(id) },
       data: {
         code: code ? code.trim().toUpperCase() : undefined,
-        fixedPoints:
-          fixedPoints !== undefined ? parseFloat(fixedPoints) : undefined,
+        discountType:
+          discountType !== undefined ? discountType : undefined,
+        discountValue:
+          discountValue !== undefined ? parseFloat(discountValue) : undefined,
         isActive: isActive !== undefined ? isActive : undefined,
         maxUses:
           maxUses !== undefined
@@ -2047,6 +2073,42 @@ export const deletePromoCode = async (req: Request, res: Response) => {
       where: { id: parseInt(id as string) },
     });
     return sendSuccess(res, null, "Promo code deleted successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const getPromoCodeApps = async (req: Request, res: Response) => {
+  try {
+    const promoCodeId = parseInt(req.params.id);
+    if (isNaN(promoCodeId)) {
+      return sendError(res, 400, "Invalid promo code ID");
+    }
+
+    const apps = await prismaClient.dashboardAndHub.findMany({
+      where: { promoCodeId },
+      include: {
+        androidApp: {
+          select: {
+            appName: true,
+            appLogoUrl: true,
+          },
+        },
+        appOwner: {
+          select: {
+            name: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return sendSuccess(res, apps, "Apps fetched successfully");
   } catch (error) {
     return sendError(
       res,
