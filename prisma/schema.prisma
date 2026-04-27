@@ -175,7 +175,7 @@ model Blog {
   excerpt          String
   content          String
   authorName       String
-  authorAvatarUrl  String
+  authorAvatarUrl  String?
   authorDataAiHint String?
   imageUrl         String
   dataAiHint       String?
