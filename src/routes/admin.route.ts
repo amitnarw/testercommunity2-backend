@@ -59,6 +59,7 @@ import {
   createBlog,
   updateBlog,
   deleteBlog,
+  getPromoCodeApps,
 } from "@/controllers/admin.controller";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 import Router from "express";
@@ -131,6 +132,7 @@ router.get("/promo-codes", getAllPromoCodes);
 router.post("/promo-codes", decryptPayload, createPromoCode);
 router.post("/promo-codes/update", decryptPayload, updatePromoCode);
 router.delete("/promo-codes/:id", deletePromoCode);
+router.get("/promo-codes/:id/apps", getPromoCodeApps);
 
 // Blog
 router.get("/blogs", getAllBlogs);

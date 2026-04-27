@@ -229,6 +229,7 @@ model DashboardAndHub {
   minimumAndroidVersion Float
   status                DashboardAndHubStatus
   statusDetails         Json?
+  promoCodeId           Int?
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   androidApp            AndroidApp             @relation(fields: [appId], references: [id])
@@ -238,6 +239,7 @@ model DashboardAndHub {
   activities            UserActivity[]
   earningHistory        UserTransaction[]
   testers               User[]                 @relation("DashboardAndHubTesters")
+  promoCode             PromoCode?             @relation(fields: [promoCodeId], references: [id])
 
   @@map("dashboard_and_hub")
 }
@@ -691,16 +693,18 @@ model WebhookEventLog {
 }
 
 model PromoCode {
-  id          Int              @id @default(autoincrement())
-  code        String           @unique
-  fixedPoints Float            @default(200)
-  isActive    Boolean          @default(true)
-  maxUses     Int?
-  maxPerUser  Int?
-  usedCount   Int              @default(0)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  usages      UserPromoUsage[]
+  id                   Int               @id @default(autoincrement())
+  code                 String            @unique
+  discountType         String            @default("FIXED") // "FIXED" | "PERCENTAGE"
+  discountValue        Float             @default(0)
+  isActive             Boolean          @default(true)
+  maxUses              Int?
+  maxPerUser           Int?
+  usedCount            Int              @default(0)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  usages               UserPromoUsage[]
+  dashboardAndHubs      DashboardAndHub[]
 
   @@map("promo_code")
 }

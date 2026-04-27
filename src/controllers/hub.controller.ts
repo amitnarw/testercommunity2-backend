@@ -244,7 +244,11 @@ export const addHubApp = async (req: Request, res: Response) => {
         }
       }
 
-      final_points_cost = dbPromo.fixedPoints;
+      if (dbPromo.discountType === "PERCENTAGE") {
+        final_points_cost = Math.max(0, points_cost * (1 - dbPromo.discountValue / 100));
+      } else {
+        final_points_cost = dbPromo.discountValue;
+      }
       appliedPromoCodeId = dbPromo.id;
     }
 
@@ -277,6 +281,7 @@ export const addHubApp = async (req: Request, res: Response) => {
             // averageTimeTesting
             minimumAndroidVersion: minimum_android_version,
             status: "IN_REVIEW",
+            promoCodeId: appliedPromoCodeId,
           },
         });
 
@@ -334,7 +339,7 @@ export const addHubApp = async (req: Request, res: Response) => {
             androidAppId: androidAppData?.id,
             actionType: "SUBMIT_APP",
             description: appliedPromoCodeId
-              ? `${app_description} (Promo applied)`
+              ? `${app_description} (Promo: ${dbPromo.code})`
               : app_description,
             ipAddress: req?.userIpAddress,
             userAgent: req?.userAgent,

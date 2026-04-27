@@ -11,7 +11,8 @@ export async function seedPromoCodes() {
     update: {},
     create: {
       code: "WELCOME200",
-      fixedPoints: 200,
+      discountType: "FIXED",
+      discountValue: 200,
       isActive: true,
       maxUses: 100,
     },
@@ -22,7 +23,8 @@ export async function seedPromoCodes() {
     update: {},
     create: {
       code: "TEST",
-      fixedPoints: 0,
+      discountType: "FIXED",
+      discountValue: 0,
       isActive: true,
     },
   });
