@@ -840,6 +840,17 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
       });
     }
 
+    // Compute current day from testingStartDate
+    const now = new Date();
+    const startDate = hubAppDetails?.testingStartDate;
+    const totalDay = hubAppDetails?.totalDay || 0;
+    if (startDate && totalDay > 0) {
+      const elapsed = Math.floor(
+        (now.getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)
+      );
+      result.currentDay = Math.min(elapsed + 1, totalDay);
+    }
+
     // Add payment info for Admins
     const userRole = req?.role?.toUpperCase();
     if (userRole === "ADMIN" || userRole === "SUPER_ADMIN") {
@@ -1072,6 +1083,11 @@ export const acceptSubmittedHubAppTestingRequest = async (
       const dataValues: any = { currentTester: { increment: 1 } };
       if (checkTester.currentTester + 1 === checkTester.totalTester) {
         dataValues.status = "IN_TESTING";
+        const now = new Date();
+        dataValues.testingStartDate = now;
+        dataValues.testingEndDate = new Date(
+          now.getTime() + (checkTester.totalDay || 14) * 24 * 60 * 60 * 1000
+        );
       }
 
       await tx?.dashboardAndHub?.update({
