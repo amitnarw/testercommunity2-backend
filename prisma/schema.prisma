@@ -220,6 +220,8 @@ model DashboardAndHub {
   totalTester           Int
   currentDay            Int
   totalDay              Int
+  testingStartDate      DateTime?
+  testingEndDate        DateTime?
   instructionsForTester String?
   rewardPoints          Float?
   costPoints            Float?

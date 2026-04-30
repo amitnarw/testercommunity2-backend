@@ -1843,12 +1843,23 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
       newStatus = "IN_TESTING";
     }
 
+    const updateData: any = {
+      currentTester: newCurrentTester,
+      status: newStatus,
+    };
+
+    // Set testing dates when moving to IN_TESTING
+    if (newStatus === "IN_TESTING" && !app.testingStartDate) {
+      const now = new Date();
+      updateData.testingStartDate = now;
+      updateData.testingEndDate = new Date(
+        now.getTime() + (app.totalDay || 14) * 24 * 60 * 60 * 1000
+      );
+    }
+
     const updatedApp = await prismaClient.dashboardAndHub.update({
       where: { id: parseInt(id) },
-      data: {
-        currentTester: newCurrentTester,
-        status: newStatus,
-      },
+      data: updateData,
       include: {
         androidApp: true,
       },
