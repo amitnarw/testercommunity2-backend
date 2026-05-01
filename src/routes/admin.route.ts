@@ -60,100 +60,109 @@ import {
   updateBlog,
   deleteBlog,
   getPromoCodeApps,
+  // Act As
+  actAsRole,
 } from "@/controllers/admin.controller";
+import { checkAuthorization } from "@/middlewares/checkAuthorization";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 import Router from "express";
 
 const router = Router();
 
+// Act As (must be before checkAuthorization to allow SUPER_ADMIN to use it)
+router.post("/act-as", decryptPayload, actAsRole);
+
 // Control Room
-router.get("/get-control-room-data", getControlRoomData);
+router.get("/get-control-room-data", checkAuthorization({ module: "control_room", action: "canReadList" }), getControlRoomData);
 
 // Dashboard Stats
-router.get("/get-dashboard-stats", getDashboardStats);
+router.get("/get-dashboard-stats", checkAuthorization({ module: "dashboard", action: "canReadList" }), getDashboardStats);
 
 // Submissions
-router.get("/get-submitted-apps", getSubmittedApps);
-router.get("/get-submitted-apps-count", getSubmittedAppsCount);
-router.post("/accept-app", decryptPayload, acceptApp);
-router.post("/reject-app", decryptPayload, rejectApp);
-router.post("/update-project-status", decryptPayload, updateProjectStatus);
+router.get("/get-submitted-apps", checkAuthorization({ module: "submissions", action: "canReadList" }), getSubmittedApps);
+router.get("/get-submitted-apps-count", checkAuthorization({ module: "submissions", action: "canReadList" }), getSubmittedAppsCount);
+router.post("/accept-app", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, acceptApp);
+router.post("/reject-app", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, rejectApp);
+router.post("/update-project-status", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, updateProjectStatus);
 
 // Feedback
-router.get("/feedback", getAllFeedback);
-router.get("/feedback/counts", getFeedbackCounts);
-router.get("/feedback/:id", getFeedbackById);
-router.post("/feedback/update", decryptPayload, updateFeedbackStatus);
-router.delete("/feedback/:id", deleteFeedback);
+router.get("/feedback", checkAuthorization({ module: "feedback", action: "canReadList" }), getAllFeedback);
+router.get("/feedback/counts", checkAuthorization({ module: "feedback", action: "canReadList" }), getFeedbackCounts);
+router.get("/feedback/:id", checkAuthorization({ module: "feedback", action: "canReadSingle" }), getFeedbackById);
+router.post("/feedback/update", checkAuthorization({ module: "feedback", action: "canUpdate" }), decryptPayload, updateFeedbackStatus);
+router.delete("/feedback/:id", checkAuthorization({ module: "feedback", action: "canDelete" }), deleteFeedback);
 
 // Users
-router.get("/users", getAllUsers);
-router.get("/users/counts", getUserCounts);
-router.get("/users/:id", getUserById);
-router.post("/users/update-status", decryptPayload, updateUserStatus);
-router.post("/users/update-role", decryptPayload, updateUserRole);
-router.delete("/users/:id", deleteUser);
+router.get("/users", checkAuthorization({ module: "users", action: "canReadList" }), getAllUsers);
+router.get("/users/counts", checkAuthorization({ module: "users", action: "canReadList" }), getUserCounts);
+router.get("/users/:id", checkAuthorization({ module: "users", action: "canReadSingle" }), getUserById);
+router.post("/users/update-status", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserStatus);
+router.post("/users/update-role", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserRole);
+router.delete("/users/:id", checkAuthorization({ module: "users", action: "canDelete" }), deleteUser);
 
 // Suggestions
-router.get("/suggestions", getAllSuggestions);
-router.get("/suggestions/counts", getSuggestionCounts);
-router.get("/suggestions/:id", getSuggestionById);
-router.post("/suggestions", decryptPayload, createSuggestion);
-router.post("/suggestions/update", decryptPayload, updateSuggestionStatus);
-router.delete("/suggestions/:id", deleteSuggestion);
+router.get("/suggestions", checkAuthorization({ module: "suggestions", action: "canReadList" }), getAllSuggestions);
+router.get("/suggestions/counts", checkAuthorization({ module: "suggestions", action: "canReadList" }), getSuggestionCounts);
+router.get("/suggestions/:id", checkAuthorization({ module: "suggestions", action: "canReadSingle" }), getSuggestionById);
+router.post("/suggestions", checkAuthorization({ module: "suggestions", action: "canCreate" }), decryptPayload, createSuggestion);
+router.post("/suggestions/update", checkAuthorization({ module: "suggestions", action: "canUpdate" }), decryptPayload, updateSuggestionStatus);
+router.delete("/suggestions/:id", checkAuthorization({ module: "suggestions", action: "canDelete" }), deleteSuggestion);
 
 // Notifications
-router.get("/notifications", getAllNotifications);
-router.get("/notifications/counts", getNotificationCounts);
-router.get("/notification-types", getNotificationTypes);
-router.post("/notifications", decryptPayload, createNotification);
-router.post("/notifications/update", decryptPayload, updateNotification);
-router.post("/notifications/broadcast", decryptPayload, broadcastNotification);
-router.delete("/notifications/:id", deleteNotification);
+router.get("/notifications", checkAuthorization({ module: "notifications", action: "canReadList" }), getAllNotifications);
+router.get("/notifications/counts", checkAuthorization({ module: "notifications", action: "canReadList" }), getNotificationCounts);
+router.get("/notification-types", checkAuthorization({ module: "notifications", action: "canReadList" }), getNotificationTypes);
+router.post("/notifications", checkAuthorization({ module: "notifications", action: "canCreate" }), decryptPayload, createNotification);
+router.post("/notifications/update", checkAuthorization({ module: "notifications", action: "canUpdate" }), decryptPayload, updateNotification);
+router.post("/notifications/broadcast", checkAuthorization({ module: "notifications", action: "canCreate" }), decryptPayload, broadcastNotification);
+router.delete("/notifications/:id", checkAuthorization({ module: "notifications", action: "canDelete" }), deleteNotification);
 
 // Tester Applications
-router.get("/tester-applications", getTesterApplications);
-router.get("/tester-applications/counts", getTesterApplicationCounts);
-router.get("/tester-applications/:id", getTesterApplicationById);
+router.get("/tester-applications", checkAuthorization({ module: "tester_applications", action: "canReadList" }), getTesterApplications);
+router.get("/tester-applications/counts", checkAuthorization({ module: "tester_applications", action: "canReadList" }), getTesterApplicationCounts);
+router.get("/tester-applications/:id", checkAuthorization({ module: "tester_applications", action: "canReadSingle" }), getTesterApplicationById);
 router.post(
   "/tester-applications/update-status",
+  checkAuthorization({ module: "tester_applications", action: "canUpdate" }),
   decryptPayload,
   updateTesterApplicationStatus,
 );
-router.post("/tester-applications/assign", decryptPayload, assignTestersToApp);
+router.post("/tester-applications/assign", checkAuthorization({ module: "tester_applications", action: "canUpdate" }), decryptPayload, assignTestersToApp);
 router.post(
   "/tester-applications/unassign",
+  checkAuthorization({ module: "tester_applications", action: "canUpdate" }),
   decryptPayload,
   unassignTesterFromApp,
 );
 
 // Promo Codes
-router.get("/promo-codes", getAllPromoCodes);
-router.post("/promo-codes", decryptPayload, createPromoCode);
-router.post("/promo-codes/update", decryptPayload, updatePromoCode);
-router.delete("/promo-codes/:id", deletePromoCode);
-router.get("/promo-codes/:id/apps", getPromoCodeApps);
+router.get("/promo-codes", checkAuthorization({ module: "promo_codes", action: "canReadList" }), getAllPromoCodes);
+router.post("/promo-codes", checkAuthorization({ module: "promo_codes", action: "canCreate" }), decryptPayload, createPromoCode);
+router.post("/promo-codes/update", checkAuthorization({ module: "promo_codes", action: "canUpdate" }), decryptPayload, updatePromoCode);
+router.delete("/promo-codes/:id", checkAuthorization({ module: "promo_codes", action: "canDelete" }), deletePromoCode);
+router.get("/promo-codes/:id/apps", checkAuthorization({ module: "promo_codes", action: "canReadList" }), getPromoCodeApps);
 
 // Blog
-router.get("/blogs", getAllBlogs);
-router.get("/blogs/:id", getBlogById);
-router.post("/blogs", decryptPayload, createBlog);
-router.post("/blogs/update", decryptPayload, updateBlog);
-router.delete("/blogs/:id", deleteBlog);
+router.get("/blogs", checkAuthorization({ module: "blogs", action: "canReadList" }), getAllBlogs);
+router.get("/blogs/:id", checkAuthorization({ module: "blogs", action: "canReadSingle" }), getBlogById);
+router.post("/blogs", checkAuthorization({ module: "blogs", action: "canCreate" }), decryptPayload, createBlog);
+router.post("/blogs/update", checkAuthorization({ module: "blogs", action: "canUpdate" }), decryptPayload, updateBlog);
+router.delete("/blogs/:id", checkAuthorization({ module: "blogs", action: "canDelete" }), deleteBlog);
 
 // Verification and Completion
 router.post(
   "/update-verification-status",
+  checkAuthorization({ module: "verification", action: "canUpdate" }),
   decryptPayload,
   updateDailyVerificationStatus,
 );
-router.post("/admin-complete-app", decryptPayload, adminCompleteApp);
+router.post("/admin-complete-app", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, adminCompleteApp);
 
 // System Logs
-router.get("/logs", getLogs);
-router.get("/logs/:filename", getLogContent);
-router.delete("/logs/:filename", deleteLog);
-router.post("/logs/batch-delete", decryptPayload, deleteLogsBatch);
-router.delete("/logs/:filename/entry/:index", deleteLogEntry);
+router.get("/logs", checkAuthorization({ module: "logs", action: "canReadList" }), getLogs);
+router.get("/logs/:filename", checkAuthorization({ module: "logs", action: "canReadSingle" }), getLogContent);
+router.delete("/logs/:filename", checkAuthorization({ module: "logs", action: "canDelete" }), deleteLog);
+router.post("/logs/batch-delete", checkAuthorization({ module: "logs", action: "canDelete" }), decryptPayload, deleteLogsBatch);
+router.delete("/logs/:filename/entry/:index", checkAuthorization({ module: "logs", action: "canDelete" }), deleteLogEntry);
 
 export default router;

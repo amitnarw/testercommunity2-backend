@@ -4,7 +4,7 @@ import { seedRolesModulesPermissions } from "./seedPermissions";
 import { seedControlRoom } from "./seedControlRoom";
 import { seedPlans } from "./seedPlans";
 import { seedAppCategories } from "./seedAppCategories";
-import { seedAdmin } from "./seedAdmin";
+import { seedRoleUsers } from "./seedRoleUsers";
 import { seedTester } from "./seedTester";
 import { seedPromoCodes } from "./seedPromoCodes";
 import { seedBlogs } from "./seedBlogs";
@@ -27,8 +27,8 @@ async function main() {
     await seedAppCategories();
     logger.info("✅ App Categories seeded");
 
-    await seedAdmin();
-    logger.info("✅ Admin seeded");
+    await seedRoleUsers();
+    logger.info("✅ Role users seeded");
 
     await seedTester();
     logger.info("✅ Tester seeded");

@@ -594,11 +594,8 @@ export const getHubApps = async (req: Request, res: Response) => {
         }
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { testerRelations, ...rest } = item;
-
       return {
-        ...rest,
+        ...item,
         status,
         statusDetails: statusDetails
           ? JSON.parse(JSON.stringify(statusDetails))
