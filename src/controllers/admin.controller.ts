@@ -926,11 +926,35 @@ export const updateUserStatus = async (req: Request, res: Response) => {
 
 export const updateUserRole = async (req: Request, res: Response) => {
   try {
+    const callerRole = req.role;
+
     const { payload } = req.body;
     const { id, role } = payload;
 
     if (!id || !role) {
       return sendError(res, 400, "User ID and role are required");
+    }
+
+    // Block assigning super_admin role to anyone (new super_admins only via seed)
+    if (role === "super_admin" && callerRole !== "super_admin") {
+      return sendError(res, 403, "Only Super Admins can assign Super Admin role");
+    }
+
+    // Get target user to check their current role
+    const targetUser = await prismaClient.userDetail.findUnique({
+      where: { userId: id },
+      include: { role: true },
+    });
+
+    if (!targetUser) {
+      return sendError(res, 404, "User not found");
+    }
+
+    const targetRole = targetUser.role?.name;
+
+    // Non-super_admin callers cannot modify super_admin accounts
+    if (targetRole === "super_admin" && callerRole !== "super_admin") {
+      return sendError(res, 403, "Only Super Admins can modify Super Admin accounts");
     }
 
     const roleRecord = await prismaClient.role.findFirst({
@@ -990,7 +1014,7 @@ export const deleteUser = async (req: Request, res: Response) => {
     const targetRole = user.userDetail?.role?.name;
 
     // Prevention: No user can be deleted if they are a Super Admin
-    if (targetRole === "Super Admin") {
+    if (targetRole === "super_admin") {
       return sendError(
         res,
         403,
@@ -1005,7 +1029,7 @@ export const deleteUser = async (req: Request, res: Response) => {
 
     // Permission check: Admins can only delete regular Users/Testers.
     // Super Admins can delete anyone (except Super Admins).
-    if (actorRole !== "Super Admin" && targetRole === "Admin") {
+    if (actorRole !== "super_admin" && targetRole === "admin") {
       return sendError(res, 403, "Only Super Admins can delete Admin accounts");
     }
 
@@ -2670,5 +2694,58 @@ export const deleteLogEntry = async (req: Request, res: Response) => {
       return sendError(res, 400, "Invalid file name");
     }
     return sendError(res, 500, "Server Error deleting log entry");
+  }
+};
+
+// ==================== ACT AS ROLE (FOR SUPER_ADMIN) ====================
+
+export const actAsRole = async (req: Request, res: Response) => {
+  try {
+    const headers: Record<string, string> = {};
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (typeof value === "string") {
+        headers[key] = value;
+      } else if (Array.isArray(value)) {
+        headers[key] = value.join(";");
+      }
+    }
+
+    const session = await auth.api.getSession({ headers }) as SessionWithRole | null;
+
+    if (!session) {
+      return sendError(res, 401, "Unauthorized");
+    }
+
+    // Only super_admin can use act-as
+    if (session?.role?.name !== "super_admin") {
+      return sendError(res, 403, "Only super_admin can act as other roles");
+    }
+
+    const { payload } = req.body;
+    const { role } = payload; // "tester" | "user" | null (to reset)
+
+    if (!role) {
+      // Clear the acting-as cookie
+      res.clearCookie("acting_as_role");
+      return sendSuccess(res, null, "Stopped acting as");
+    }
+
+    // Validate role
+    if (role !== "tester" && role !== "user") {
+      return sendError(res, 400, "Role must be 'tester' or 'user'");
+    }
+
+    // Set the acting-as cookie
+    res.cookie("acting_as_role", role, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 1000, // 1 hour
+    });
+
+    return sendSuccess(res, { actingAsRole: role }, `Acting as ${role}`);
+  } catch (error) {
+    logger.error("Error in actAsRole:", error);
+    return sendError(res, 500, "Server error");
   }
 };

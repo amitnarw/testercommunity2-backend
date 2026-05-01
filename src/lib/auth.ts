@@ -122,6 +122,14 @@ export const auth = betterAuth({
               "You already have an account with Google. Please sign in with that.",
           });
         }
+
+        if (user?.userDetail?.banned) {
+          const errorMessage = user.userDetail.ban_reason
+            ? user.userDetail.ban_reason
+            : "Your account has been suspended. Please contact support.";
+          const bannedURL = `http://localhost:9002/banned?error_description=${encodeURIComponent(errorMessage)}`;
+          throw ctx.redirect(bannedURL);
+        }
       }
     }),
     after: createAuthMiddleware(async (ctx) => {
@@ -273,6 +281,34 @@ export const auth = betterAuth({
               language,
             },
           });
+        },
+      },
+    },
+    session: {
+      create: {
+        before: async (session, ctx) => {
+          if (!ctx) return;
+
+          const userDetail = await prismaClient?.userDetail?.findUnique({
+            where: { userId: session.userId },
+            select: { banned: true, ban_reason: true },
+          });
+
+          if (userDetail?.banned) {
+            const errorMessage = userDetail.ban_reason
+              ? userDetail.ban_reason
+              : "Your account has been suspended. Please contact support.";
+
+            // For OAuth callbacks, redirect to banned page
+            if (ctx.path && (ctx.path.startsWith("/callback") || ctx.path.startsWith("/oauth2/callback"))) {
+              const bannedURL = `http://localhost:9002/banned?error_description=${encodeURIComponent(errorMessage)}`;
+              throw ctx.redirect(bannedURL);
+            }
+
+            throw new APIError("FORBIDDEN", {
+              message: errorMessage,
+            });
+          }
         },
       },
     },
