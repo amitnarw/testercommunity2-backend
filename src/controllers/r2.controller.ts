@@ -69,7 +69,15 @@ export const createUploadUrl = async (req: Request, res: Response) => {
 };
 
 export const extractKey = ({ url }: { url: string }) => {
-  return url?.split(process.env.R2_MEDIA_BASE_URL + "/")?.[1];
+  if (!url) return undefined;
+  const baseUrl = process.env.R2_MEDIA_BASE_URL || "";
+  if (url.startsWith(baseUrl)) {
+    return url.split(baseUrl + "/")?.[1];
+  }
+  if (url.startsWith("/")) {
+    return url.substring(1);
+  }
+  return url;
 };
 
 export const deleteFunction = async ({ url }: { url: string }) => {

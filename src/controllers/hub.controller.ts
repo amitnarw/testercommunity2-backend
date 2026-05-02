@@ -2,6 +2,7 @@ import { type Request, type Response } from "express";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient } from "@/lib/prisma";
+import { normalizeR2Url } from "@/utils/helperFunctions";
 import type { DashboardAndHubStatus } from "@prisma/client";
 import { deleteFunction } from "./r2.controller";
 import { extractPackageName } from "@/services/common";
@@ -1320,7 +1321,7 @@ export const addHubAppFeedback = async (req: Request, res: Response) => {
           data: {
             type: image ? "IMAGE" : "VIDEO",
             category: image ? "FEATURED_IMAGE" : "FEATURED_VIDEO",
-            src: image ? image : video,
+            src: normalizeR2Url(image ? image : video),
             feedbackId: feedbackData?.id,
           },
         });
@@ -1409,7 +1410,7 @@ export const updateHubAppFeedback = async (req: Request, res: Response) => {
       });
 
       if (image || video) {
-        const newSrc = image || video;
+        const newSrc = normalizeR2Url(image || video);
         const newType = image ? "IMAGE" : "VIDEO";
         const newCategory = image ? "FEATURED_IMAGE" : "FEATURED_VIDEO";
 
@@ -1632,7 +1633,7 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
         data: {
           testerRelationId: relation.id,
           dayNumber: nextDay,
-          proofImageUrl: proofImage || "",
+          proofImageUrl: normalizeR2Url(proofImage),
           status: "VERIFIED", // Auto-approved as requested
           verifiedAt: new Date(),
           metaData:
