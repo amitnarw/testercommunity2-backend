@@ -2525,7 +2525,7 @@ const getLogFilePath = (filename: string) => {
 export const getLogs = async (req: Request, res: Response) => {
   try {
     const logDir = path.resolve(process.cwd(), "logs");
-    
+
     if (!fs.existsSync(logDir)) {
       return sendSuccess(res, [], "No logs directory found");
     }
@@ -2564,7 +2564,7 @@ export const getLogContent = async (req: Request, res: Response) => {
 
     // Only allow reading text/log files directly
     if ((filename as string).endsWith('.gz')) {
-         return sendError(res, 400, "Cannot read compressed logs directly");
+      return sendError(res, 400, "Cannot read compressed logs directly");
     }
 
     const stats = fs.statSync(filePath);
@@ -2613,7 +2613,7 @@ export const deleteLog = async (req: Request, res: Response) => {
 export const deleteLogsBatch = async (req: Request, res: Response) => {
   try {
     const { filenames } = req.body;
-    
+
     if (!filenames || !Array.isArray(filenames)) {
       return sendError(res, 400, "Invalid request payload. Expected an array of filenames.");
     }
@@ -2623,7 +2623,7 @@ export const deleteLogsBatch = async (req: Request, res: Response) => {
 
     for (const filename of filenames) {
       if (typeof filename !== "string") continue;
-      
+
       try {
         const filePath = getLogFilePath(filename as string);
         if (fs.existsSync(filePath)) {
@@ -2640,8 +2640,8 @@ export const deleteLogsBatch = async (req: Request, res: Response) => {
     }
 
     return sendSuccess(
-      res, 
-      { deletedCount, errors }, 
+      res,
+      { deletedCount, errors },
       `Successfully deleted ${deletedCount} log files`
     );
   } catch (error) {
@@ -2676,13 +2676,13 @@ export const deleteLogEntry = async (req: Request, res: Response) => {
     // Read file and filter entries
     const fileContent = fs.readFileSync(filePath, "utf-8");
     const lines = fileContent.split(/\r?\n/).filter((line: string) => line.trim() !== "");
-    
+
     if (entryIndex < 0 || entryIndex >= lines.length) {
       return sendError(res, 400, "Entry index out of bounds");
     }
 
     lines.splice(entryIndex, 1);
-    
+
     // Write back the file
     // Join with newline and append one at the end if the original had one
     const newContent = lines.join("\n") + (lines.length > 0 ? "\n" : "");

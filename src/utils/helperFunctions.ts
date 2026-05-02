@@ -26,3 +26,15 @@ export function parseTimeString(str: string): number {
       throw new Error("Invalid time format: " + str);
   }
 }
+
+/**
+ * Normalizes an R2 URL. If the URL starts with '/', it prepends the R2_MEDIA_BASE_URL.
+ */
+export function normalizeR2Url(url: string | undefined | null): string {
+  if (!url) return "";
+  const baseUrl = process.env.R2_MEDIA_BASE_URL || "";
+  if (url.startsWith("/") && baseUrl) {
+    return `${baseUrl}${url}`;
+  }
+  return url;
+}
