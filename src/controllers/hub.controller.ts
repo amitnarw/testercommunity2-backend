@@ -567,41 +567,53 @@ export const getHubApps = async (req: Request, res: Response) => {
       },
     });
 
-    const result = hubApps?.map((item) => {
-      let statusDetails = item?.statusDetails;
-      // Default status from app, but for non-AVAILABLE apps we expect to override it
-      let status: any = item.status;
-      const relations = item?.testerRelations;
+     const result = hubApps?.map((item) => {
+       let statusDetails = item?.statusDetails;
+       // Default status from app, but for non-AVAILABLE apps we expect to override it
+       let status: any = item.status;
+       const relations = item?.testerRelations;
 
-      if (relations && relations.length > 0) {
-        const relation = relations[0];
-        const rStatus = relation.status;
+       if (relations && relations.length > 0) {
+         const relation = relations[0];
+         const rStatus = relation.status;
 
-        // Map TesterStatus to frontend expected Status (DashboardAndHubStatus-like)
-        if (rStatus === "PENDING") status = "REQUESTED";
-        else if (rStatus === "IN_PROGRESS") {
-          // If app is AVAILABLE, it's APPROVED (Waiting to Start)
-          // If app is IN_TESTING, it's IN_TESTING (Active)
-          if (item.status === "AVAILABLE") status = "ACCEPTED";
-          else if (item.status === "IN_TESTING") status = "IN_TESTING";
-          else status = "IN_TESTING"; // Fallback
-        } else if (rStatus === "REJECTED") status = "REJECTED";
-        else if (rStatus === "COMPLETED") status = "COMPLETED";
+         // Map TesterStatus to frontend expected Status (DashboardAndHubStatus-like)
+         if (rStatus === "PENDING") status = "REQUESTED";
+         else if (rStatus === "IN_PROGRESS") {
+           // If app is AVAILABLE, it's APPROVED (Waiting to Start)
+           // If app is IN_TESTING, it's IN_TESTING (Active)
+           if (item.status === "AVAILABLE") status = "ACCEPTED";
+           else if (item.status === "IN_TESTING") status = "IN_TESTING";
+           else status = "IN_TESTING"; // Fallback
+         } else if (rStatus === "REJECTED") status = "REJECTED";
+         else if (rStatus === "COMPLETED") status = "COMPLETED";
 
-        // Use relation specific statusDetails if rejected
-        if (rStatus === "REJECTED" && relation.statusDetails) {
-          statusDetails = relation.statusDetails;
-        }
-      }
+         // Use relation specific statusDetails if rejected
+         if (rStatus === "REJECTED" && relation.statusDetails) {
+           statusDetails = relation.statusDetails;
+         }
+       }
 
-      return {
-        ...item,
-        status,
-        statusDetails: statusDetails
-          ? JSON.parse(JSON.stringify(statusDetails))
-          : null,
-      };
-    });
+       // Convert Date objects to ISO strings for JSON serialization
+       return {
+         ...item,
+         createdAt: item.createdAt?.toISOString() || null,
+         updatedAt: item.updatedAt?.toISOString() || null,
+         status,
+         statusDetails: statusDetails
+           ? JSON.parse(JSON.stringify(statusDetails))
+           : null,
+         testerRelations: item.testerRelations?.map(relation => ({
+           ...relation,
+           createdAt: relation.createdAt?.toISOString() || null,
+           updatedAt: relation.updatedAt?.toISOString() || null,
+           lastActivityAt: relation.lastActivityAt?.toISOString() || null,
+           statusDetails: relation.statusDetails
+             ? JSON.parse(JSON.stringify(relation.statusDetails))
+             : null,
+         })) || [],
+       };
+     });
 
     return sendSuccess(res, result, "ok");
   } catch (error) {

@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import logger from "../utils/logger";
 import { prismaClient } from "@/lib/prisma";
+import { auth, type SessionWithRole } from "@/lib/auth";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { type Request, type Response } from "express";
