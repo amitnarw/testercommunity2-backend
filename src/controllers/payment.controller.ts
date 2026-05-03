@@ -67,10 +67,15 @@ export const getConfig = async (_req: Request, res: Response) => {
         }
 
         return sendSuccess(res, {
+            isConfigured: true,
             key_id: getRazorpayKeyId(),
             currency: "INR",
             name: "Tester Community",
             description: "Tester Community Payment Gateway",
+            image: "/apple-icon.png",
+            theme: {
+                color: "#7c3aed"
+            }
         });
     } catch (error) {
         logger.error("Error getting payment config:", error);

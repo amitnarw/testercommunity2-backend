@@ -335,6 +335,8 @@ export const verifyPayment = async (req: Request, res: Response) => {
           package: packagesToAward,
           transactionType: "PURCHASE",
           status: "CREDIT",
+          // Packages are being credited to the wallet via real-money payment
+          paymentMethod: "PACKAGE",
         },
       });
 
@@ -428,6 +430,7 @@ export const getPaymentConfig = async (req: Request, res: Response) => {
         currency: "INR",
         name: "InTesters",
         description: "Testing Packages",
+        image: "https://intesters.com/apple-icon.png",
         theme: {
           color: "#3c83f6",
         },
@@ -659,6 +662,8 @@ export const initiateRefund = async (req: Request, res: Response) => {
             package: packagesToDeduct,
             transactionType: "REFUND",
             status: "DEBIT",
+            // Refund deducts packages
+            paymentMethod: "PACKAGE",
           },
         });
       }

@@ -94,37 +94,77 @@ export const addDashboardAppSubmit = async (req: Request, res: Response) => {
     }
 
     const package_name = extractPackageName(testingUrl);
+    const { draftId } = payload;
 
     let costMoney = 999;
 
     const { androidAppData, dashboardAndHub } = await prismaClient.$transaction(
       async (tx) => {
-        const androidAppData = await tx?.androidApp?.create({
-          data: {
-            appName: appName,
-            appLogoUrl: logoUrl,
-            appScreenshotUrl1: "",
-            appScreenshotUrl2: "",
-            appCategoryId: Number(categoryId),
-            packageName: package_name || "",
-          },
-        });
+        let androidAppData;
+        let dashboardAndHub;
 
-        const dashboardAndHub = await tx?.dashboardAndHub?.create({
-          data: {
-            appId: androidAppData?.id,
-            appOwnerId: req?.userId || "",
-            appType: "PAID",
-            currentTester: 0,
-            totalTester: 0,
-            currentDay: 0,
-            totalDay: 0,
-            instructionsForTester: instructions,
-            costMoney: costMoney,
-            minimumAndroidVersion: 0,
-            status: "IN_REVIEW",
-          },
-        });
+        if (draftId) {
+          // If it's a draft, we update the existing records
+          const existingDraft = await tx.dashboardAndHub.findFirst({
+            where: {
+              id: Number(draftId),
+              appOwnerId: req.userId,
+              status: "DRAFT"
+            },
+            include: { androidApp: true }
+          });
+
+          if (!existingDraft) {
+            throw new Error("Draft not found or already submitted");
+          }
+
+          androidAppData = await tx.androidApp.update({
+            where: { id: existingDraft.appId },
+            data: {
+              appName: appName,
+              appLogoUrl: logoUrl,
+              appCategoryId: Number(categoryId),
+              packageName: package_name || "",
+            }
+          });
+
+          dashboardAndHub = await tx.dashboardAndHub.update({
+            where: { id: Number(draftId) },
+            data: {
+              instructionsForTester: instructions,
+              status: "IN_REVIEW",
+              costMoney: costMoney,
+            }
+          });
+        } else {
+          // Original logic for new submission
+          androidAppData = await tx?.androidApp?.create({
+            data: {
+              appName: appName,
+              appLogoUrl: logoUrl,
+              appScreenshotUrl1: "",
+              appScreenshotUrl2: "",
+              appCategoryId: Number(categoryId),
+              packageName: package_name || "",
+            },
+          });
+
+          dashboardAndHub = await tx?.dashboardAndHub?.create({
+            data: {
+              appId: androidAppData?.id,
+              appOwnerId: req?.userId || "",
+              appType: "PAID",
+              currentTester: 0,
+              totalTester: 0,
+              currentDay: 0,
+              totalDay: 0,
+              instructionsForTester: instructions,
+              costMoney: costMoney,
+              minimumAndroidVersion: 0,
+              status: "IN_REVIEW",
+            },
+          });
+        }
 
         const walletData = await tx?.userWallet?.update({
           where: {
@@ -146,6 +186,8 @@ export const addDashboardAppSubmit = async (req: Request, res: Response) => {
             package: 1,
             transactionType: "PURCHASE",
             status: "DEBIT",
+            // PAID dashboard apps always consume 1 package
+            paymentMethod: "PACKAGE",
           },
         });
 
@@ -171,7 +213,23 @@ export const addDashboardAppSubmit = async (req: Request, res: Response) => {
     };
 
     return sendSuccess(res, { androidAppData, dashboardAndHubResult }, "ok");
-  } catch (error) {
+  } catch (error: any) {
+    let friendlyMessage = error instanceof Error ? error.message : "Unknown error";
+
+    // Handle Prisma unique constraint errors (e.g., duplicate app name)
+    if (error?.code === 'P2002') {
+      const fieldMatch = error?.message?.match(/Unique constraint failed on the fields: \(`(.+?)`\)/);
+      const fieldName = fieldMatch ? fieldMatch[1] : 'record';
+      
+      if (fieldName === 'appName') {
+        friendlyMessage = "An app with this name already exists in your account. Please use a different app name or update the existing one.";
+      } else if (fieldName === 'packageName') {
+        friendlyMessage = "This app has already been added. Please check your existing submissions.";
+      } else {
+        friendlyMessage = `This ${fieldName} is already in use. Please use a different one.`;
+      }
+    }
+
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
@@ -179,14 +237,15 @@ export const addDashboardAppSubmit = async (req: Request, res: Response) => {
       action: "addDashboardAppSubmit",
       targetId: req?.userId || "",
       result: "fail",
-      reason: error instanceof Error ? error.message : "Unknown error",
+      reason: friendlyMessage,
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
     };
+
     return sendError(
       res,
       400,
-      error instanceof Error ? error.message : "Unknown error",
+      friendlyMessage,
       auditLogPayloadFail,
     );
   }
@@ -224,34 +283,72 @@ export const addDashboardAppDraft = async (req: Request, res: Response) => {
     }
 
     const package_name = extractPackageName(testingUrl);
+    const { draftId } = payload;
 
     const { androidAppData, dashboardAndHub } = await prismaClient.$transaction(
       async (tx) => {
-        const androidAppData = await tx?.androidApp?.create({
-          data: {
-            appName: appName,
-            appLogoUrl: logoUrl,
-            appScreenshotUrl1: "",
-            appScreenshotUrl2: "",
-            appCategoryId: Number(categoryId),
-            packageName: package_name || "",
-          },
-        });
+        let androidAppData;
+        let dashboardAndHub;
 
-        const dashboardAndHub = await tx?.dashboardAndHub?.create({
-          data: {
-            appId: androidAppData?.id,
-            appOwnerId: req?.userId || "",
-            appType: "PAID",
-            currentTester: 0,
-            totalTester: 0,
-            currentDay: 0,
-            totalDay: 0,
-            instructionsForTester: instructions,
-            minimumAndroidVersion: 0,
-            status: "DRAFT",
-          },
-        });
+        if (draftId) {
+          // If it's a draft, we update the existing records
+          const existingDraft = await tx.dashboardAndHub.findFirst({
+            where: {
+              id: Number(draftId),
+              appOwnerId: req.userId,
+            },
+            include: { androidApp: true }
+          });
+
+          if (!existingDraft) {
+            throw new Error("Draft not found");
+          }
+
+          androidAppData = await tx.androidApp.update({
+            where: { id: existingDraft.appId },
+            data: {
+              appName: appName,
+              appLogoUrl: logoUrl,
+              appCategoryId: Number(categoryId),
+              packageName: package_name || "",
+            }
+          });
+
+          dashboardAndHub = await tx.dashboardAndHub.update({
+            where: { id: Number(draftId) },
+            data: {
+              instructionsForTester: instructions,
+              status: "DRAFT",
+            }
+          });
+        } else {
+          // Create new draft
+          androidAppData = await tx?.androidApp?.create({
+            data: {
+              appName: appName,
+              appLogoUrl: logoUrl,
+              appScreenshotUrl1: "",
+              appScreenshotUrl2: "",
+              appCategoryId: Number(categoryId),
+              packageName: package_name || "",
+            },
+          });
+
+          dashboardAndHub = await tx?.dashboardAndHub?.create({
+            data: {
+              appId: androidAppData?.id,
+              appOwnerId: req?.userId || "",
+              appType: "PAID",
+              currentTester: 0,
+              totalTester: 0,
+              currentDay: 0,
+              totalDay: 0,
+              instructionsForTester: instructions,
+              minimumAndroidVersion: 0,
+              status: "DRAFT",
+            },
+          });
+        }
 
         await tx?.userActivity?.create({
           data: {
@@ -403,6 +500,48 @@ export const getAppsCount = async (req: Request, res: Response) => {
     });
 
     return sendSuccess(res, result, "ok");
+  } catch (error) {
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+export const getDashboardAppById = async (req: Request, res: Response) => {
+  const userId = req?.userId;
+  const { id } = req.params;
+  const appIdNum = parseInt(id as string);
+
+  try {
+    if (!userId) {
+      return sendError(res, 400, "UserId not found");
+    }
+
+    if (!id) {
+      return sendError(res, 400, "App ID is required");
+    }
+
+    const app = await prismaClient.dashboardAndHub.findFirst({
+      where: {
+        id: appIdNum,
+        appOwnerId: userId,
+      },
+      include: {
+        androidApp: {
+          include: {
+            appCategory: true,
+          },
+        },
+      },
+    });
+
+    if (!app) {
+      return sendError(res, 404, "App not found or access denied");
+    }
+
+    return sendSuccess(res, app as any, "App fetched successfully");
   } catch (error) {
     return sendError(
       res,

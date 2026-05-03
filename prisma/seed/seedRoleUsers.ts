@@ -37,6 +37,14 @@ const ROLE_USERS = [
     first_name: "Support",
     last_name: "User",
   },
+  {
+    role: "user",
+    email: "user@gmail.com",
+    password: "user@123",
+    name: "Developer",
+    first_name: "Developer",
+    last_name: "User",
+  },
 ] as const;
 
 async function seedRoleUsers() {

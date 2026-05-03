@@ -461,6 +461,7 @@ model UserTransaction {
   action            EarningAction?
   points            Float?                @default(0)
   package           Float?                @default(0)
+  paymentMethod     PaymentMethod?        // null = legacy data before this column was added
   transactionType   UserTransactionType
   status            UserTransactionStatus
   createdAt         DateTime              @default(now())
@@ -1073,4 +1074,10 @@ enum RefundModelStatus {
   PENDING
   PROCESSED
   FAILED
+}
+
+enum PaymentMethod {
+  POINTS    // user paid using points balance
+  PACKAGE   // user paid using a package credit
+  PROMO_FREE // promo code made cost = 0, no currency actually deducted
 }
