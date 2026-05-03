@@ -321,6 +321,8 @@ export const saveProfileData = async (req: Request, res: Response) => {
             points: controlData?.profileSurveyPoints || 200,
             transactionType: "BONUS",
             status: "CREDIT",
+            // Profile survey bonus always credits POINTS
+            paymentMethod: "POINTS",
           },
         });
         return sendSuccess(
@@ -752,11 +754,28 @@ export const getUserTransactions = async (req: Request, res: Response) => {
             amount = `+${txn.package || 0} Packages`;
             change = `+${txn.package || 0} Packages`;
           } else {
-            description = txn.dashboardAndHub?.androidApp?.appName 
-              ? `Submitted "${txn.dashboardAndHub.androidApp.appName}"` 
-              : "Package Used";
-            amount = `-${txn.package || 0} Package`;
-            change = `-${txn.package || 0} Package`;
+            // Use paymentMethod to determine label; fall back to checking non-null field
+            const pm = txn.paymentMethod;
+            if (pm === "PROMO_FREE") {
+              description = txn.dashboardAndHub?.androidApp?.appName
+                ? `Submitted "${txn.dashboardAndHub.androidApp.appName}" (Promo)` 
+                : "Submitted (Promo)";
+              amount = "0 (Promo)";
+              change = "0 (Promo)";
+            } else if (pm === "PACKAGE" || (!pm && txn.package && (txn.package > 0 || !txn.points))) {
+              description = txn.dashboardAndHub?.androidApp?.appName 
+                ? `Submitted "${txn.dashboardAndHub.androidApp.appName}"` 
+                : "Package Used";
+              amount = `-${txn.package || 0} Package`;
+              change = `-${txn.package || 0} Package`;
+            } else {
+              // POINTS (default for hub/free apps)
+              description = txn.dashboardAndHub?.androidApp?.appName 
+                ? `Submitted "${txn.dashboardAndHub.androidApp.appName}"` 
+                : "Points Used";
+              amount = `-${txn.points || 0} Points`;
+              change = `-${txn.points || 0} Points`;
+            }
           }
           break;
         case "EARNING":
@@ -795,7 +814,15 @@ export const getUserTransactions = async (req: Request, res: Response) => {
       // Determine transaction type label for display
       let typeLabel: string = txn.transactionType;
       if (txn.transactionType === "PURCHASE") {
-        typeLabel = txn.status === "CREDIT" ? "Package Purchase" : "Package Used";
+        if (txn.status === "CREDIT") {
+          typeLabel = "Package Purchase";
+        } else if (txn.paymentMethod === "PROMO_FREE") {
+          typeLabel = "Promo Used";
+        } else if (txn.paymentMethod === "POINTS" || (txn.points && txn.points > 0)) {
+          typeLabel = "Points Used";
+        } else {
+          typeLabel = "Package Used";
+        }
       } else if (txn.transactionType === "EARNING") {
         typeLabel = "Points Earned";
       } else if (txn.transactionType === "BONUS") {
@@ -819,6 +846,7 @@ export const getUserTransactions = async (req: Request, res: Response) => {
         action: txn.action,
         points: txn.points,
         package: txn.package,
+        paymentMethod: txn.paymentMethod,
       };
     });
 

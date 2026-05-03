@@ -246,11 +246,19 @@ export const addHubApp = async (req: Request, res: Response) => {
       }
 
       if (dbPromo.discountType === "PERCENTAGE") {
-        final_points_cost = Math.max(0, points_cost * (1 - dbPromo.discountValue / 100));
+        final_points_cost = Math.max(0, expectedCost * (1 - dbPromo.discountValue / 100));
       } else {
         final_points_cost = dbPromo.discountValue;
       }
       appliedPromoCodeId = dbPromo.id;
+    }
+
+    const userWallet = await prismaClient.userWallet.findUnique({
+      where: { userId: req.userId! },
+    });
+
+    if (!userWallet || userWallet.totalPoints < final_points_cost) {
+      return sendError(res, 400, "Insufficient points balance.");
     }
 
     const { androidAppData, dashboardAndHub } = await prismaClient.$transaction(
@@ -330,6 +338,8 @@ export const addHubApp = async (req: Request, res: Response) => {
             points: final_points_cost,
             transactionType: "PURCHASE",
             status: "DEBIT",
+            // PROMO_FREE when a promo made cost exactly 0; otherwise the user paid with POINTS
+            paymentMethod: (appliedPromoCodeId && final_points_cost === 0) ? "PROMO_FREE" : "POINTS",
           },
         });
 
@@ -1878,7 +1888,7 @@ export const validatePromoCode = async (req: Request, res: Response) => {
 
     return sendSuccess(
       res,
-      { discountValue: promoCode.discountValue },
+      { discountValue: promoCode.discountValue, discountType: promoCode.discountType },
       "Promo code is valid",
     );
   } catch (error) {
