@@ -712,6 +712,24 @@ model PromoCode {
   @@map("promo_code")
 }
 
+model Testimonial {
+  id          Int      @id @default(autoincrement())
+  name        String
+  role        String
+  avatar      String
+  dataAiHint  String?
+  comment     String
+  image       String?
+  appLink     String?
+  tags        String[] @default([])
+  rating      Float    @default(5)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("testimonial")
+}
+
 model UserPromoUsage {
   id          Int       @id @default(autoincrement())
   userId      String

@@ -24,7 +24,7 @@ async function seedRolesModulesPermissions() {
   }
 
   // 2️⃣ Modules (Example: adjust as per your app)
-  const modules = ["User", "Dashboard", "App", "Blog", "Feedback", "Support"];
+  const modules = ["User", "Dashboard", "App", "Blog", "Feedback", "Support", "Testimonial"];
   for (const moduleName of modules) {
     await prisma.module.upsert({
       where: { name: moduleName },

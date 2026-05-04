@@ -2505,6 +2505,144 @@ export const deleteBlog = async (req: Request, res: Response) => {
   }
 };
 
+// ==================== TESTIMONIAL MANAGEMENT ====================
+
+export const getAllTestimonials = async (req: Request, res: Response) => {
+  try {
+    const testimonials = await prismaClient.testimonial.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+    return sendSuccess(res, testimonials, "Testimonials fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const getTestimonialById = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const testimonial = await prismaClient.testimonial.findUnique({
+      where: { id: parseInt(id as string) },
+    });
+    if (!testimonial) return sendError(res, 404, "Testimonial not found");
+    return sendSuccess(res, testimonial, "Testimonial fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const createTestimonial = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { name, role, avatar, dataAiHint, comment, image, appLink, tags, rating, isActive } = payload;
+
+    if (!name || !role || !avatar || !comment) {
+      return sendError(res, 400, "Name, role, avatar, and comment are required");
+    }
+
+    const newTestimonial = await prismaClient.testimonial.create({
+      data: {
+        name,
+        role,
+        avatar,
+        dataAiHint: dataAiHint || null,
+        comment,
+        image: image || null,
+        appLink: appLink || null,
+        tags: tags || [],
+        rating: rating ?? 5,
+        isActive: isActive !== undefined ? isActive : true,
+      },
+    });
+
+    return sendSuccess(res, newTestimonial, "Testimonial created successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const updateTestimonial = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id, name, role, avatar, dataAiHint, comment, image, appLink, tags, rating, isActive } = payload;
+
+    if (!id) return sendError(res, 400, "Testimonial ID is required");
+
+    const updateData: any = {
+      name: name !== undefined ? name : undefined,
+      role: role !== undefined ? role : undefined,
+      avatar: avatar !== undefined ? avatar : undefined,
+      dataAiHint: dataAiHint !== undefined ? dataAiHint : undefined,
+      comment: comment !== undefined ? comment : undefined,
+      image: image !== undefined ? image : undefined,
+      appLink: appLink !== undefined ? appLink : undefined,
+      tags: tags !== undefined ? tags : undefined,
+      rating: rating !== undefined ? rating : undefined,
+      isActive: isActive !== undefined ? isActive : undefined,
+    };
+
+    Object.keys(updateData).forEach((key) => {
+      if (updateData[key] === undefined) delete updateData[key];
+    });
+
+    const updatedTestimonial = await prismaClient.testimonial.update({
+      where: { id: parseInt(id) },
+      data: updateData,
+    });
+
+    return sendSuccess(res, updatedTestimonial, "Testimonial updated successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const deleteTestimonial = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await prismaClient.testimonial.delete({ where: { id: parseInt(id as string) } });
+    return sendSuccess(res, null, "Testimonial deleted successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+/** Public endpoint - returns only active testimonials */
+export const getPublicTestimonials = async (req: Request, res: Response) => {
+  try {
+    const testimonials = await prismaClient.testimonial.findMany({
+      where: { isActive: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return sendSuccess(res, testimonials, "Testimonials fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
 // ==================== SYSTEM LOGS ====================
 
 // Helper to safely resolve log file paths

@@ -60,6 +60,12 @@ import {
   updateBlog,
   deleteBlog,
   getPromoCodeApps,
+  // Testimonials
+  getAllTestimonials,
+  getTestimonialById,
+  createTestimonial,
+  updateTestimonial,
+  deleteTestimonial,
   // Act As
   actAsRole,
 } from "@/controllers/admin.controller";
@@ -148,6 +154,13 @@ router.get("/blogs/:id", checkAuthorization({ module: "blogs", action: "canReadS
 router.post("/blogs", checkAuthorization({ module: "blogs", action: "canCreate" }), decryptPayload, createBlog);
 router.post("/blogs/update", checkAuthorization({ module: "blogs", action: "canUpdate" }), decryptPayload, updateBlog);
 router.delete("/blogs/:id", checkAuthorization({ module: "blogs", action: "canDelete" }), deleteBlog);
+
+// Testimonials
+router.get("/testimonials", checkAuthorization({ module: "testimonial", action: "canReadList" }), getAllTestimonials);
+router.get("/testimonials/:id", checkAuthorization({ module: "testimonial", action: "canReadSingle" }), getTestimonialById);
+router.post("/testimonials", checkAuthorization({ module: "testimonial", action: "canCreate" }), decryptPayload, createTestimonial);
+router.post("/testimonials/update", checkAuthorization({ module: "testimonial", action: "canUpdate" }), decryptPayload, updateTestimonial);
+router.delete("/testimonials/:id", checkAuthorization({ module: "testimonial", action: "canDelete" }), deleteTestimonial);
 
 // Verification and Completion
 router.post(
