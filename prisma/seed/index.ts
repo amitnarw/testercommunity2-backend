@@ -8,6 +8,7 @@ import { seedRoleUsers } from "./seedRoleUsers";
 import { seedTester } from "./seedTester";
 import { seedPromoCodes } from "./seedPromoCodes";
 import { seedBlogs } from "./seedBlogs";
+import { seedTestimonials } from "./seedTestimonials";
 
 const prisma = prismaClient;
 
@@ -36,6 +37,8 @@ async function main() {
     await seedPromoCodes();
 
     await seedBlogs();
+
+    await seedTestimonials();
 
     logger.info("🏁 All seeds completed successfully!");
   } catch (e) {

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { getPublicBlogs, getPublicBlogBySlug, getPublicBlogTags } from "@/controllers/blog.controller";
+import { getPublicTestimonials } from "@/controllers/admin.controller";
 
 const router = Router();
 
@@ -7,5 +8,8 @@ const router = Router();
 router.get("/blogs", getPublicBlogs);
 router.get("/blogs/:slug", getPublicBlogBySlug);
 router.get("/tags", getPublicBlogTags);
+
+// Public testimonials
+router.get("/testimonials", getPublicTestimonials);
 
 export default router;
