@@ -1411,6 +1411,7 @@ export const createNotification = async (req: Request, res: Response) => {
       "ANNOUNCEMENT",
       "ACCOUNT_UPDATE",
       "INSUFFICIENT_BALANCE",
+      "SPECIAL_OFFERS",
       "OTHER",
     ];
 
@@ -1582,6 +1583,7 @@ export const getNotificationTypes = async (req: Request, res: Response) => {
       "ANNOUNCEMENT",
       "ACCOUNT_UPDATE",
       "INSUFFICIENT_BALANCE",
+      "SPECIAL_OFFERS",
       "OTHER",
     ];
     return sendSuccess(res, types, "Notification types fetched successfully");
