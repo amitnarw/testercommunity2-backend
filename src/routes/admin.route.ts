@@ -69,6 +69,12 @@ import {
   // Act As
   actAsRole,
 } from "@/controllers/admin.controller";
+import {
+  getAllReviews,
+  getReviewById,
+  updateReviewStatus,
+  deleteReview,
+} from "@/controllers/review.controller";
 import { checkAuthorization } from "@/middlewares/checkAuthorization";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 import Router from "express";
@@ -161,6 +167,12 @@ router.get("/testimonials/:id", checkAuthorization({ module: "testimonial", acti
 router.post("/testimonials", checkAuthorization({ module: "testimonial", action: "canCreate" }), decryptPayload, createTestimonial);
 router.post("/testimonials/update", checkAuthorization({ module: "testimonial", action: "canUpdate" }), decryptPayload, updateTestimonial);
 router.delete("/testimonials/:id", checkAuthorization({ module: "testimonial", action: "canDelete" }), deleteTestimonial);
+
+// User Reviews (admin management)
+router.get("/user-reviews", checkAuthorization({ module: "review", action: "canReadList" }), getAllReviews);
+router.get("/user-reviews/:id", checkAuthorization({ module: "review", action: "canReadSingle" }), getReviewById);
+router.post("/user-reviews/update-status", checkAuthorization({ module: "review", action: "canUpdate" }), decryptPayload, updateReviewStatus);
+router.delete("/user-reviews/:id", checkAuthorization({ module: "review", action: "canDelete" }), deleteReview);
 
 // Verification and Completion
 router.post(
