@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 
 import { PrismaPg } from "@prisma/adapter-pg";
 
@@ -6,3 +6,4 @@ import { PrismaPg } from "@prisma/adapter-pg";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 export const prismaClient = new PrismaClient({ adapter });
+export { Prisma };

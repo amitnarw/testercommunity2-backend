@@ -2,7 +2,7 @@ import { parsePrismaError } from "@/utils/prismaErrorHandler";
 import path from "path";
 import fs from "fs";
 import logger from "../utils/logger";
-import { prismaClient } from "@/lib/prisma";
+import { prismaClient, Prisma } from "@/lib/prisma";
 import { auth, type SessionWithRole } from "@/lib/auth";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
@@ -131,9 +131,11 @@ export const acceptApp = async (req: Request, res: Response) => {
 
     const dataToUpdate: any = {};
 
-    // Only set AVAILABLE status if it was IN_REVIEW
-    if (existingApp.status === "IN_REVIEW") {
+    // Set AVAILABLE status if it was IN_REVIEW or REJECTED
+    if (existingApp.status === "IN_REVIEW" || existingApp.status === "REJECTED") {
       dataToUpdate.status = "AVAILABLE";
+      // Clear rejection details if moving out of rejected status
+      dataToUpdate.statusDetails = Prisma.DbNull;
     }
 
     if (totalTester !== undefined)
@@ -182,6 +184,7 @@ export const updateProjectStatus = async (req: Request, res: Response) => {
       where: { id: parseInt(id) },
       data: {
         status: status,
+        ...(status === "IN_REVIEW" ? { statusDetails: Prisma.DbNull } : {}),
       },
     });
 

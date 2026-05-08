@@ -384,13 +384,24 @@ export const getNotifications = async (req: Request, res: Response) => {
 
     const result = await prismaClient?.notification?.findMany({
       where: {
-        userId: req?.userId,
+        OR: [
+          { userId: req?.userId },
+          { userId: null },
+        ],
+        isActive: true,
+      },
+      orderBy: {
+        createdAt: "desc",
       },
     });
 
     const totalNotifications = await prismaClient?.notification?.count({
       where: {
-        userId: req?.userId,
+        OR: [
+          { userId: req?.userId },
+          { userId: null },
+        ],
+        isActive: true,
       },
     });
 

@@ -14,10 +14,11 @@ import {
   getHubSubmittedApp,
   getSingleHubAppDetails,
   getSubmittedAppsCount,
+  validatePromoCode,
+  resubmitHubApp,
   rejectSubmittedHubAppTestingRequest,
   submitDailyVerification,
   completeHostedApp,
-  validatePromoCode,
 } from "@/controllers/hub.controller";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 
@@ -26,6 +27,7 @@ const router = Router();
 router.get("/get-hub-stats", checkAuthentication, getHubStats);
 router.get("/get-app-categories", checkAuthentication, getAppCategories);
 router.post("/add-hub-app", checkAuthentication, decryptPayload, addHubApp);
+router.post("/resubmit-hub-app", checkAuthentication, decryptPayload, resubmitHubApp);
 router.get(
   "/submitted/get-hub-apps/:type",
   checkAuthentication,
