@@ -1,7 +1,7 @@
 import { type Request, type Response } from "express";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
-import { prismaClient } from "@/lib/prisma";
+import { prismaClient, Prisma } from "@/lib/prisma";
 import { normalizeR2Url } from "@/utils/helperFunctions";
 import type { DashboardAndHubStatus } from "@prisma/client";
 import { deleteFunction } from "./r2.controller";
@@ -438,6 +438,133 @@ export const getHubSubmittedApp = async (req: Request, res: Response) => {
     );
   }
 };
+
+export const resubmitHubApp = async (req: Request, res: Response) => {
+  try {
+    const { payload } = await req.body;
+    if (!payload) {
+      return sendError(res, 400, "Payload is required");
+    }
+
+    const {
+      appId,
+      app_name,
+      app_url,
+      app_logo_url,
+      app_screenshot_url_1,
+      app_screenshot_url_2,
+      category_id,
+      app_description,
+      instruction_for_tester,
+      minimum_android_version,
+    } = payload;
+
+    if (!appId) {
+      return sendError(res, 400, "App ID is required");
+    }
+
+    const hubApp = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: Number(appId) },
+      include: { androidApp: true },
+    });
+
+    if (!hubApp) {
+      return sendError(res, 404, "Hub app not found");
+    }
+
+    if (hubApp.appOwnerId !== req.userId) {
+      return sendError(res, 403, "You are not the owner of this app");
+    }
+
+    if (hubApp.status !== "REJECTED") {
+      return sendError(res, 400, "Only rejected apps can be resubmitted");
+    }
+
+    const package_name = extractPackageName(app_url);
+
+    const conflictApp = await prismaClient.androidApp.findFirst({
+      where: {
+        id: { not: hubApp.appId },
+        OR: [
+          { appName: app_name },
+          { appLogoUrl: app_logo_url },
+          { packageName: package_name || "" },
+        ],
+      },
+    });
+
+    if (conflictApp) {
+      if (conflictApp.appName === app_name) {
+        return sendError(res, 400, "An app with this name already exists.");
+      }
+      if (conflictApp.appLogoUrl === app_logo_url) {
+        return sendError(res, 400, "An app with this logo already exists.");
+      }
+      return sendError(res, 400, "This app has already been submitted by someone else.");
+    }
+
+    const result = await prismaClient.$transaction(async (tx) => {
+      await tx.androidApp.update({
+        where: { id: hubApp.appId },
+        data: {
+          appName: app_name,
+          appLogoUrl: app_logo_url,
+          appScreenshotUrl1: app_screenshot_url_1,
+          appScreenshotUrl2: app_screenshot_url_2,
+          appCategoryId: Number(category_id),
+          packageName: package_name || "",
+          description: app_description,
+        },
+      });
+
+      const updatedHubApp = await tx.dashboardAndHub.update({
+        where: { id: Number(appId) },
+        data: {
+          instructionsForTester: instruction_for_tester,
+          minimumAndroidVersion: minimum_android_version,
+          status: "IN_REVIEW",
+          statusDetails: Prisma.DbNull,
+        },
+      });
+
+      await tx.userActivity.create({
+        data: {
+          userId: req.userId || "",
+          dashboardAndHubId: Number(appId),
+          androidAppId: hubApp.appId,
+          actionType: "UPDATE_PROFILE",
+          description: `Resubmitted app: ${app_name}`,
+          ipAddress: req?.userIpAddress,
+          userAgent: req?.userAgent,
+          status: "SUCCESS",
+        },
+      });
+
+      return updatedHubApp;
+    });
+
+    return sendSuccess(res, result as any, "App resubmitted successfully");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "hub",
+      action: "resubmitHubApp",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
 
 export const getSubmittedAppsCount = async (req: Request, res: Response) => {
   try {
