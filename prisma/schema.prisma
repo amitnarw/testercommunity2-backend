@@ -2,7 +2,6 @@ generator client {
   provider = "prisma-client-js"
 }
 
-
 datasource db {
   provider = "postgresql"
 }
@@ -36,9 +35,12 @@ model User {
   promoUsages                UserPromoUsage[]
   transactions               UserTransaction[]
   wallet                     UserWallet?
+  billingInfo                BillingInfo?
   websiteFeedbackSuggestions WebsiteFeedbackSuggestion[]
   withdrawalRequests         WithdrawalRequest[]
   testingDashboardAndHubApps DashboardAndHub[]           @relation("DashboardAndHubTesters")
+  payments                   Payment[]
+  invoices                   Invoice[]
 
   @@map("user")
 }
@@ -76,9 +78,9 @@ model UserDetail {
   network                 String?
   bio                     String?
   years_of_experience     String?
-  testing_types           String[]                    @default([])
-  tester_devices          String[]                    @default([])
-  tester_os_versions      String[]                    @default([])
+  testing_types           String[]                     @default([])
+  tester_devices          String[]                     @default([])
+  tester_os_versions      String[]                     @default([])
   initial                 Boolean                      @default(true)
   createdAt               DateTime                     @default(now())
   updatedAt               DateTime                     @updatedAt
@@ -170,9 +172,9 @@ model UserPlan {
 }
 
 model Blog {
-  id               Int       @id @default(autoincrement())
+  id               Int      @id @default(autoincrement())
   title            String
-  slug             String    @unique
+  slug             String   @unique
   excerpt          String
   content          String
   authorName       String
@@ -181,10 +183,10 @@ model Blog {
   imageUrl         String
   dataAiHint       String?
   tags             String[]
-  isActive         Boolean   @default(true)
-  date             DateTime  @default(now())
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  isActive         Boolean  @default(true)
+  date             DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
   media            Media[]
 
   @@map("blog")
@@ -213,36 +215,42 @@ model AppCategory {
 }
 
 model DashboardAndHub {
-  id                    Int                    @id @default(autoincrement())
-  appId                 Int                    @unique
-  appOwnerId            String
-  appType               DashboardAndHubAppType
-  currentTester         Int
-  totalTester           Int
-  currentDay            Int
-  totalDay              Int
-  testingStartDate      DateTime?
-  testingEndDate        DateTime?
-  instructionsForTester String?
-  rewardPoints          Float?
-  costPoints            Float?
-  rewardMoney           Float?
-  costMoney             Float?
-  averageTimeTesting    String?
-  minimumAndroidVersion Float
-  status                DashboardAndHubStatus
-  statusDetails         Json?
-  promoCodeId           Int?
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
-  androidApp            AndroidApp             @relation(fields: [appId], references: [id])
-  appOwner              User                   @relation("DashboardAndHubAppOwner", fields: [appOwnerId], references: [id])
-  feedback              Feedback[]
-  testerRelations       TesterRelation[]
-  activities            UserActivity[]
-  earningHistory        UserTransaction[]
-  testers               User[]                 @relation("DashboardAndHubTesters")
-  promoCode             PromoCode?             @relation(fields: [promoCodeId], references: [id])
+  id                       Int                    @id @default(autoincrement())
+  appId                    Int                    @unique
+  appOwnerId               String
+  appType                  DashboardAndHubAppType
+  currentTester            Int
+  totalTester              Int
+  currentDay               Int
+  totalDay                 Int
+  instructionsForTester    String?
+  rewardPoints             Float?
+  costPoints               Float?
+  rewardMoney              Float?
+  costMoney                Float?
+  averageTimeTesting       String?
+  minimumAndroidVersion    Float
+  status                   DashboardAndHubStatus
+  statusDetails            Json?
+  promoCodeId              Int?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  testingEndDate           DateTime?
+  testingStartDate         DateTime?
+  activeTestersOverride    Int?
+  bugCountOverride         Int?
+  completedTestersOverride Int?
+  pendingTestersOverride   Int?
+  praiseCountOverride      Int?
+  suggestionCountOverride  Int?
+  androidApp               AndroidApp             @relation(fields: [appId], references: [id])
+  appOwner                 User                   @relation("DashboardAndHubAppOwner", fields: [appOwnerId], references: [id])
+  promoCode                PromoCode?             @relation(fields: [promoCodeId], references: [id])
+  feedback                 Feedback[]
+  testerRelations          TesterRelation[]
+  activities               UserActivity[]
+  earningHistory           UserTransaction[]
+  testers                  User[]                 @relation("DashboardAndHubTesters")
 
   @@map("dashboard_and_hub")
 }
@@ -463,13 +471,14 @@ model UserTransaction {
   action            EarningAction?
   points            Float?                @default(0)
   package           Float?                @default(0)
-  paymentMethod     PaymentMethod?        // null = legacy data before this column was added
   transactionType   UserTransactionType
   status            UserTransactionStatus
   createdAt         DateTime              @default(now())
+  paymentMethod     PaymentMethod?
   dashboardAndHub   DashboardAndHub?      @relation(fields: [dashboardAndHubId], references: [id])
   user              User                  @relation(fields: [userId], references: [id])
   userWallet        UserWallet?           @relation(fields: [userWalletId], references: [id])
+  
 
   @@map("user_transactions")
 }
@@ -607,6 +616,7 @@ model Order {
   amount          Int
   currency        String      @default("INR")
   status          OrderStatus @default(CREATED)
+  invoiceId       String?     @unique
   notes           Json?
   attempts        Int         @default(0)
   createdAt       DateTime    @default(now())
@@ -651,14 +661,47 @@ model Payment {
   webhookPayload    Json?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
+  userId            String?
+  customer_name     String?
+  customer_email    String?
+  amount_inr        Int?
+  user              User?         @relation(fields: [userId], references: [id])
   order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
   refunds           Refund[]
+  invoice           Invoice?
 
   @@index([orderId])
   @@index([razorpayPaymentId])
   @@index([razorpayOrderId])
   @@index([status])
+  @@index([userId])
   @@map("payment")
+}
+
+model Pricing {
+  id              Int      @id @default(autoincrement())
+  country_code    String   @unique
+  country_name    String
+  currency_code   String
+  currency_symbol String
+  amount          Int
+  is_active       Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
+
+  @@map("pricing")
+}
+
+model Invoice {
+  id             Int      @id @default(autoincrement())
+  paymentId      Int      @unique
+  userId         String
+  invoice_number String   @unique
+  service_name   String
+  createdAt      DateTime @default(now())
+  payment        Payment  @relation(fields: [paymentId], references: [id])
+  user           User     @relation(fields: [userId], references: [id])
+
+  @@map("invoice")
 }
 
 model Refund {
@@ -698,36 +741,36 @@ model WebhookEventLog {
 }
 
 model PromoCode {
-  id                   Int               @id @default(autoincrement())
-  code                 String            @unique
-  discountType         String            @default("FIXED") // "FIXED" | "PERCENTAGE"
-  discountValue        Float             @default(0)
-  isActive             Boolean          @default(true)
-  maxUses              Int?
-  maxPerUser           Int?
-  usedCount            Int              @default(0)
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
-  usages               UserPromoUsage[]
-  dashboardAndHubs      DashboardAndHub[]
+  id               Int               @id @default(autoincrement())
+  code             String            @unique
+  discountType     String            @default("FIXED")
+  discountValue    Float             @default(0)
+  isActive         Boolean           @default(true)
+  maxUses          Int?
+  maxPerUser       Int?
+  usedCount        Int               @default(0)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  dashboardAndHubs DashboardAndHub[]
+  usages           UserPromoUsage[]
 
   @@map("promo_code")
 }
 
 model Testimonial {
-  id          Int      @id @default(autoincrement())
-  name        String
-  role        String
-  avatar      String
-  dataAiHint  String?
-  comment     String
-  image       String?
-  appLink     String?
-  tags        String[] @default([])
-  rating      Float    @default(5)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         Int      @id @default(autoincrement())
+  name       String
+  role       String
+  avatar     String
+  dataAiHint String?
+  comment    String
+  image      String?
+  appLink    String?
+  tags       String[] @default([])
+  rating     Float    @default(5)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@map("testimonial")
 }
@@ -743,8 +786,8 @@ model Review {
   adminNote   String?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   androidApp  AndroidApp?  @relation(fields: [appId], references: [id])
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("review")
 }
@@ -980,8 +1023,8 @@ enum NotificationType {
   ANNOUNCEMENT
   ACCOUNT_UPDATE
   INSUFFICIENT_BALANCE
-  SPECIAL_OFFERS
   OTHER
+  SPECIAL_OFFERS
 }
 
 enum UserActionType {
@@ -1121,7 +1164,22 @@ enum RefundModelStatus {
 }
 
 enum PaymentMethod {
-  POINTS    // user paid using points balance
-  PACKAGE   // user paid using a package credit
-  PROMO_FREE // promo code made cost = 0, no currency actually deducted
+  POINTS
+  PACKAGE
+  PROMO_FREE
+}
+
+model BillingInfo {
+  id        Int      @id @default(autoincrement())
+  userId    String   @unique
+  name      String
+  email     String
+  address   String
+  country   String
+  gstin     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("billing_info")
 }
