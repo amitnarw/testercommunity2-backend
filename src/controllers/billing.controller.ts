@@ -14,6 +14,135 @@ import {
 } from "@/lib/razorpay";
 import { sendEmail } from "@/services/resend";
 import crypto from "crypto";
+import { extractCountry } from "@/utils/helperFunctions";
+
+/**
+ * Get billing info for the user
+ */
+export const getBillingInfo = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    if (!userId) {
+      return sendError(res, 401, "Unauthorized");
+    }
+
+    const billingInfo = await prismaClient.billingInfo.findUnique({
+      where: { userId },
+    });
+
+    return sendSuccess(res, billingInfo, "Billing info fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+/**
+ * Update or create billing info for the user
+ */
+export const upsertBillingInfo = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    const { payload } = req.body;
+    const { name, email, address, country, gstin } = payload;
+
+    if (!userId) {
+      return sendError(res, 401, "Unauthorized");
+    }
+
+    if (!name || !email || !address || !country) {
+      return sendError(res, 400, "Missing required fields");
+    }
+
+    const billingInfo = await prismaClient.billingInfo.upsert({
+      where: { userId },
+      update: { name, email, address, country, gstin },
+      create: { userId, name, email, address, country, gstin },
+    });
+
+    return sendSuccess(res, billingInfo, "Billing info updated successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+/**
+ * Get localized pricing based on detected country
+ */
+export const getPricing = async (req: Request, res: Response) => {
+  try {
+    const countryCode = extractCountry(req);
+    
+    let pricing = await prismaClient.pricing.findUnique({
+      where: { country_code: countryCode, is_active: true },
+    });
+
+    // Fallback to US if country not found
+    if (!pricing) {
+      pricing = await prismaClient.pricing.findUnique({
+        where: { country_code: "US", is_active: true },
+      });
+    }
+
+    return sendSuccess(res, pricing, "Pricing fetched successfully");
+  } catch (error) {
+    logger.error("Get pricing error:", error);
+    return sendError(res, 500, "Failed to fetch pricing");
+  }
+};
+
+/**
+ * Generate invoice ID based on country and sequence
+ */
+const generateInvoiceId = async (country: string) => {
+  const isIndia = country.toLowerCase() === "india";
+  const prefix = isIndia ? "ITIN" : "ITFR";
+  const now = new Date();
+  const year = now.getFullYear().toString().slice(-2);
+  const months = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
+  const monthCode = months[now.getMonth()];
+  
+  const baseId = `${prefix}${year}${monthCode}`;
+  
+  const lastOrder = await prismaClient.order.findFirst({
+    where: {
+      invoiceId: {
+        startsWith: baseId,
+      },
+    },
+    orderBy: {
+      invoiceId: "desc",
+    },
+  });
+  
+  let sequence = 1;
+  if (lastOrder && lastOrder.invoiceId) {
+    const lastSeqStr = lastOrder.invoiceId.replace(baseId, "");
+    const lastSeq = parseInt(lastSeqStr);
+    if (!isNaN(lastSeq)) {
+      sequence = lastSeq + 1;
+    }
+  }
+  
+  return `${baseId}${sequence}`;
+};
+
+/**
+ * Generate invoice number based on sequence: INV-YYYY-00001
+ */
+const getNextInvoiceNumber = async () => {
+  const year = new Date().getFullYear();
+  const res = await prismaClient.$queryRaw<{ nextval: bigint }[]>`SELECT nextval('invoice_num_seq')`;
+  const sequence = res[0].nextval.toString().padStart(5, "0");
+  return `INV-${year}-${sequence}`;
+};
 
 // Environment variables
 const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || "";
@@ -61,11 +190,12 @@ export const getBillingHistory = async (req: Request, res: Response) => {
     });
 
     const billingHistory = orders.map((order) => ({
-      id: `INV-${order.id.toString().padStart(4, "0")}`,
+      id: order.id.toString(),
+      invoiceId: order.invoiceId,
       orderId: order.id,
       razorpayOrderId: order.razorpayOrderId,
       date: order.createdAt.toISOString(),
-      amount: order.amount / 100, // Convert paise to rupees
+      amount: order.amount / 100, // Convert smallest unit to major unit
       currency: order.currency,
       status: order.status === "PAID" ? "Paid" : order.status,
       plan: order.plan?.name || "Unknown Plan",
@@ -75,7 +205,7 @@ export const getBillingHistory = async (req: Request, res: Response) => {
 
     return sendSuccess(
       res,
-      billingHistory,
+      billingHistory as any,
       "Billing history fetched successfully",
     );
   } catch (error) {
@@ -100,6 +230,86 @@ export const getBillingHistory = async (req: Request, res: Response) => {
 };
 
 /**
+ * Get single invoice details for display/printing
+ */
+export const getInvoice = async (req: Request, res: Response) => {
+  try {
+    const { invoiceNumber } = req.params;
+    if (!invoiceNumber || typeof invoiceNumber !== "string") {
+      return sendError(res, 400, "Invoice number is required");
+    }
+
+    const invoice = await prismaClient.invoice.findUnique({
+      where: { invoice_number: invoiceNumber as string },
+      include: {
+        payment: {
+          include: {
+            order: {
+              include: {
+                plan: true,
+              },
+            },
+          },
+        },
+        user: {
+          include: {
+            billingInfo: true,
+          },
+        },
+      },
+    });
+
+    if (!invoice) {
+      return sendError(res, 404, "Invoice not found");
+    }
+
+    // Check authorization
+    if (req.userId !== invoice.userId && req.role !== "admin") {
+      return sendError(res, 403, "Unauthorized to view this invoice");
+    }
+
+    return sendSuccess(res, invoice as any, "Invoice fetched successfully");
+  } catch (error) {
+    logger.error("Get invoice error:", error);
+    return sendError(res, 500, "Failed to fetch invoice details");
+  }
+};
+
+/**
+ * Get all invoices for the authenticated user
+ */
+export const getMyInvoices = async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      return sendError(res, 401, "Unauthorized");
+    }
+
+    const invoices = await prismaClient.invoice.findMany({
+      where: { userId },
+      include: {
+        payment: {
+          select: {
+            amount: true,
+            currency: true,
+            status: true,
+            createdAt: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    return sendSuccess(res, invoices as any, "Invoices fetched successfully");
+  } catch (error) {
+    logger.error("Get my invoices error:", error);
+    return sendError(res, 500, "Failed to fetch your invoices");
+  }
+};
+
+/**
  * Create a new Razorpay order for plan purchase
  */
 export const createOrder = async (req: Request, res: Response) => {
@@ -111,6 +321,22 @@ export const createOrder = async (req: Request, res: Response) => {
 
     if (!isRazorpayConfigured()) {
       return sendError(res, 503, "Payment service is not configured");
+    }
+
+    // Check if user has filled billing info
+    const billingInfo = await prismaClient.billingInfo.findUnique({
+      where: { userId },
+    });
+
+    if (!billingInfo) {
+      return sendError(
+        res,
+        403,
+        "Please fill your billing information before making a purchase",
+        undefined,
+        undefined,
+        { billingInfoMissing: true }
+      );
     }
 
     const { payload } = await req.body;
@@ -134,14 +360,31 @@ export const createOrder = async (req: Request, res: Response) => {
     // Generate unique receipt
     const receipt = `rcpt_${userId.slice(0, 8)}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
 
-    // Amount in paise (smallest currency unit)
-    const amountInPaise = Math.round(plan.price * 100);
+    // Get localized pricing
+    const countryCode = extractCountry(req);
+    let pricing = await prismaClient.pricing.findUnique({
+      where: { country_code: countryCode, is_active: true },
+    });
+
+    // Fallback to US if country not found
+    if (!pricing) {
+      pricing = await prismaClient.pricing.findUnique({
+        where: { country_code: "US", is_active: true },
+      });
+    }
+
+    if (!pricing) {
+      return sendError(res, 500, "Pricing not configured");
+    }
+
+    const amount = pricing.amount;
+    const currency = pricing.currency_code;
 
     // Create Razorpay order
     const razorpay = getRazorpayInstance();
     const razorpayOrder = await razorpay.orders.create({
-      amount: amountInPaise,
-      currency: "INR",
+      amount: amount,
+      currency: currency,
       receipt: receipt,
       notes: {
         userId: userId,
@@ -159,12 +402,13 @@ export const createOrder = async (req: Request, res: Response) => {
         packageCount: plan.package,
         razorpayOrderId: razorpayOrder.id,
         receipt,
-        amount: amountInPaise,
-        currency: "INR",
+        amount: amount,
+        currency: currency,
         status: "CREATED",
         notes: {
           planName: plan.name,
           planPrice: plan.price,
+          currency_symbol: pricing.currency_symbol,
         },
         expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes expiry
       },
@@ -176,8 +420,9 @@ export const createOrder = async (req: Request, res: Response) => {
         orderId: order.id,
         razorpayOrderId: razorpayOrder.id,
         razorpayKeyId: getRazorpayKeyId(),
-        amount: amountInPaise,
-        currency: "INR",
+        amount: amount,
+        currency: currency,
+        currencySymbol: pricing.currency_symbol,
         planName: plan.name,
         packages: plan.package,
       },
@@ -267,18 +512,34 @@ export const verifyPayment = async (req: Request, res: Response) => {
 
     // Start transaction to update order, create payment record, and update wallet
     const result = await prismaClient.$transaction(async (tx) => {
+      // Get user billing info for payment record
+      const billingInfo = await tx.billingInfo.findUnique({
+        where: { userId },
+      });
+
+      // Generate invoice number
+      const invoiceNumber = await getNextInvoiceNumber();
+
+      // Calculate amount in INR (simplistic for now)
+      const amount = typeof paymentDetails.amount === "string"
+        ? parseInt(paymentDetails.amount)
+        : (paymentDetails.amount as number);
+      const currency = paymentDetails.currency;
+      let amountInr = currency === "INR" ? amount : null;
+
       // Create payment record
       const payment = await tx.payment.create({
         data: {
           orderId: order.id,
+          userId: userId,
           razorpayPaymentId: razorpay_payment_id,
           razorpayOrderId: razorpay_order_id,
           razorpaySignature: razorpay_signature,
-          amount:
-            typeof paymentDetails.amount === "string"
-              ? parseInt(paymentDetails.amount)
-              : (paymentDetails.amount as number),
-          currency: paymentDetails.currency,
+          amount: amount,
+          currency: currency,
+          amount_inr: amountInr,
+          customer_name: billingInfo?.name || null,
+          customer_email: billingInfo?.email || paymentDetails.email || null,
           status:
             paymentDetails.status === "captured" ? "CAPTURED" : "AUTHORIZED",
           method: paymentDetails.method as string,
@@ -301,12 +562,23 @@ export const verifyPayment = async (req: Request, res: Response) => {
         },
       });
 
-      // Update order status
+      // Create Invoice record
+      await tx.invoice.create({
+        data: {
+          paymentId: payment.id,
+          userId: userId,
+          invoice_number: invoiceNumber,
+          service_name: order.plan?.name || "Testing Package",
+        },
+      });
+
+      // Update order status and invoice ID (using the new invoiceNumber)
       await tx.order.update({
         where: { id: order.id },
         data: {
           status: "PAID",
           attempts: { increment: 1 },
+          invoiceId: invoiceNumber,
         },
       });
 
@@ -345,6 +617,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
         wallet,
         transaction,
         packagesAwarded: packagesToAward,
+        invoiceId: invoiceNumber,
       };
     });
 
@@ -352,7 +625,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
     const userEmail = paymentDetails.email || "";
     if (userEmail && process.env.RESEND_API_KEY) {
       const orderDate = order.createdAt.toISOString();
-      const invoiceId = `INV-${order.id.toString().padStart(4, "0")}`;
+      const invoiceId = result.invoiceId;
 
       await sendEmail({
         from: "InTesters <noreply@intesters.com>",
@@ -382,6 +655,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
         success: true,
         orderId: order.id,
         paymentId: result.payment.id,
+        invoiceId: result.invoiceId,
         packagesAwarded: result.packagesAwarded,
         totalPackages: result.wallet.totalPackages,
       },
@@ -539,21 +813,95 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
     // Process event logic
     if (event.event === "payment.captured") {
-      const payment = event.payload.payment?.entity;
-      if (payment) {
-        await prismaClient.payment.updateMany({
-          where: { razorpayPaymentId: payment.id },
-          data: {
-            status: "CAPTURED",
-            captured: true,
-          },
+      const paymentData = event.payload.payment?.entity;
+      if (paymentData) {
+        const order = await prismaClient.order.findFirst({
+          where: { razorpayOrderId: paymentData.order_id },
+          include: { plan: true },
         });
 
-        // Also update order status
-        await prismaClient.order.updateMany({
-          where: { razorpayOrderId: payment.order_id },
-          data: { status: "PAID" },
-        });
+        if (order && order.status !== "PAID") {
+          const userId = order.userId;
+
+          await prismaClient.$transaction(async (tx) => {
+            const billingInfo = await tx.billingInfo.findUnique({
+              where: { userId },
+            });
+
+            const invoiceNumber = await getNextInvoiceNumber();
+            const amount = paymentData.amount;
+            const currency = paymentData.currency;
+            let amountInr = currency === "INR" ? amount : null;
+
+            // Upsert payment record
+            const payment = await tx.payment.upsert({
+              where: { razorpayPaymentId: paymentData.id },
+              update: {
+                status: "CAPTURED",
+                captured: true,
+                amount_inr: amountInr,
+                customer_name: billingInfo?.name || null,
+                customer_email: billingInfo?.email || paymentData.email || null,
+              },
+              create: {
+                orderId: order.id,
+                userId: userId,
+                razorpayPaymentId: paymentData.id,
+                razorpayOrderId: paymentData.order_id,
+                amount: amount,
+                currency: currency,
+                amount_inr: amountInr,
+                customer_name: billingInfo?.name || null,
+                customer_email: billingInfo?.email || paymentData.email || null,
+                status: "CAPTURED",
+                method: paymentData.method,
+                email: paymentData.email,
+                contact: paymentData.contact,
+                captured: true,
+              },
+            });
+
+            // Create Invoice if it doesn't exist
+            await tx.invoice.upsert({
+              where: { paymentId: payment.id },
+              update: {},
+              create: {
+                paymentId: payment.id,
+                userId: userId,
+                invoice_number: invoiceNumber,
+                service_name: order.plan?.name || "Testing Package",
+              },
+            });
+
+            // Update order
+            await tx.order.update({
+              where: { id: order.id },
+              data: {
+                status: "PAID",
+                invoiceId: invoiceNumber,
+              },
+            });
+
+            // Wallet update
+            const packagesToAward = order.packageCount || order.plan?.package || 0;
+            const wallet = await tx.userWallet.upsert({
+              where: { userId },
+              create: { userId, totalPackages: packagesToAward },
+              update: { totalPackages: { increment: packagesToAward } },
+            });
+
+            await tx.userTransaction.create({
+              data: {
+                userId,
+                userWalletId: wallet.id,
+                package: packagesToAward,
+                transactionType: "PURCHASE",
+                status: "CREDIT",
+                paymentMethod: "PACKAGE",
+              },
+            });
+          });
+        }
       }
     }
 

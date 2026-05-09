@@ -35,20 +35,26 @@ export async function sendSuccess<T extends JSONValue>(
   return res.status(200).json(response);
 }
 
-export async function sendError(
+export async function sendError<T extends JSONValue>(
   res: Response,
   code: number,
   message: string,
   auditLogPayload?: AuditLogPayload,
-  technicalError?: string // Optional: actual error for developers
+  technicalError?: string, // Optional: actual error for developers
+  data?: T
 ) {
   if (auditLogPayload) {
     await addAuditLog(auditLogPayload);
   }
 
+  let encryptedData = null;
+  if (data) {
+    encryptedData = await encryptData(data);
+  }
+
   const response = {
     success: false as const,
-    data: null,
+    data: encryptedData,
     message,
     error: technicalError || message, // Fallback to same message if no technical details
   };

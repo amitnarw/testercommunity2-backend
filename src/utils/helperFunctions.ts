@@ -38,3 +38,9 @@ export function normalizeR2Url(url: string | undefined | null): string {
   }
   return url;
 }
+
+export const extractCountry = (req: Request): string => {
+  const country = req.headers["cf-ipcountry"];
+  return (Array.isArray(country) ? country[0] : (country as string)) || "IN";
+};
+
