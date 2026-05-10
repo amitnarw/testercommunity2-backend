@@ -1,1 +1,0 @@
-SELECT unnest(enum_range(NULL::"NotificationType"))::text AS enum_value;
