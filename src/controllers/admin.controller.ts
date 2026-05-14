@@ -2317,6 +2317,18 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
         }
       }
 
+      // Mark remaining IN_PROGRESS testers as COMPLETED
+      await tx.testerRelation.updateMany({
+        where: {
+          dashboardAndHubId: hubId,
+          status: "IN_PROGRESS",
+        },
+        data: {
+          status: "COMPLETED",
+          completedAt: new Date(),
+        },
+      });
+
       // Notify owner
       await tx.notification.create({
         data: {

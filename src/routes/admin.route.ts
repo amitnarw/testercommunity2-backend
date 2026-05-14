@@ -75,6 +75,13 @@ import {
   updateReviewStatus,
   deleteReview,
 } from "@/controllers/review.controller";
+import {
+  getHumanChatQueue,
+  getAllHumanChats,
+  getSupportStats,
+  updateControlRoom,
+} from "@/controllers/adminSupport.controller";
+import { checkAuthentication } from "@/middlewares/checkAuthentication";
 import { checkAuthorization } from "@/middlewares/checkAuthorization";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 import Router from "express";
@@ -189,5 +196,11 @@ router.get("/logs/:filename", checkAuthorization({ module: "logs", action: "canR
 router.delete("/logs/:filename", checkAuthorization({ module: "logs", action: "canDelete" }), deleteLog);
 router.post("/logs/batch-delete", checkAuthorization({ module: "logs", action: "canDelete" }), decryptPayload, deleteLogsBatch);
 router.delete("/logs/:filename/entry/:index", checkAuthorization({ module: "logs", action: "canDelete" }), deleteLogEntry);
+
+// Support Operations
+router.post("/control-room", checkAuthentication, decryptPayload, updateControlRoom);
+router.get("/support/queue", checkAuthentication, getHumanChatQueue);
+router.get("/support/human-chats", checkAuthentication, getAllHumanChats);
+router.get("/support/stats", checkAuthentication, getSupportStats);
 
 export default router;

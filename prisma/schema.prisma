@@ -27,6 +27,7 @@ model User {
   supportAgent               SupportAgent?
   supportMessages            SupportMessage[]
   supportRequests            SupportRequest[]
+  assignedSupportChats       SupportRequest[]            @relation("AssignedSupportChat")
   testerRelations            TesterRelation[]
   activities                 UserActivity[]
   userDetail                 UserDetail?
@@ -404,21 +405,26 @@ model WebsiteFeedbackSuggestion {
 }
 
 model SupportRequest {
-  id             Int              @id @default(autoincrement())
+  id             Int                      @id @default(autoincrement())
   userId         String?
   supportAgentId Int?
+  assignedTo     String?
   name           String?
   email          String?
   subject        String
   description    String
-  status         SupportStatus    @default(PENDING)
-  category       SupportCategory  @default(GENERAL)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  status         SupportStatus            @default(PENDING)
+  category       SupportCategory          @default(GENERAL)
+  type           SupportRequestType       @default(TICKET)
+  isEscalated    Boolean                  @default(false)
+  assignedAt     DateTime?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
   media          Media[]
   messages       SupportMessage[]
-  supportAgent   SupportAgent?    @relation(fields: [supportAgentId], references: [id])
-  user           User?            @relation(fields: [userId], references: [id])
+  supportAgent   SupportAgent?            @relation(fields: [supportAgentId], references: [id])
+  user           User?                    @relation(fields: [userId], references: [id])
+  assignedUser   User?                    @relation("AssignedSupportChat", fields: [assignedTo], references: [id])
 
   @@map("support_request")
 }
@@ -429,6 +435,7 @@ model SupportMessage {
   senderId         String?
   senderType       SenderType
   message          String
+  isAi             Boolean        @default(false)
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   media            Media[]
@@ -600,6 +607,7 @@ model ControlRoom {
   profileSurveyPoints       Int?
   pointsWithdrawalLimit     Int?
   pointsWithdrawalThreshold Int?
+  humanChatEnabled          Boolean  @default(true)
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @default(now()) @updatedAt
 
@@ -1076,6 +1084,12 @@ enum FeedbackStatus {
   REVIEWED
   IMPLEMENTED
   REJECTED
+}
+
+enum SupportRequestType {
+  TICKET
+  AI_CHAT
+  HUMAN_CHAT
 }
 
 enum SupportStatus {
