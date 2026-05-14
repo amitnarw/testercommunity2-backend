@@ -838,10 +838,9 @@ export const getAppsCount = async (req: Request, res: Response) => {
           result["ACCEPTED"]++; // Waiting to start
         } else if (appStatus === "IN_TESTING") {
           result["IN_TESTING"]++; // Active
+        } else if (appStatus === "COMPLETED") {
+          // Ignore: app is completed, don't count in any active status
         } else {
-          // Edge case: relation IN_PROGRESS but app COMPLETED or something else?
-          // For now count as IN_TESTING or leave it?
-          // If app is COMPLETED but user didn't mark complete, usually technically "IN_TESTING" for them or "Missed"
           result["IN_TESTING"]++;
         }
       }
@@ -1936,6 +1935,18 @@ export const completeHostedApp = async (req: Request, res: Response) => {
           });
         }
       }
+
+      // Mark remaining IN_PROGRESS testers as COMPLETED
+      await tx.testerRelation.updateMany({
+        where: {
+          dashboardAndHubId: app.id,
+          status: "IN_PROGRESS",
+        },
+        data: {
+          status: "COMPLETED",
+          completedAt: new Date(),
+        },
+      });
 
       // Log Activity
       await tx.userActivity.create({

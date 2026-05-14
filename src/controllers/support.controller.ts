@@ -106,6 +106,7 @@ export const saveChatMessage = async (req: Request, res: Response) => {
           userId: req.userId || null,
           subject: "AI Support Chat",
           description: "Active chat session with Alex",
+          type: "AI_CHAT",
           category: "GENERAL",
           status: "PENDING",
         },
@@ -116,8 +117,9 @@ export const saveChatMessage = async (req: Request, res: Response) => {
       data: {
         supportRequestId: chat.id,
         senderId: req.userId || null,
-        senderType: role === "user" ? "USER" : "AGENT", // AI acts as AGENT in DB
+        senderType: role === "user" ? "USER" : "AGENT",
         message,
+        isAi: role !== "user",
       },
     });
 

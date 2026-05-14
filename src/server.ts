@@ -6,6 +6,7 @@ import { sendSuccess } from "./utils/response";
 import cookieParser from "cookie-parser";
 import extractInfo from "./middlewares/extractInfo";
 import logger from "./utils/logger";
+import { createSocketServer } from "./socket/socketServer";
 
 const PORT = process.env.PORT;
 const allowedOrigins = process.env.CORS_ORIGIN?.split(",") || [];
@@ -64,6 +65,8 @@ app.get("/health", (_, res) => {
   return sendSuccess(res, null, "Server is running");
 });
 
-app.listen(PORT, () => {
+const { httpServer } = createSocketServer(app);
+
+httpServer.listen(PORT, () => {
   logger.info(`Server is running on port: ${PORT}`);
 });
