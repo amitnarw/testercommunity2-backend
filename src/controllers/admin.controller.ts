@@ -842,10 +842,27 @@ export const getUserById = async (req: Request, res: Response) => {
         ram: user.userDetail?.ram || null,
         os: user.userDetail?.os || null,
         screenResolution: user.userDetail?.screen_resolution || null,
+        language: user.userDetail?.language || null,
+        network: user.userDetail?.network || null,
       },
       experience: user.userDetail?.experience_level || null,
       profileType: user.userDetail?.profile_type || null,
+      jobRole: user.userDetail?.job_role || null,
       country: user.userDetail?.country || null,
+      companyName: user.userDetail?.company_name || null,
+      companySize: user.userDetail?.company_size || null,
+      positionInCompany: user.userDetail?.position_in_company || null,
+      companyWebsite: user.userDetail?.company_website || null,
+      totalPublishedApps: user.userDetail?.total_published_apps || null,
+      platformDevelopment: user.userDetail?.platform_development || null,
+      publishFrequency: user.userDetail?.publish_frequency || null,
+      serviceUsage: user.userDetail?.service_usage || null,
+      communicationMethods: user.userDetail?.communication_methods || [],
+      bio: user.userDetail?.bio || null,
+      yearsOfExperience: user.userDetail?.years_of_experience || null,
+      testingTypes: user.userDetail?.testing_types || [],
+      testerDevices: user.userDetail?.tester_devices || [],
+      testerOsVersions: user.userDetail?.tester_os_versions || [],
       wallet: user.wallet,
       stats: {
         totalTests: user.testerRelations.length,
@@ -880,6 +897,7 @@ export const getUserById = async (req: Request, res: Response) => {
           createdAt: sub.createdAt.toISOString() || "",
         })),
       createdAt: user.createdAt.toISOString() || "",
+      updatedAt: user.updatedAt?.toISOString() || null,
     };
 
     return sendSuccess(res, formattedUser, "User fetched successfully");
@@ -981,6 +999,38 @@ export const updateUserRole = async (req: Request, res: Response) => {
       updatedUser as any,
       "User role updated successfully",
     );
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const updateUserProfile = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id, ...profileData } = payload;
+
+    if (!id) {
+      return sendError(res, 400, "User ID is required");
+    }
+
+    const existing = await prismaClient.userDetail.findUnique({
+      where: { userId: id },
+    });
+
+    if (!existing) {
+      return sendError(res, 404, "User profile not found");
+    }
+
+    const updated = await prismaClient.userDetail.update({
+      where: { userId: id },
+      data: profileData,
+    });
+
+    return sendSuccess(res, updated as any, "User profile updated successfully");
   } catch (error) {
     return sendError(
       res,
