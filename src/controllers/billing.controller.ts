@@ -264,7 +264,7 @@ export const getInvoice = async (req: Request, res: Response) => {
     }
 
     // Check authorization
-    if (req.userId !== invoice.userId && req.role !== "admin") {
+    if (req.userId !== invoice.userId && req.role !== "admin" && req.role !== "super_admin") {
       return sendError(res, 403, "Unauthorized to view this invoice");
     }
 

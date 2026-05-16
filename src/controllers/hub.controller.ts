@@ -922,6 +922,7 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
             isActive: true,
             status: true,
             statusDetails: true,
+            assignmentSource: true,
             dailyVerifications: true,
             daysCompleted: true,
             lastActivityAt: true,
@@ -1899,6 +1900,8 @@ export const completeHostedApp = async (req: Request, res: Response) => {
 
       if (rewardAmount > 0 && testersToReward.length > 0) {
         for (const rel of testersToReward) {
+          // Skip admin-assigned testers — they earn nothing on-platform
+          if (rel.assignmentSource === "ADMIN_ASSIGNED") continue;
           const wallet = await tx.userWallet.upsert({
             where: { userId: rel.testerId },
             create: {

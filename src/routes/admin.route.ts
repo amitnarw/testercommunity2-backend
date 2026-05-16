@@ -53,7 +53,6 @@ import {
   getLogContent,
   deleteLog,
   deleteLogsBatch,
-  deleteLogEntry,
   // Blog
   getAllBlogs,
   getBlogById,
@@ -77,8 +76,12 @@ import {
   deleteReview,
 } from "@/controllers/review.controller";
 import {
-  getHumanChatQueue,
-  getAllHumanChats,
+  getConversations,
+  getConversationById,
+  assignConversation,
+  closeConversation,
+  getAgentStatus,
+  setMyStatus,
   getSupportStats,
   updateControlRoom,
 } from "@/controllers/adminSupport.controller";
@@ -91,6 +94,9 @@ const router = Router();
 
 // Act As (must be before checkAuthorization to allow SUPER_ADMIN to use it)
 router.post("/act-as", decryptPayload, actAsRole);
+
+// Authenticate all admin routes below
+router.use(checkAuthentication);
 
 // Control Room
 router.get("/get-control-room-data", checkAuthorization({ module: "control_room", action: "canReadList" }), getControlRoomData);
@@ -197,12 +203,15 @@ router.get("/logs", checkAuthorization({ module: "logs", action: "canReadList" }
 router.get("/logs/:filename", checkAuthorization({ module: "logs", action: "canReadSingle" }), getLogContent);
 router.delete("/logs/:filename", checkAuthorization({ module: "logs", action: "canDelete" }), deleteLog);
 router.post("/logs/batch-delete", checkAuthorization({ module: "logs", action: "canDelete" }), decryptPayload, deleteLogsBatch);
-router.delete("/logs/:filename/entry/:index", checkAuthorization({ module: "logs", action: "canDelete" }), deleteLogEntry);
 
 // Support Operations
 router.post("/control-room", checkAuthentication, decryptPayload, updateControlRoom);
-router.get("/support/queue", checkAuthentication, getHumanChatQueue);
-router.get("/support/human-chats", checkAuthentication, getAllHumanChats);
+router.get("/support/conversations", checkAuthentication, getConversations);
+router.get("/support/conversations/:id", checkAuthentication, getConversationById);
+router.post("/support/conversations/:id/assign", checkAuthentication, decryptPayload, assignConversation);
+router.post("/support/conversations/:id/close", checkAuthentication, decryptPayload, closeConversation);
+router.get("/support/agent-statuses", checkAuthentication, getAgentStatus);
+router.post("/support/agents/status", checkAuthentication, decryptPayload, setMyStatus);
 router.get("/support/stats", checkAuthentication, getSupportStats);
 
 export default router;

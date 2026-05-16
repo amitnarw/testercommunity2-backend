@@ -8,6 +8,16 @@ import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { type Request, type Response } from "express";
 
+const ADMIN_ROLES = ["admin", "super_admin", "moderator", "support"];
+
+const requireAdmin = (req: Request, res: Response): boolean => {
+  if (!req.role || !ADMIN_ROLES.includes(req.role)) {
+    sendError(res, 403, "Forbidden - admin access required");
+    return false;
+  }
+  return true;
+};
+
 export const getControlRoomData = async (req: Request, res: Response) => {
   try {
     const response = await prismaClient?.controlRoom?.findFirst();
@@ -96,6 +106,7 @@ export const getSubmittedApps = async (req: Request, res: Response) => {
 
 export const acceptApp = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { id, totalTester, totalDay, minimumAndroidVersion, rewardPoints } =
       payload;
@@ -171,6 +182,7 @@ export const acceptApp = async (req: Request, res: Response) => {
 
 export const updateProjectStatus = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { id, status } = payload;
     if (!id) {
@@ -204,6 +216,7 @@ export const updateProjectStatus = async (req: Request, res: Response) => {
 
 export const rejectApp = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
 
     const { id, title, description, image, video } = payload;
@@ -291,6 +304,7 @@ export const getSubmittedAppsCount = async (req: Request, res: Response) => {
 
 export const getDashboardStats = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     // Get total users count
     const totalUsers = await prismaClient.user.count();
 
@@ -407,10 +421,10 @@ export const getDashboardStats = async (req: Request, res: Response) => {
       },
     );
 
-    // Get support requests stats
-    const totalSupportRequests = await prismaClient.supportRequest.count();
-    const pendingSupportRequests = await prismaClient.supportRequest.count({
-      where: { status: "PENDING" },
+    // Get support requests stats (using new Conversation model)
+    const totalSupportRequests = await prismaClient.conversation.count();
+    const pendingSupportRequests = await prismaClient.conversation.count({
+      where: { status: "OPEN" },
     });
 
     // Get active testers today (distinct testers who did a verification today)
@@ -663,6 +677,7 @@ export const getFeedbackCounts = async (req: Request, res: Response) => {
 
 export const getAllUsers = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const role = req.query.role as string;
     const status = req.query.status as string;
     const search = req.query.search as string;
@@ -775,6 +790,7 @@ export const getAllUsers = async (req: Request, res: Response) => {
 
 export const getUserById = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const { id } = req.params;
 
     const user = await prismaClient.user.findUnique({
@@ -821,6 +837,27 @@ export const getUserById = async (req: Request, res: Response) => {
       return sendError(res, 404, "User not found");
     }
 
+    const userId = id as string;
+    const [creditPoints, debitPoints, creditPackages, debitPackages] =
+      await Promise.all([
+        prismaClient.userTransaction.aggregate({
+          where: { userId, status: "CREDIT", points: { gt: 0 } },
+          _sum: { points: true },
+        }),
+        prismaClient.userTransaction.aggregate({
+          where: { userId, status: "DEBIT", points: { gt: 0 } },
+          _sum: { points: true },
+        }),
+        prismaClient.userTransaction.aggregate({
+          where: { userId, status: "CREDIT", package: { gt: 0 } },
+          _sum: { package: true },
+        }),
+        prismaClient.userTransaction.aggregate({
+          where: { userId, status: "DEBIT", package: { gt: 0 } },
+          _sum: { package: true },
+        }),
+      ]);
+
     const formattedUser = {
       id: user.id,
       name: user.name,
@@ -864,6 +901,12 @@ export const getUserById = async (req: Request, res: Response) => {
       testerDevices: user.userDetail?.tester_devices || [],
       testerOsVersions: user.userDetail?.tester_os_versions || [],
       wallet: user.wallet,
+      walletStats: {
+        pointsEarned: creditPoints._sum?.points || 0,
+        pointsSpent: debitPoints._sum?.points || 0,
+        packagesPurchased: creditPackages._sum?.package || 0,
+        packagesUsed: debitPackages._sum?.package || 0,
+      },
       stats: {
         totalTests: user.testerRelations.length,
         activeTests: user.testerRelations.filter(
@@ -912,6 +955,7 @@ export const getUserById = async (req: Request, res: Response) => {
 
 export const updateUserStatus = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { id, status, banReason } = payload;
 
@@ -1440,6 +1484,7 @@ export const getAllNotifications = async (req: Request, res: Response) => {
 
 export const createNotification = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { title, description, type, url, userId, isActive } = payload;
 
@@ -1530,6 +1575,7 @@ export const updateNotification = async (req: Request, res: Response) => {
 
 export const deleteNotification = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const { id } = req.params;
 
     await prismaClient.notification.delete({
@@ -1548,6 +1594,7 @@ export const deleteNotification = async (req: Request, res: Response) => {
 
 export const broadcastNotification = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { title, description, type, url } = payload;
 
@@ -1900,11 +1947,13 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
     }
 
     // Create new relations
+    const isFreeApp = app.appType === "FREE";
     const newRelationsData = newTesterIds.map((tId) => ({
       testerId: tId,
       dashboardAndHubId: parseInt(id),
-      status: "IN_PROGRESS" as const, // Initial status for testers
+      status: "IN_PROGRESS" as const,
       isActive: true,
+      assignmentSource: (isFreeApp ? "ADMIN_ASSIGNED" : "SELF_JOIN") as any,
     }));
 
     await prismaClient.testerRelation.createMany({
@@ -1946,8 +1995,11 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
     });
 
     // Create notifications for the newly assigned testers
+    const notificationTitle = isFreeApp
+      ? "New Testing Assignment"
+      : "New Paid Testing Assignment";
     const notificationsData = newTesterIds.map((tId) => ({
-      title: "New Paid Testing Assignment",
+      title: notificationTitle,
       description: `You have been assigned to test "${updatedApp.androidApp?.appName}". You can now begin testing.`,
       type: "OTHER" as const,
       userId: tId,
@@ -1957,6 +2009,19 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
     await prismaClient.notification.createMany({
       data: notificationsData,
     });
+
+    // Notify app owner when paid testers are assigned to their free app
+    if (isFreeApp) {
+      await prismaClient.notification.create({
+        data: {
+          title: "Platform Testers Assigned",
+          description: `Platform testers have been assigned to your app "${updatedApp.androidApp?.appName}". They will begin testing shortly.`,
+          type: "OTHER" as const,
+          userId: app.appOwnerId,
+          isActive: true,
+        },
+      });
+    }
 
     return sendSuccess(res, updatedApp as any, "Testers assigned successfully");
   } catch (error) {
@@ -2071,6 +2136,7 @@ export const getAllPromoCodes = async (req: Request, res: Response) => {
 
 export const createPromoCode = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { code, discountType, discountValue, isActive, maxUses, maxPerUser } =
       payload;
@@ -2159,6 +2225,7 @@ export const updatePromoCode = async (req: Request, res: Response) => {
 
 export const deletePromoCode = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const { id } = req.params;
     await prismaClient.promoCode.delete({
       where: { id: parseInt(id as string) },
@@ -2217,6 +2284,7 @@ export const updateDailyVerificationStatus = async (
   res: Response,
 ) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { id, status, reason } = payload;
 
@@ -2272,6 +2340,7 @@ export const updateDailyVerificationStatus = async (
 
 export const adminCompleteApp = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { id } = payload; // id is DashboardAndHub ID
 
@@ -2320,6 +2389,8 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
 
       if (rewardAmount > 0 && testersToReward.length > 0) {
         for (const rel of testersToReward) {
+          // Skip admin-assigned testers on free apps — they earn nothing on-platform
+          if (!isPaidApp && rel.assignmentSource === "ADMIN_ASSIGNED") continue;
           const createData: any = {
             userId: rel.testerId,
             totalPackages: 0,
@@ -2729,6 +2800,7 @@ const getLogFilePath = (filename: string) => {
 // @access  Private (Admin)
 export const getLogs = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const logDir = path.resolve(process.cwd(), "logs");
 
     if (!fs.existsSync(logDir)) {
@@ -2794,6 +2866,7 @@ export const getLogContent = async (req: Request, res: Response) => {
 // @access  Private (Admin)
 export const deleteLog = async (req: Request, res: Response) => {
   try {
+    if (!requireAdmin(req, res)) return;
     const { filename } = req.params;
     const filePath = getLogFilePath(filename as string);
 
@@ -2812,146 +2885,73 @@ export const deleteLog = async (req: Request, res: Response) => {
   }
 };
 
-// @desc    Delete multiple log files
-// @route   POST /api/admin/logs/batch-delete
-// @access  Private (Admin)
-export const deleteLogsBatch = async (req: Request, res: Response) => {
-  try {
-    const { filenames } = req.body;
-
-    if (!filenames || !Array.isArray(filenames)) {
-      return sendError(res, 400, "Invalid request payload. Expected an array of filenames.");
-    }
-
-    let deletedCount = 0;
-    const errors: string[] = [];
-
-    for (const filename of filenames) {
-      if (typeof filename !== "string") continue;
-
-      try {
-        const filePath = getLogFilePath(filename as string);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-          deletedCount++;
-        }
-      } catch (err) {
-        errors.push(`Failed to delete ${filename}: ${err instanceof Error ? err.message : "Unknown error"}`);
-      }
-    }
-
-    if (deletedCount === 0 && errors.length > 0) {
-      return sendError(res, 500, `Failed to delete files. Errors: ${errors.join(", ")}`);
-    }
-
-    return sendSuccess(
-      res,
-      { deletedCount, errors },
-      `Successfully deleted ${deletedCount} log files`
-    );
-  } catch (error) {
-    logger.error("Error in batch deleting logs:", error);
-    return sendError(res, 500, "Server Error deleting log files");
-  }
-};
-
-// @desc    Delete a specific log entry (line) from a log file
-// @route   DELETE /api/admin/logs/:filename/entry/:index
-// @access  Private (Admin)
-export const deleteLogEntry = async (req: Request, res: Response) => {
-  try {
-    const { filename, index } = req.params;
-    const entryIndex = parseInt(index as string, 10);
-
-    if (isNaN(entryIndex)) {
-      return sendError(res, 400, "Invalid entry index");
-    }
-
-    const filePath = getLogFilePath(filename as string);
-
-    if (!fs.existsSync(filePath)) {
-      return sendError(res, 404, "Log file not found");
-    }
-
-    // Only allow operations on text/log files
-    if ((filename as string).endsWith('.gz')) {
-      return sendError(res, 400, "Cannot modify compressed logs");
-    }
-
-    // Read file and filter entries
-    const fileContent = fs.readFileSync(filePath, "utf-8");
-    const lines = fileContent.split(/\r?\n/).filter((line: string) => line.trim() !== "");
-
-    if (entryIndex < 0 || entryIndex >= lines.length) {
-      return sendError(res, 400, "Entry index out of bounds");
-    }
-
-    lines.splice(entryIndex, 1);
-
-    // Write back the file
-    // Join with newline and append one at the end if the original had one
-    const newContent = lines.join("\n") + (lines.length > 0 ? "\n" : "");
-    fs.writeFileSync(filePath, newContent, "utf-8");
-
-    return sendSuccess(res, null, "Log entry deleted successfully");
-  } catch (error) {
-    logger.error("Error deleting log entry:", error);
-    if (error instanceof Error && error.message === "Invalid file path") {
-      return sendError(res, 400, "Invalid file name");
-    }
-    return sendError(res, 500, "Server Error deleting log entry");
-  }
-};
-
-// ==================== ACT AS ROLE (FOR SUPER_ADMIN) ====================
-
+// @desc    Act as another role (super_admin only)
+// @route   POST /api/admin/act-as
+// @access  Private (Super Admin)
 export const actAsRole = async (req: Request, res: Response) => {
   try {
-    const headers: Record<string, string> = {};
-    for (const [key, value] of Object.entries(req.headers)) {
-      if (typeof value === "string") {
-        headers[key] = value;
-      } else if (Array.isArray(value)) {
-        headers[key] = value.join(";");
-      }
-    }
+    const session = await auth.api.getSession({
+      headers: req.headers as Record<string, string>,
+    }) as SessionWithRole | null;
 
-    const session = await auth.api.getSession({ headers }) as SessionWithRole | null;
-
-    if (!session) {
-      return sendError(res, 401, "Unauthorized");
-    }
-
-    // Only super_admin can use act-as
-    if (session?.role?.name !== "super_admin") {
-      return sendError(res, 403, "Only super_admin can act as other roles");
+    if (!session || (session as any)?.role?.name !== "super_admin") {
+      return sendError(res, 403, "Only super_admin can act as another role");
     }
 
     const { payload } = req.body;
-    const { role } = payload; // "tester" | "user" | null (to reset)
+    const { role } = payload;
 
     if (!role) {
-      // Clear the acting-as cookie
       res.clearCookie("acting_as_role");
       return sendSuccess(res, null, "Stopped acting as");
     }
 
-    // Validate role
     if (role !== "tester" && role !== "user") {
       return sendError(res, 400, "Role must be 'tester' or 'user'");
     }
 
-    // Set the acting-as cookie
     res.cookie("acting_as_role", role, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60 * 60 * 1000, // 1 hour
+      maxAge: 60 * 60 * 1000,
     });
 
     return sendSuccess(res, { actingAsRole: role }, `Acting as ${role}`);
   } catch (error) {
     logger.error("Error in actAsRole:", error);
     return sendError(res, 500, "Server error");
+  }
+};
+
+// @desc    Delete multiple log files
+// @route   POST /api/admin/logs/batch-delete
+// @access  Private (Admin)
+export const deleteLogsBatch = async (req: Request, res: Response) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { payload } = req.body;
+    const { filenames } = payload;
+
+    if (!filenames || !Array.isArray(filenames)) {
+      return sendError(res, 400, "filenames array is required");
+    }
+
+    const logDir = path.resolve(process.cwd(), "logs");
+    let deletedCount = 0;
+
+    for (const filename of filenames) {
+      const filePath = path.resolve(logDir, filename);
+      if (!filePath.startsWith(logDir)) continue;
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+        deletedCount++;
+      }
+    }
+
+    return sendSuccess(res, { deletedCount }, `${deletedCount} log files deleted`);
+  } catch (error) {
+    logger.error("Error deleting logs batch:", error);
+    return sendError(res, 500, "Server error deleting log files");
   }
 };
