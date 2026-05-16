@@ -24,6 +24,10 @@ model User {
   ratings                    Rating[]
   reviews                    Review[]
   sessions                   Session[]
+  conversations              Conversation[]              @relation("UserConversations")
+  assignedConversations      Conversation[]              @relation("AssignedConversations")
+  messages                   Message[]                   @relation("UserMessages")
+  agentStatus                AgentStatus?
   supportAgent               SupportAgent?
   supportMessages            SupportMessage[]
   supportRequests            SupportRequest[]
@@ -103,6 +107,7 @@ model TesterRelation {
   daysCompleted      Int                       @default(0)
   lastActivityAt     DateTime?
   statusDetails      Json?
+  assignmentSource   TesterAssignmentSource    @default(SELF_JOIN)
   createdAt          DateTime                  @default(now())
   updatedAt          DateTime                  @updatedAt
   dailyVerifications DailyTesterVerification[]
@@ -288,6 +293,8 @@ model Media {
   blogId                     Int?
   feedbackId                 Int?                        @unique
   notificationId             Int?
+  conversationId             Int?
+  messageId                  Int?
   supportRequestId           Int?
   supportMessageId           Int?
   createdAt                  DateTime                    @default(now())
@@ -296,8 +303,10 @@ model Media {
   blog                       Blog?                       @relation(fields: [blogId], references: [id], onDelete: Cascade)
   feedback                   Feedback?                   @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
   notification               Notification?               @relation(fields: [notificationId], references: [id], onDelete: Cascade)
-  supportMessage             SupportMessage?             @relation(fields: [supportMessageId], references: [id], onDelete: Cascade)
-  supportRequest             SupportRequest?             @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+  conversation              Conversation?              @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message                   Message?                   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  supportMessage            SupportMessage?            @relation(fields: [supportMessageId], references: [id], onDelete: Cascade)
+  supportRequest            SupportRequest?            @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
   websiteFeedbackSuggestions WebsiteFeedbackSuggestion[] @relation("MediaToWebsiteFeedbackSuggestion")
 
   @@map("media")
@@ -403,6 +412,92 @@ model WebsiteFeedbackSuggestion {
 
   @@map("website_feedback_suggestion")
 }
+
+/// Unified conversation model: replaces SupportRequest.
+/// type separates: AI_CHAT, LIVE_CHAT, TICKET — all stored in one table.
+model Conversation {
+  id                Int                  @id @default(autoincrement())
+  type              ConversationType     @default(AI_CHAT)
+  status            ConversationStatus   @default(OPEN)
+  priority          ConversationPriority @default(MEDIUM)
+  category          ConversationCategory @default(GENERAL)
+
+  subject           String?
+  description       String?
+
+  userId            String?
+  assignedTo        String?
+  isEscalated       Boolean              @default(false)
+  assignedAt        DateTime?
+  firstResponseAt   DateTime?
+  resolvedAt        DateTime?
+  lastMessageAt     DateTime?
+
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  // Relations
+  user              User?                @relation("UserConversations", fields: [userId], references: [id])
+  assignedAgent     User?                @relation("AssignedConversations", fields: [assignedTo], references: [id])
+  messages          Message[]
+  media             Media[]
+
+  @@index([userId])
+  @@index([assignedTo])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@map("conversation")
+}
+
+/// Replaces SupportMessage. Supports system messages for status transitions.
+model Message {
+  id              Int              @id @default(autoincrement())
+  conversationId  Int
+  senderId        String?
+  senderType      MessageSenderType
+  messageType     MessageType      @default(TEXT)
+  content         String
+  metadata        Json?
+  isAi            Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  // Relations
+  conversation    Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderUser      User?            @relation("UserMessages", fields: [senderId], references: [id])
+  media           Media[]
+
+  @@index([conversationId])
+  @@index([createdAt])
+  @@map("message")
+}
+
+/// Persisted agent status (survives reconnections).
+model AgentStatus {
+  id              Int             @id @default(autoincrement())
+  userId          String          @unique
+  status          AgentOnlineStatus @default(OFFLINE)
+  currentChats    Int             @default(0)
+  lastSeenAt      DateTime        @default(now())
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("agent_status")
+}
+
+model ControlRoom {
+  id                        Int      @id @default(autoincrement())
+  profileSurveyPoints       Int?
+  pointsWithdrawalLimit     Int?
+  pointsWithdrawalThreshold Int?
+  humanChatEnabled          Boolean  @default(true)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @default(now()) @updatedAt
+
+  @@map("control_room")
+}
+
+// --- Legacy models (kept for data migration, no longer used in new code) ---
 
 model SupportRequest {
   id             Int                      @id @default(autoincrement())
@@ -539,6 +634,7 @@ model Permission {
   module        Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   role          Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
+  @@unique([roleId, moduleId])
   @@map("permission")
 }
 
@@ -600,18 +696,6 @@ model PasswordReset {
   user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("password_reset")
-}
-
-model ControlRoom {
-  id                        Int      @id @default(autoincrement())
-  profileSurveyPoints       Int?
-  pointsWithdrawalLimit     Int?
-  pointsWithdrawalThreshold Int?
-  humanChatEnabled          Boolean  @default(true)
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @default(now()) @updatedAt
-
-  @@map("control_room")
 }
 
 model Order {
@@ -945,6 +1029,11 @@ enum TesterStatus {
   REJECTED
 }
 
+enum TesterAssignmentSource {
+  SELF_JOIN
+  ADMIN_ASSIGNED
+}
+
 enum VerificationStatus {
   PENDING
   VERIFIED
@@ -1085,6 +1174,60 @@ enum FeedbackStatus {
   IMPLEMENTED
   REJECTED
 }
+
+// --- New Enums for redesigned support system ---
+
+enum ConversationType {
+  AI_CHAT
+  LIVE_CHAT
+  TICKET
+}
+
+enum ConversationStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_AGENT
+  RESOLVED
+  CLOSED
+}
+
+enum ConversationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ConversationCategory {
+  GENERAL
+  TECHNICAL
+  BILLING
+  ACCOUNT
+  BUG_REPORT
+  OTHER
+}
+
+enum MessageSenderType {
+  USER
+  AGENT
+  AI
+  SYSTEM
+}
+
+enum MessageType {
+  TEXT
+  SYSTEM
+  TRANSFER_NOTICE
+  TICKET_CREATED
+}
+
+enum AgentOnlineStatus {
+  ONLINE
+  AWAY
+  OFFLINE
+}
+
+// --- Legacy enums (kept for migration) ---
 
 enum SupportRequestType {
   TICKET

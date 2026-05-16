@@ -14,29 +14,27 @@ export function setupSupportSocket(namespace: Namespace) {
     logger.info(`Socket connected: ${userName} (${role})`);
 
     // -- User Events --
-    socket.on("user:request_human", async (payload: { aiChatRequestId?: number }) => {
+    socket.on("user:request_human", async (payload: { conversationId?: number }) => {
       logger.info(`[user:request_human] ${userName} requested human chat`);
       try {
-        const { aiChatRequestId } = payload || {};
+        const { conversationId } = payload || {};
 
         const control = await prismaClient.controlRoom.findFirst();
         if (control && !control.humanChatEnabled) {
-          logger.warn(`[user:request_human] Human chat disabled for ${userName}`);
           socket.emit("chat:unavailable", { reason: "Human chat is currently disabled." });
           return;
         }
 
-        const existingActive = await prismaClient.supportRequest.findFirst({
+        const existingActive = await prismaClient.conversation.findFirst({
           where: {
             userId,
-            type: "HUMAN_CHAT",
-            status: { in: ["PENDING", "IN_PROGRESS"] },
+            type: "LIVE_CHAT",
+            status: { in: ["WAITING_AGENT", "IN_PROGRESS"] },
           },
         });
 
         if (existingActive) {
-          logger.info(`[user:request_human] Found existing chat ${existingActive.id} (${existingActive.status}) for ${userName}`);
-          socket.join(`support:${existingActive.id}`);
+          socket.join(`conv:${existingActive.id}`);
           const assignedAgent = existingActive.assignedTo
             ? await prismaClient.user.findUnique({
                 where: { id: existingActive.assignedTo },
@@ -49,79 +47,81 @@ export function setupSupportSocket(namespace: Namespace) {
               chatId: existingActive.id,
               agentName: assignedAgent?.name || "Support Agent",
             });
-            const existingMessages = await prismaClient.supportMessage.findMany({
-              where: { supportRequestId: existingActive.id },
+            const existingMessages = await prismaClient.message.findMany({
+              where: { conversationId: existingActive.id },
               orderBy: { createdAt: "asc" },
               take: 50,
             });
-            logger.info(`[user:request_human] Sending ${existingMessages.length} history messages to ${userName}`);
             for (const msg of existingMessages) {
               socket.emit("chat:message", {
                 chatId: existingActive.id,
                 id: msg.id,
                 senderType: msg.senderType,
-                senderName:
-                  msg.senderType === "USER"
-                    ? userName
-                    : msg.senderType === "AGENT"
-                      ? assignedAgent?.name || "Support Agent"
-                      : "System",
-                message: msg.message,
+                senderName: resolveSenderName(msg, userName, assignedAgent?.name),
+                message: msg.content,
                 createdAt: msg.createdAt.toISOString(),
               });
             }
           } else {
             const position = await getQueuePosition(existingActive.id);
-            socket.emit("chat:requested", {
-              chatId: existingActive.id,
-              position,
-            });
-            logger.info(`[user:request_human] User ${userName} re-joined queue at position ${position}`);
+            socket.emit("chat:requested", { chatId: existingActive.id, position });
           }
           return;
         }
 
-        const chat = await prismaClient.supportRequest.create({
+        const chat = await prismaClient.conversation.create({
           data: {
             userId,
+            type: "LIVE_CHAT",
+            status: "WAITING_AGENT",
             subject: "Live Chat Request",
             description: "User requested human support",
-            type: "HUMAN_CHAT",
-            status: "PENDING",
-            category: "GENERAL",
           },
         });
-        logger.info(`[user:request_human] Created new chat ${chat.id} for ${userName}`);
 
-        if (aiChatRequestId) {
-          logger.info(`[user:request_human] Transferring AI context from chat ${aiChatRequestId}`);
-          const aiMessages = await prismaClient.supportMessage.findMany({
-            where: { supportRequestId: aiChatRequestId },
+        if (conversationId) {
+          const aiMessages = await prismaClient.message.findMany({
+            where: { conversationId },
             take: 10,
             orderBy: { createdAt: "asc" },
           });
 
-          await prismaClient.supportMessage.create({
-            data: {
-              supportRequestId: chat.id,
-              senderId: userId,
-              senderType: "AGENT",
-              message: `[AI Context: Previous conversation transferred from Alex]\n\n${aiMessages.map((m) => `${m.senderType === "USER" ? "User" : "AI Alex"}: ${m.message}`).join("\n\n")}`,
-              isAi: true,
-            },
-          });
+          if (aiMessages.length > 0) {
+            await prismaClient.message.create({
+              data: {
+                conversationId: chat.id,
+                senderId: userId,
+                senderType: "SYSTEM",
+                messageType: "TRANSFER_NOTICE",
+                content: `[AI Context: Previous conversation transferred from Alex]\n\n${aiMessages.map((m) => `${m.senderType === "USER" ? "User" : "AI Alex"}: ${m.content}`).join("\n\n")}`,
+                isAi: true,
+              },
+            });
 
-          await prismaClient.supportRequest.update({
-            where: { id: chat.id },
-            data: { isEscalated: true },
-          });
+            await prismaClient.conversation.update({
+              where: { id: chat.id },
+              data: { isEscalated: true },
+            });
+          }
         }
 
-        socket.join(`support:${chat.id}`);
+        socket.join(`conv:${chat.id}`);
 
-        const position = await getQueuePosition(chat.id);
-        socket.emit("chat:requested", { chatId: chat.id, position });
-        logger.info(`[user:request_human] User ${userName} joined room support:${chat.id}`);
+        // Check if any agents are online
+        const onlineAgentCount = await prismaClient.agentStatus.count({
+          where: { status: "ONLINE" },
+        });
+
+        if (onlineAgentCount === 0) {
+          socket.emit("chat:fallback_to_ai", {
+            message: "No agents are available right now, but Alex can help! A human agent will review your conversation when they come online.",
+            chatId: chat.id,
+          });
+          logger.info(`[user:request_human] No agents online, falling back to AI for ${userName}`);
+        } else {
+          const position = await getQueuePosition(chat.id);
+          socket.emit("chat:requested", { chatId: chat.id, position });
+        }
 
         namespace.to("agent").emit("agent:queue_updated");
       } catch (error) {
@@ -134,39 +134,37 @@ export function setupSupportSocket(namespace: Namespace) {
       try {
         const { chatId, message } = payload;
         if (!message?.trim()) return;
-        logger.info(`[chat:send_message] ${userName} sent message to chat ${chatId}`);
 
-        const chat = await prismaClient.supportRequest.findUnique({
+        const chat = await prismaClient.conversation.findUnique({
           where: { id: chatId },
         });
 
         if (!chat || chat.userId !== userId) {
-          logger.warn(`[chat:send_message] Chat ${chatId} not found for user ${userId}`);
           socket.emit("chat:error", { message: "Chat not found" });
           return;
         }
 
-        const saved = await prismaClient.supportMessage.create({
+        const saved = await prismaClient.message.create({
           data: {
-            supportRequestId: chatId,
+            conversationId: chatId,
             senderId: userId,
             senderType: "USER",
-            message,
+            messageType: "TEXT",
+            content: message,
           },
         });
 
-        await prismaClient.supportRequest.update({
+        await prismaClient.conversation.update({
           where: { id: chatId },
-          data: { updatedAt: new Date() },
+          data: { lastMessageAt: new Date() },
         });
 
-        logger.info(`[chat:send_message] Broadcasting message ${saved.id} to support:${chatId}`);
-        namespace.to(`support:${chatId}`).emit("chat:message", {
+        namespace.to(`conv:${chatId}`).emit("chat:message", {
           chatId,
           id: saved.id,
           senderType: "USER",
           senderName: userName,
-          message: saved.message,
+          message: saved.content,
           createdAt: saved.createdAt.toISOString(),
         });
       } catch (error) {
@@ -175,31 +173,27 @@ export function setupSupportSocket(namespace: Namespace) {
     });
 
     socket.on("chat:typing", (payload: { chatId: number }) => {
-      const { chatId } = payload;
-      logger.debug(`[chat:typing] ${userName} typing in chat ${chatId}`);
-      socket.broadcast.to(`support:${chatId}`).emit("chat:typing", { chatId });
+      socket.broadcast.to(`conv:${payload.chatId}`).emit("chat:typing", { chatId: payload.chatId });
     });
 
     socket.on("agent:typing", (payload: { chatId: number }) => {
-      const { chatId } = payload;
-      logger.debug(`[agent:typing] ${userName} typing in chat ${chatId}`);
-      socket.broadcast.to(`support:${chatId}`).emit("agent:typing", { chatId });
+      socket.broadcast.to(`conv:${payload.chatId}`).emit("agent:typing", { chatId: payload.chatId });
     });
 
     socket.on("chat:close", async (payload: { chatId: number }) => {
       try {
         const { chatId } = payload;
-        const chat = await prismaClient.supportRequest.findUnique({
+        const chat = await prismaClient.conversation.findUnique({
           where: { id: chatId },
         });
         if (!chat || (chat.userId !== userId && !isAgent)) return;
 
-        await prismaClient.supportRequest.update({
+        await prismaClient.conversation.update({
           where: { id: chatId },
-          data: { status: "CLOSED" },
+          data: { status: "CLOSED", resolvedAt: new Date() },
         });
 
-        namespace.to(`support:${chatId}`).emit("chat:closed", {
+        namespace.to(`conv:${chatId}`).emit("chat:closed", {
           chatId,
           reason: chat.assignedTo ? "Resolved" : "Closed by user",
         });
@@ -212,7 +206,13 @@ export function setupSupportSocket(namespace: Namespace) {
     // -- Agent Events --
     socket.on("agent:online", async () => {
       if (!isAgent) return;
+      await prismaClient.agentStatus.upsert({
+        where: { userId },
+        update: { status: "ONLINE", lastSeenAt: new Date() },
+        create: { userId, status: "ONLINE" },
+      });
       await initAgentState(socket, userId, userName);
+      namespace.emit("agent:status_changed");
     });
 
     socket.on("agent:take_chat", async (payload: { chatId: number }) => {
@@ -220,35 +220,37 @@ export function setupSupportSocket(namespace: Namespace) {
       const { chatId } = payload;
 
       try {
-        const chat = await prismaClient.supportRequest.findUnique({
+        const chat = await prismaClient.conversation.findUnique({
           where: { id: chatId },
           include: { user: { select: { id: true, name: true } } },
         });
 
-        if (!chat || chat.status !== "PENDING") {
+        if (!chat || chat.status !== "WAITING_AGENT") {
           socket.emit("agent:error", { message: "Chat is no longer available" });
           return;
         }
 
-        await prismaClient.supportRequest.update({
+        await prismaClient.conversation.update({
           where: { id: chatId },
-          data: { assignedTo: userId, status: "IN_PROGRESS", assignedAt: new Date() },
+          data: { assignedTo: userId, status: "IN_PROGRESS", assignedAt: new Date(), firstResponseAt: new Date() },
         });
 
-        socket.join(`support:${chatId}`);
+        await prismaClient.agentStatus.upsert({
+          where: { userId },
+          update: { currentChats: { increment: 1 } },
+          create: { userId, status: "ONLINE", currentChats: 1 },
+        });
 
-        const existingMessages = await prismaClient.supportMessage.findMany({
-          where: { supportRequestId: chatId },
+        socket.join(`conv:${chatId}`);
+
+        const existingMessages = await prismaClient.message.findMany({
+          where: { conversationId: chatId },
           orderBy: { createdAt: "asc" },
         });
 
         socket.emit("agent:chat_taken", { chatId });
 
-        namespace.to(`support:${chatId}`).emit("chat:assigned", {
-          chatId,
-          agentName: userName,
-        });
-
+        namespace.to(`conv:${chatId}`).emit("chat:assigned", { chatId, agentName: userName });
         namespace.to("agent").emit("agent:queue_updated");
       } catch (error) {
         logger.error("Error taking chat:", error);
@@ -261,31 +263,32 @@ export function setupSupportSocket(namespace: Namespace) {
       if (!message?.trim()) return;
 
       try {
-        const chat = await prismaClient.supportRequest.findUnique({
+        const chat = await prismaClient.conversation.findUnique({
           where: { id: chatId },
         });
         if (!chat || chat.assignedTo !== userId) return;
 
-        const saved = await prismaClient.supportMessage.create({
+        const saved = await prismaClient.message.create({
           data: {
-            supportRequestId: chatId,
+            conversationId: chatId,
             senderId: userId,
             senderType: "AGENT",
-            message,
+            messageType: "TEXT",
+            content: message,
           },
         });
 
-        await prismaClient.supportRequest.update({
+        await prismaClient.conversation.update({
           where: { id: chatId },
-          data: { updatedAt: new Date() },
+          data: { lastMessageAt: new Date() },
         });
 
-        namespace.to(`support:${chatId}`).emit("chat:message", {
+        namespace.to(`conv:${chatId}`).emit("chat:message", {
           chatId,
           id: saved.id,
           senderType: "AGENT",
           senderName: userName,
-          message: saved.message,
+          message: saved.content,
           createdAt: saved.createdAt.toISOString(),
         });
       } catch (error) {
@@ -298,17 +301,24 @@ export function setupSupportSocket(namespace: Namespace) {
       const { chatId } = payload;
 
       try {
-        const chat = await prismaClient.supportRequest.findUnique({
+        const chat = await prismaClient.conversation.findUnique({
           where: { id: chatId },
         });
         if (!chat || chat.assignedTo !== userId) return;
 
-        await prismaClient.supportRequest.update({
+        await prismaClient.conversation.update({
           where: { id: chatId },
-          data: { status: "RESOLVED" },
+          data: { status: "RESOLVED", resolvedAt: new Date() },
         });
 
-        namespace.to(`support:${chatId}`).emit("chat:closed", {
+        if (chat.assignedTo) {
+          await prismaClient.agentStatus.update({
+            where: { userId: chat.assignedTo },
+            data: { currentChats: { decrement: 1 } },
+          });
+        }
+
+        namespace.to(`conv:${chatId}`).emit("chat:closed", {
           chatId,
           reason: "Resolved by support agent",
         });
@@ -321,9 +331,15 @@ export function setupSupportSocket(namespace: Namespace) {
     socket.on("agent:offline", () => {
       if (!isAgent) return;
       socket.leave("agent");
+      prismaClient.agentStatus.upsert({
+        where: { userId },
+        update: { status: "OFFLINE" },
+        create: { userId, status: "OFFLINE" },
+      }).catch(() => {});
+      namespace.emit("agent:status_changed");
     });
 
-    // -- Join user room + auto-init state --
+    // -- Init state on connect --
     socket.join(`user:${userId}`);
 
     try {
@@ -336,12 +352,10 @@ export function setupSupportSocket(namespace: Namespace) {
       logger.error("Error auto-initializing chat state:", error);
     }
 
-    // Explicit rejoin request from client (e.g. after reconnection / page refresh)
     socket.on("user:rejoin", async () => {
       logger.info(`[user:rejoin] ${userName} requested rejoin`);
       try {
         await initUserChatState(socket, userId, userName);
-        logger.info(`[user:rejoin] ${userName} rejoin complete`);
       } catch (error) {
         logger.error("[user:rejoin] Error:", error);
         socket.emit("chat:error", { message: "Failed to restore chat state" });
@@ -355,31 +369,26 @@ export function setupSupportSocket(namespace: Namespace) {
 }
 
 async function initUserChatState(socket: Socket, userId: string, userName: string) {
-  const activeChats = await prismaClient.supportRequest.findMany({
+  const activeChats = await prismaClient.conversation.findMany({
     where: {
       userId,
-      type: "HUMAN_CHAT",
-      status: { in: ["PENDING", "IN_PROGRESS"] },
+      type: "LIVE_CHAT",
+      status: { in: ["WAITING_AGENT", "IN_PROGRESS"] },
     },
     select: { id: true, status: true, assignedTo: true },
   });
 
-  logger.info(`[initUserChatState] ${userName}: found ${activeChats.length} active chat(s)`);
-
   for (const chat of activeChats) {
-    socket.join(`support:${chat.id}`);
-    logger.info(`[initUserChatState] ${userName} joined room support:${chat.id}`);
+    socket.join(`conv:${chat.id}`);
   }
 
   if (activeChats.length === 0) return;
 
   const chat = activeChats[0];
-  logger.info(`[initUserChatState] Restoring state for chat ${chat.id} (${chat.status})`);
 
-  if (chat.status === "PENDING") {
+  if (chat.status === "WAITING_AGENT") {
     const position = await getQueuePosition(chat.id);
     socket.emit("chat:requested", { chatId: chat.id, position });
-    logger.info(`[initUserChatState] Emitted chat:requested for chat ${chat.id}, position ${position}`);
   } else if (chat.status === "IN_PROGRESS") {
     const agentUser = chat.assignedTo
       ? await prismaClient.user.findUnique({
@@ -392,27 +401,20 @@ async function initUserChatState(socket: Socket, userId: string, userName: strin
       chatId: chat.id,
       agentName: agentUser?.name || "Support Agent",
     });
-    logger.info(`[initUserChatState] Emitted chat:assigned for chat ${chat.id}, agent: ${agentUser?.name || "Support Agent"}`);
 
-    const recentMessages = await prismaClient.supportMessage.findMany({
-      where: { supportRequestId: chat.id },
+    const recentMessages = await prismaClient.message.findMany({
+      where: { conversationId: chat.id },
       orderBy: { createdAt: "asc" },
       take: 50,
     });
-    logger.info(`[initUserChatState] Sending ${recentMessages.length} history message(s) to ${userName}`);
 
     for (const msg of recentMessages) {
       socket.emit("chat:message", {
         chatId: chat.id,
         id: msg.id,
         senderType: msg.senderType,
-        senderName:
-          msg.senderType === "USER"
-            ? userName
-            : msg.senderType === "AGENT"
-              ? agentUser?.name || "Support Agent"
-              : "System",
-        message: msg.message,
+        senderName: resolveSenderName(msg, userName, agentUser?.name),
+        message: msg.content,
         createdAt: msg.createdAt.toISOString(),
       });
     }
@@ -422,18 +424,22 @@ async function initUserChatState(socket: Socket, userId: string, userName: strin
 async function initAgentState(socket: Socket, userId: string, userName: string) {
   socket.join("agent");
 
-  const pendingChats = await prismaClient.supportRequest.findMany({
-    where: { type: "HUMAN_CHAT", status: "PENDING" },
+  const waitingChats = await prismaClient.conversation.findMany({
+    where: { type: "LIVE_CHAT", status: "WAITING_AGENT" },
     orderBy: { createdAt: "asc" },
     include: {
       user: { select: { id: true, name: true, email: true, image: true } },
-      messages: { where: { isAi: true }, take: 5, orderBy: { createdAt: "asc" } },
+      messages: {
+        where: { isAi: true },
+        take: 5,
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
 
   socket.emit(
     "agent:queue",
-    pendingChats.map((c) => ({
+    waitingChats.map((c) => ({
       id: c.id,
       userId: c.userId,
       userName: c.user?.name || "Unknown",
@@ -441,12 +447,12 @@ async function initAgentState(socket: Socket, userId: string, userName: string) 
       userImage: c.user?.image || null,
       createdAt: c.createdAt.toISOString(),
       isEscalated: c.isEscalated,
-      aiContext: c.messages.map((m) => m.message).join("\n"),
+      aiContext: c.messages.map((m) => m.content).join("\n"),
     }))
   );
 
-  const activeChats = await prismaClient.supportRequest.findMany({
-    where: { type: "HUMAN_CHAT", assignedTo: userId, status: "IN_PROGRESS" },
+  const activeChats = await prismaClient.conversation.findMany({
+    where: { type: "LIVE_CHAT", assignedTo: userId, status: "IN_PROGRESS" },
     include: {
       user: { select: { id: true, name: true, email: true, image: true } },
       messages: { orderBy: { createdAt: "asc" } },
@@ -454,7 +460,7 @@ async function initAgentState(socket: Socket, userId: string, userName: string) 
   });
 
   for (const chat of activeChats) {
-    socket.join(`support:${chat.id}`);
+    socket.join(`conv:${chat.id}`);
   }
 
   socket.emit(
@@ -469,7 +475,7 @@ async function initAgentState(socket: Socket, userId: string, userName: string) 
         id: m.id,
         senderType: m.senderType,
         senderName: m.senderType === "USER" ? c.user?.name || "User" : userName,
-        message: m.message,
+        message: m.content,
         isAi: m.isAi,
         createdAt: m.createdAt.toISOString(),
       })),
@@ -478,12 +484,20 @@ async function initAgentState(socket: Socket, userId: string, userName: string) 
   );
 }
 
-async function getQueuePosition(chatId: number): Promise<number> {
-  const chats = await prismaClient.supportRequest.findMany({
-    where: { type: "HUMAN_CHAT", status: "PENDING" },
+async function getQueuePosition(conversationId: number): Promise<number> {
+  const chats = await prismaClient.conversation.findMany({
+    where: { type: "LIVE_CHAT", status: "WAITING_AGENT" },
     orderBy: { createdAt: "asc" },
     select: { id: true },
   });
-  const index = chats.findIndex((c) => c.id === chatId);
+  const index = chats.findIndex((c) => c.id === conversationId);
   return index >= 0 ? index + 1 : chats.length;
+}
+
+function resolveSenderName(msg: { senderType: string; isAi: boolean }, userName: string, agentName?: string): string {
+  if (msg.senderType === "USER") return userName;
+  if (msg.senderType === "AGENT") return agentName || "Support Agent";
+  if (msg.senderType === "AI") return "Alex";
+  if (msg.senderType === "SYSTEM") return "System";
+  return "Support Agent";
 }

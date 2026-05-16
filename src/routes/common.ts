@@ -10,6 +10,7 @@ import testerRouter from "./tester.route";
 import blogRouter from "./blog.route";
 import reviewRouter from "./review.route";
 import supportRouter from "./support.route";
+import adminFinanceRouter from "./adminFinance.route";
 
 const router = Router();
 
@@ -24,5 +25,6 @@ router.use("/tester", testerRouter);
 router.use("/blog", blogRouter);
 router.use("/review", reviewRouter);
 router.use("/support", supportRouter);
+router.use("/admin/finance", adminFinanceRouter);
 
 export default router;

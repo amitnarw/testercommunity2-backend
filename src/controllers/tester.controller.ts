@@ -5,7 +5,7 @@ import { prismaClient } from "@/lib/prisma";
 
 export const getTesterProjects = async (req: Request, res: Response) => {
   try {
-    const { status } = req?.query;
+    const { status, appType } = req?.query;
 
     // Build where condition: find DashboardAndHub entries where this user is a tester
     const whereCond: any = {
@@ -19,6 +19,11 @@ export const getTesterProjects = async (req: Request, res: Response) => {
     // Optional: filter by tester's status in the relation
     if (status && typeof status === "string") {
       whereCond.testerRelations.some.status = status;
+    }
+
+    // Optional: filter by app type (PAID or FREE)
+    if (appType && typeof appType === "string") {
+      whereCond.appType = appType;
     }
 
     const projects = await prismaClient?.dashboardAndHub?.findMany({
@@ -81,9 +86,11 @@ export const getTesterProjects = async (req: Request, res: Response) => {
         description: project.androidApp?.description,
         appScreenshot1: project.androidApp?.appScreenshotUrl1,
         appScreenshot2: project.androidApp?.appScreenshotUrl2,
+        appType: project.appType,
         appStatus: project.status,
         testerRating: project.androidApp?.ratings?.[0]?.rating || 0,
         testerStatus: relation?.status || null,
+        assignmentSource: relation?.assignmentSource || "SELF_JOIN",
         totalDay: project.totalDay,
         currentDay: project.currentDay,
         totalTester: project.totalTester,
