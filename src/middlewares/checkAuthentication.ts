@@ -1,6 +1,7 @@
 import { auth, type SessionWithRole } from "@/lib/auth";
 import { sendError } from "@/utils/response";
 import { type NextFunction, type Request, type Response } from "express";
+import { prismaClient } from "@/lib/prisma";
 
 export const checkAuthentication = async (
   req: Request,
@@ -24,6 +25,19 @@ export const checkAuthentication = async (
 
     if (!session) {
       return sendError(res, 401, "Unauthorized");
+    }
+
+    const userDetail = await prismaClient?.userDetail?.findUnique({
+      where: { userId: session.user.id },
+      select: { banned: true, ban_reason: true },
+    });
+
+    if (userDetail?.banned) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_BANNED",
+        message: userDetail.ban_reason || "Your account has been suspended. Please contact support.",
+      });
     }
 
     req.userId = session?.user?.id;

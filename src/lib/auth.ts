@@ -9,12 +9,14 @@ import { SignJWT } from "jose";
 import logger from "../utils/logger";
 
 const rolePlugin = customSession(async ({ user, session }, ctx) => {
-  const role = await prismaClient?.userDetail?.findUnique({
+  const userDetail = await prismaClient?.userDetail?.findUnique({
     where: {
       userId: session?.userId,
     },
     select: {
       initial: true,
+      banned: true,
+      ban_reason: true,
       role: {
         select: {
           name: true,
@@ -23,10 +25,18 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
       },
     },
   });
-  await setRoleCookie(ctx, role?.role, role?.initial || false);
+  await setRoleCookie(
+    ctx,
+    userDetail?.role,
+    userDetail?.initial || false,
+    userDetail?.banned || false,
+    userDetail?.ban_reason || null,
+  );
   return {
-    role: role?.role,
-    initial: role?.initial,
+    role: userDetail?.role,
+    initial: userDetail?.initial,
+    banned: userDetail?.banned,
+    ban_reason: userDetail?.ban_reason,
     user,
     session,
   };
@@ -60,10 +70,12 @@ async function setRoleCookie(
     }[];
   },
   initial?: boolean,
+  banned?: boolean,
+  ban_reason?: string | null,
 ) {
   if (role) {
     const secret = process.env.BETTER_AUTH_SECRET!;
-    const payload = { role, initial };
+    const payload = { role, initial, banned, ban_reason };
 
     const token = await new SignJWT(payload)
       .setProtectedHeader({ alg: "HS256" })
@@ -127,8 +139,10 @@ export const auth = betterAuth({
           const errorMessage = user.userDetail.ban_reason
             ? user.userDetail.ban_reason
             : "Your account has been suspended. Please contact support.";
-          const bannedURL = `http://localhost:9002/banned?error_description=${encodeURIComponent(errorMessage)}`;
-          throw ctx.redirect(bannedURL);
+          throw new APIError("FORBIDDEN", {
+            code: "ACCOUNT_BANNED",
+            message: errorMessage,
+          });
         }
       }
     }),
@@ -301,7 +315,8 @@ export const auth = betterAuth({
 
             // For OAuth callbacks, redirect to banned page
             if (ctx.path && (ctx.path.startsWith("/callback") || ctx.path.startsWith("/oauth2/callback"))) {
-              const bannedURL = `http://localhost:9002/banned?error_description=${encodeURIComponent(errorMessage)}`;
+              const origin = process.env.CORS_ORIGIN?.split(",")[0] || "http://localhost:3000";
+              const bannedURL = `${origin}/banned?error_description=${encodeURIComponent(errorMessage)}`;
               throw ctx.redirect(bannedURL);
             }
 
