@@ -786,14 +786,28 @@ model Pricing {
 }
 
 model Invoice {
-  id             Int      @id @default(autoincrement())
-  paymentId      Int      @unique
-  userId         String
-  invoice_number String   @unique
-  service_name   String
-  createdAt      DateTime @default(now())
-  payment        Payment  @relation(fields: [paymentId], references: [id])
-  user           User     @relation(fields: [userId], references: [id])
+  id              Int       @id @default(autoincrement())
+  paymentId       Int       @unique
+  userId          String
+  invoice_number  String    @unique
+  invoice_type    String    @default("IND")
+  service_name    String
+  sac_code        String    @default("998313")
+  period          String?
+  quantity        Int        @default(1)
+  unit_price      Int?
+  tax_rate        Float      @default(0)
+  cgst_amount     Int        @default(0)
+  sgst_amount     Int        @default(0)
+  igst_amount     Int        @default(0)
+  due_date        DateTime?
+  place_of_supply String?
+  supply_type     String?
+  amount_in_words String?
+  lut_number      String?
+  createdAt       DateTime   @default(now())
+  payment         Payment    @relation(fields: [paymentId], references: [id])
+  user            User       @relation(fields: [userId], references: [id])
 
   @@map("invoice")
 }
@@ -1349,6 +1363,9 @@ model BillingInfo {
   name      String
   email     String
   address   String
+  city      String?
+  state     String?
+  zipCode   String?
   country   String
   gstin     String?
   createdAt DateTime @default(now())

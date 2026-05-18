@@ -15,6 +15,14 @@ import {
 import { sendEmail } from "@/services/resend";
 import crypto from "crypto";
 import { extractCountry } from "@/utils/helperFunctions";
+import {
+  getNextInvoiceNumber,
+  calculateTax,
+  determineInvoiceType,
+  amountToWords,
+  formatPeriod,
+  COMPANY_DETAILS,
+} from "@/utils/invoice.utils";
 
 /**
  * Get billing info for the user
@@ -47,7 +55,7 @@ export const upsertBillingInfo = async (req: Request, res: Response) => {
   try {
     const userId = req?.userId;
     const { payload } = req.body;
-    const { name, email, address, country, gstin } = payload;
+    const { name, email, address, city, state, zipCode, country, gstin } = payload;
 
     if (!userId) {
       return sendError(res, 401, "Unauthorized");
@@ -59,8 +67,8 @@ export const upsertBillingInfo = async (req: Request, res: Response) => {
 
     const billingInfo = await prismaClient.billingInfo.upsert({
       where: { userId },
-      update: { name, email, address, country, gstin },
-      create: { userId, name, email, address, country, gstin },
+      update: { name, email, address, city, state, zipCode, country, gstin },
+      create: { userId, name, email, address, city, state, zipCode, country, gstin },
     });
 
     return sendSuccess(res, billingInfo, "Billing info updated successfully");
@@ -96,52 +104,6 @@ export const getPricing = async (req: Request, res: Response) => {
     logger.error("Get pricing error:", error);
     return sendError(res, 500, "Failed to fetch pricing");
   }
-};
-
-/**
- * Generate invoice ID based on country and sequence
- */
-const generateInvoiceId = async (country: string) => {
-  const isIndia = country.toLowerCase() === "india";
-  const prefix = isIndia ? "ITIN" : "ITFR";
-  const now = new Date();
-  const year = now.getFullYear().toString().slice(-2);
-  const months = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
-  const monthCode = months[now.getMonth()];
-  
-  const baseId = `${prefix}${year}${monthCode}`;
-  
-  const lastOrder = await prismaClient.order.findFirst({
-    where: {
-      invoiceId: {
-        startsWith: baseId,
-      },
-    },
-    orderBy: {
-      invoiceId: "desc",
-    },
-  });
-  
-  let sequence = 1;
-  if (lastOrder && lastOrder.invoiceId) {
-    const lastSeqStr = lastOrder.invoiceId.replace(baseId, "");
-    const lastSeq = parseInt(lastSeqStr);
-    if (!isNaN(lastSeq)) {
-      sequence = lastSeq + 1;
-    }
-  }
-  
-  return `${baseId}${sequence}`;
-};
-
-/**
- * Generate invoice number based on sequence: INV-YYYY-00001
- */
-const getNextInvoiceNumber = async () => {
-  const year = new Date().getFullYear();
-  const res = await prismaClient.$queryRaw<{ nextval: bigint }[]>`SELECT nextval('invoice_num_seq')`;
-  const sequence = res[0].nextval.toString().padStart(5, "0");
-  return `INV-${year}-${sequence}`;
 };
 
 // Environment variables
@@ -254,6 +216,7 @@ export const getInvoice = async (req: Request, res: Response) => {
         user: {
           include: {
             billingInfo: true,
+            userDetail: true,
           },
         },
       },
@@ -517,8 +480,11 @@ export const verifyPayment = async (req: Request, res: Response) => {
         where: { userId },
       });
 
-      // Generate invoice number
-      const invoiceNumber = await getNextInvoiceNumber();
+      // Determine invoice type and tax
+      const customerCountry = billingInfo?.country || "India";
+      const customerState = billingInfo?.state || null;
+      const invoiceType = determineInvoiceType(customerCountry);
+      const invoiceNumber = await getNextInvoiceNumber(invoiceType);
 
       // Calculate amount in INR (simplistic for now)
       const amount = typeof paymentDetails.amount === "string"
@@ -526,6 +492,13 @@ export const verifyPayment = async (req: Request, res: Response) => {
         : (paymentDetails.amount as number);
       const currency = paymentDetails.currency;
       let amountInr = currency === "INR" ? amount : null;
+
+      // Calculate tax and invoice fields
+      const taxInfo = calculateTax(amount, invoiceType, customerState);
+      const quantity = order.packageCount || order.plan?.package || 1;
+      const unitPrice = Math.round(amount / quantity);
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 30);
 
       // Create payment record
       const payment = await tx.payment.create({
@@ -562,13 +535,26 @@ export const verifyPayment = async (req: Request, res: Response) => {
         },
       });
 
-      // Create Invoice record
+      // Create Invoice record with all professional fields
       await tx.invoice.create({
         data: {
           paymentId: payment.id,
           userId: userId,
           invoice_number: invoiceNumber,
+          invoice_type: invoiceType,
           service_name: order.plan?.name || "Testing Package",
+          sac_code: COMPANY_DETAILS.sacCode,
+          period: formatPeriod(new Date()),
+          quantity: quantity,
+          unit_price: unitPrice,
+          tax_rate: taxInfo.taxRate,
+          cgst_amount: taxInfo.cgstAmount,
+          sgst_amount: taxInfo.sgstAmount,
+          igst_amount: taxInfo.igstAmount,
+          due_date: dueDate,
+          place_of_supply: taxInfo.placeOfSupply,
+          supply_type: taxInfo.supplyType,
+          amount_in_words: amountToWords(amount + taxInfo.cgstAmount + taxInfo.sgstAmount + taxInfo.igstAmount, currency),
         },
       });
 
@@ -828,10 +814,20 @@ export const handleWebhook = async (req: Request, res: Response) => {
               where: { userId },
             });
 
-            const invoiceNumber = await getNextInvoiceNumber();
+            // Determine invoice type and tax
+            const customerCountry = billingInfo?.country || "India";
+            const customerState = billingInfo?.state || null;
+            const invoiceType = determineInvoiceType(customerCountry);
+            const invoiceNumber = await getNextInvoiceNumber(invoiceType);
             const amount = paymentData.amount;
             const currency = paymentData.currency;
             let amountInr = currency === "INR" ? amount : null;
+
+            const taxInfo = calculateTax(amount, invoiceType, customerState);
+            const quantity = order.packageCount || order.plan?.package || 1;
+            const unitPrice = Math.round(amount / quantity);
+            const dueDate = new Date();
+            dueDate.setDate(dueDate.getDate() + 30);
 
             // Upsert payment record
             const payment = await tx.payment.upsert({
@@ -869,7 +865,20 @@ export const handleWebhook = async (req: Request, res: Response) => {
                 paymentId: payment.id,
                 userId: userId,
                 invoice_number: invoiceNumber,
+                invoice_type: invoiceType,
                 service_name: order.plan?.name || "Testing Package",
+                sac_code: COMPANY_DETAILS.sacCode,
+                period: formatPeriod(new Date()),
+                quantity: quantity,
+                unit_price: unitPrice,
+                tax_rate: taxInfo.taxRate,
+                cgst_amount: taxInfo.cgstAmount,
+                sgst_amount: taxInfo.sgstAmount,
+                igst_amount: taxInfo.igstAmount,
+                due_date: dueDate,
+                place_of_supply: taxInfo.placeOfSupply,
+                supply_type: taxInfo.supplyType,
+                amount_in_words: amountToWords(amount + taxInfo.cgstAmount + taxInfo.sgstAmount + taxInfo.igstAmount, currency),
               },
             });
 
