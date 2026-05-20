@@ -66,6 +66,12 @@ import {
   createTestimonial,
   updateTestimonial,
   deleteTestimonial,
+  // Authors
+  getAllAuthors,
+  getAuthorById,
+  createAuthor,
+  updateAuthor,
+  deleteAuthor,
   // Act As
   actAsRole,
 } from "@/controllers/admin.controller";
@@ -182,6 +188,13 @@ router.get("/testimonials/:id", checkAuthorization({ module: "testimonial", acti
 router.post("/testimonials", checkAuthorization({ module: "testimonial", action: "canCreate" }), decryptPayload, createTestimonial);
 router.post("/testimonials/update", checkAuthorization({ module: "testimonial", action: "canUpdate" }), decryptPayload, updateTestimonial);
 router.delete("/testimonials/:id", checkAuthorization({ module: "testimonial", action: "canDelete" }), deleteTestimonial);
+
+// Authors
+router.get("/authors", checkAuthorization({ module: "authors", action: "canReadList" }), getAllAuthors);
+router.get("/authors/:id", checkAuthorization({ module: "authors", action: "canReadSingle" }), getAuthorById);
+router.post("/authors", checkAuthorization({ module: "authors", action: "canCreate" }), decryptPayload, createAuthor);
+router.post("/authors/update", checkAuthorization({ module: "authors", action: "canUpdate" }), decryptPayload, updateAuthor);
+router.delete("/authors/:id", checkAuthorization({ module: "authors", action: "canDelete" }), deleteAuthor);
 
 // User Reviews (admin management)
 router.get("/user-reviews", checkAuthorization({ module: "review", action: "canReadList" }), getAllReviews);

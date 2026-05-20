@@ -141,7 +141,7 @@ export const COMPANY_DETAILS = {
   email: "contact@gamdix.in",
   website: "www.intesters.com",
   cin: "",
-  lutNumber: "",
+  lutNumber: "ZD070426007807A",
 };
 
 export const INDIAN_STATES: Record<string, string> = {

@@ -191,12 +191,25 @@ model Blog {
   dataAiHint       String?
   tags             String[]
   isActive         Boolean  @default(true)
+  viewCount        Int      @default(0)
   date             DateTime @default(now())
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   media            Media[]
 
   @@map("blog")
+}
+
+model Author {
+  id         Int      @id @default(autoincrement())
+  name       String   @unique
+  avatarUrl  String?
+  bio        String?
+  dataAiHint String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("author")
 }
 
 model Faq {
