@@ -36,6 +36,7 @@ async function seedRolesModulesPermissions() {
     "promo_codes",
     "blogs",
     "testimonial",
+    "authors",
     "review",
     "verification",
     "logs",
@@ -78,47 +79,6 @@ async function seedRolesModulesPermissions() {
           canDelete: canDelete,
         },
       });
-    }
-  }
-
-  // 3️⃣ Permissions (example defaults)
-  const allRoles = await prisma.role.findMany();
-  const allModules = await prisma.module.findMany();
-
-  for (const role of allRoles) {
-    for (const module of allModules) {
-      // Only create if permission doesn’t exist
-      //   await prisma.permission.upsert({
-      //     where: { roleId: role.id, moduleId: module.id } ,
-      //     update: {},
-      //     create: {
-      //       roleId: role.id,
-      //       moduleId: module.id,
-      //       canReadList: role.name !== "user",
-      //       canReadSingle: role.name !== "user",
-      //       canCreate: role.name === "admin" || role.name === "super_admin",
-      //       canUpdate: role.name === "admin" || role.name === "super_admin",
-      //       canDelete: role.name === "super_admin",
-      //     },
-      //   });
-
-      const permission = await prisma.permission.findFirst({
-        where: { roleId: role.id, moduleId: module.id },
-      });
-
-      if (!permission) {
-        await prisma.permission.create({
-          data: {
-            roleId: role.id,
-            moduleId: module.id,
-            canReadList: role.name !== "user",
-            canReadSingle: role.name !== "user",
-            canCreate: role.name === "admin" || role.name === "super_admin",
-            canUpdate: role.name === "admin" || role.name === "super_admin",
-            canDelete: role.name === "super_admin",
-          },
-        });
-      }
     }
   }
 

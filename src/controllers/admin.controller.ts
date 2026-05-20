@@ -2955,3 +2955,120 @@ export const deleteLogsBatch = async (req: Request, res: Response) => {
     return sendError(res, 500, "Server error deleting log files");
   }
 };
+
+// ==================== AUTHOR MANAGEMENT ====================
+
+export const getAllAuthors = async (req: Request, res: Response) => {
+  try {
+    const authors = await prismaClient.author.findMany({
+      orderBy: { name: "asc" },
+    });
+    return sendSuccess(res, authors, "Authors fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const getAuthorById = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const author = await prismaClient.author.findUnique({
+      where: { id: parseInt(id as string) },
+    });
+    if (!author) return sendError(res, 404, "Author not found");
+    return sendSuccess(res, author, "Author fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const createAuthor = async (req: Request, res: Response) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { payload } = req.body;
+    const { name, avatarUrl, bio, dataAiHint } = payload;
+
+    if (!name) return sendError(res, 400, "Author name is required");
+
+    const newAuthor = await prismaClient.author.create({
+      data: {
+        name: name.trim(),
+        avatarUrl: avatarUrl || null,
+        bio: bio || null,
+        dataAiHint: dataAiHint || null,
+      },
+    });
+
+    return sendSuccess(res, newAuthor, "Author created successfully");
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Unique constraint")) {
+      return sendError(res, 400, "An author with this name already exists");
+    }
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const updateAuthor = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id, name, avatarUrl, bio, dataAiHint } = payload;
+
+    if (!id) return sendError(res, 400, "Author ID is required");
+
+    const updateData: any = {
+      name: name !== undefined ? name.trim() : undefined,
+      avatarUrl: avatarUrl !== undefined ? avatarUrl || null : undefined,
+      bio: bio !== undefined ? bio || null : undefined,
+      dataAiHint: dataAiHint !== undefined ? dataAiHint || null : undefined,
+    };
+
+    Object.keys(updateData).forEach((key) => {
+      if (updateData[key] === undefined) delete updateData[key];
+    });
+
+    const updatedAuthor = await prismaClient.author.update({
+      where: { id: parseInt(id) },
+      data: updateData,
+    });
+
+    return sendSuccess(res, updatedAuthor, "Author updated successfully");
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Unique constraint")) {
+      return sendError(res, 400, "An author with this name already exists");
+    }
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const deleteAuthor = async (req: Request, res: Response) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { id } = req.params;
+    await prismaClient.author.delete({
+      where: { id: parseInt(id as string) },
+    });
+    return sendSuccess(res, null, "Author deleted successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};

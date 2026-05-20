@@ -555,6 +555,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
           place_of_supply: taxInfo.placeOfSupply,
           supply_type: taxInfo.supplyType,
           amount_in_words: amountToWords(amount + taxInfo.cgstAmount + taxInfo.sgstAmount + taxInfo.igstAmount, currency),
+          lut_number: COMPANY_DETAILS.lutNumber || null,
         },
       });
 
@@ -879,6 +880,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
                 place_of_supply: taxInfo.placeOfSupply,
                 supply_type: taxInfo.supplyType,
                 amount_in_words: amountToWords(amount + taxInfo.cgstAmount + taxInfo.sgstAmount + taxInfo.igstAmount, currency),
+                lut_number: COMPANY_DETAILS.lutNumber || null,
               },
             });
 
