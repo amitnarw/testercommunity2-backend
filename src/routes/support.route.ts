@@ -13,6 +13,7 @@ import {
   sendHumanMessage,
   getChatMessages,
   getAgentStatus,
+  streamChat,
 } from "@/controllers/support.controller";
 
 const router = Router();
@@ -26,6 +27,7 @@ router.patch("/tickets/:id/status", checkAuthentication, decryptPayload, updateT
 // AI Chat (Alex)
 router.get("/chat/history", checkAuthentication, getChatHistory);
 router.post("/chat/message", checkAuthentication, decryptPayload, saveChatMessage);
+router.post("/chat/stream", checkAuthentication, streamChat);
 
 // Live Chat
 router.post("/human-chat/request", checkAuthentication, decryptPayload, requestHumanChat);
