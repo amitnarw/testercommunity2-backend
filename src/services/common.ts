@@ -30,8 +30,9 @@ export function isValidPlayStoreUrl(url: string): boolean {
 export function isValidPlayStoreLogoUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
+    const allowedHosts = ["play-lh.googleusercontent.com", "lh3.googleusercontent.com"];
     return (
-      parsed.hostname === "play-lh.googleusercontent.com" &&
+      allowedHosts.includes(parsed.hostname) &&
       parsed.protocol === "https:"
     );
   } catch {
