@@ -1703,13 +1703,23 @@ export const getTesterApplications = async (req: Request, res: Response) => {
     const status = req.query.status as string;
     const search = req.query.search as string;
 
-    const where: any = {};
+    const where: any = {
+      userDetail: {
+        role: {
+          name: "tester",
+        },
+      },
+    };
 
     if (search) {
       where.OR = [
         { name: { contains: search, mode: "insensitive" } },
         { email: { contains: search, mode: "insensitive" } },
       ];
+    }
+
+    if (status && status !== "all") {
+      where.userDetail.application_status = status.toUpperCase();
     }
 
     const applications = await prismaClient.user.findMany({
@@ -1722,25 +1732,21 @@ export const getTesterApplications = async (req: Request, res: Response) => {
       },
     });
 
-    // Transform data to match frontend expectations
     const transformedApplications = applications.map((app: any) => ({
       id: app.id,
       name: app.name,
       email: app.email,
       date: app.createdAt.toISOString(),
-      experience: app.userDetail?.experience_level || "Not specified",
-      expertise: [], // This would need to be implemented based on your data model
-      status: "pending", // Default status
+      experience: app.userDetail?.experience_level || null,
+      expertise: app.userDetail?.testing_types || [],
+      status: app.userDetail?.application_status || "PENDING",
+      phone: app.userDetail?.phone || null,
+      bio: app.userDetail?.bio || null,
     }));
-
-    // Filter by status if provided
-    const filteredApplications = status
-      ? transformedApplications.filter((app) => app.status === status)
-      : transformedApplications;
 
     return sendSuccess(
       res,
-      filteredApplications,
+      transformedApplications,
       "Tester applications fetched successfully",
     );
   } catch (error) {
@@ -1758,48 +1764,67 @@ export const getTesterApplicationCounts = async (
   res: Response,
 ) => {
   try {
-    const total = await prismaClient.user.count();
-    const active = await prismaClient.user.count({
-      where: {
-        userDetail: {
-          banned: false,
+    const testerRole = await prismaClient.role.findUnique({
+      where: { name: "tester" },
+    });
+
+    if (!testerRole) {
+      return sendError(res, 500, "Tester role not found");
+    }
+
+    const roleFilter = { roleId: testerRole.id };
+
+    const [total, pending, approved, rejected, newTesters] = await Promise.all([
+      // Total testers
+      prismaClient.userDetail.count({ where: roleFilter }),
+      // Pending
+      prismaClient.userDetail.count({
+        where: { ...roleFilter, application_status: "PENDING" },
+      }),
+      // Approved
+      prismaClient.userDetail.count({
+        where: { ...roleFilter, application_status: "APPROVED" },
+      }),
+      // Rejected
+      prismaClient.userDetail.count({
+        where: { ...roleFilter, application_status: "REJECTED" },
+      }),
+      // New in last 7 days
+      prismaClient.userDetail.count({
+        where: {
+          ...roleFilter,
+          user: {
+            createdAt: {
+              gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+            },
+          },
         },
-      },
-    });
-    const newUsers = await prismaClient.user.count({
+      }),
+    ]);
+
+    // Active testers = approved testers with at least one active TesterRelation
+    const activeTesters = await prismaClient.userDetail.count({
       where: {
-        createdAt: {
-          gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-        },
-      },
-    });
-    const pending = await prismaClient.user.count({
-      where: {
-        // Assuming pending applications have some specific status
-        // This is a placeholder - adjust based on your actual data model
-      },
-    });
-    const approved = await prismaClient.user.count({
-      where: {
-        // Assuming approved users have some specific status
-        // This is a placeholder - adjust based on your actual data model
-      },
-    });
-    const rejected = await prismaClient.user.count({
-      where: {
-        userDetail: {
-          banned: true,
+        ...roleFilter,
+        application_status: "APPROVED",
+        user: {
+          testerRelations: {
+            some: {
+              isActive: true,
+              status: "IN_PROGRESS",
+            },
+          },
         },
       },
     });
 
     const counts = {
       total,
-      active,
-      new: newUsers,
       pending,
       approved,
       rejected,
+      active: activeTesters,
+      new: newTesters,
     };
 
     return sendSuccess(
@@ -1825,7 +1850,11 @@ export const getTesterApplicationById = async (req: Request, res: Response) => {
         id: id as string,
       },
       include: {
-        userDetail: true,
+        userDetail: {
+          include: {
+            role: true,
+          },
+        },
       },
     });
 
@@ -1833,18 +1862,26 @@ export const getTesterApplicationById = async (req: Request, res: Response) => {
       return sendError(res, 404, "Tester application not found");
     }
 
-    // Transform data to match frontend expectations
+    if (application.userDetail?.role?.name !== "tester") {
+      return sendError(res, 404, "User is not a tester");
+    }
+
     const transformedApplication = {
       id: application.id,
       name: application.name,
       email: application.email,
       date: application.createdAt.toISOString(),
-      experience: application.userDetail?.experience_level || "Not specified",
-      expertise: [], // This would need to be implemented based on your data model
-      status: "pending", // Default status
-      bio: "Not specified",
-      devices: [], // This would need to be implemented based on your data model
-      osVersions: [], // This would need to be implemented based on your data model
+      experience: application.userDetail?.experience_level || null,
+      expertise: application.userDetail?.testing_types || [],
+      status: application.userDetail?.application_status || "PENDING",
+      phone: application.userDetail?.phone || null,
+      bio: application.userDetail?.bio || null,
+      avatar: application.image || null,
+      rejectionReason: application.userDetail?.ban_reason || null,
+      devices: application.userDetail?.tester_devices || [],
+      osVersions: application.userDetail?.tester_os_versions || [],
+      country: application.userDetail?.country || null,
+      yearsOfExperience: application.userDetail?.years_of_experience || null,
     };
 
     return sendSuccess(
@@ -1868,31 +1905,37 @@ export const updateTesterApplicationStatus = async (
   try {
     const { id, status, reason } = req.body.payload;
 
-    // Update user status based on status
-    if (status === "approved") {
-      await prismaClient.userDetail.update({
-        where: {
-          userId: id,
-        },
-        data: {
-          banned: false,
-        },
-      });
-    } else if (status === "rejected") {
-      await prismaClient.userDetail.update({
-        where: {
-          userId: id,
-        },
-        data: {
-          banned: true,
-          ban_reason: reason,
-        },
-      });
+    if (!id || !status) {
+      return sendError(res, 400, "id and status are required");
     }
+
+    const normalizedStatus = status.toUpperCase();
+    if (normalizedStatus !== "APPROVED" && normalizedStatus !== "REJECTED") {
+      return sendError(res, 400, "status must be 'approved' or 'rejected'");
+    }
+
+    const updateData: any = {
+      application_status: normalizedStatus,
+    };
+
+    // Store rejection reason in ban_reason field (separate from banning)
+    if (normalizedStatus === "REJECTED" && reason) {
+      updateData.ban_reason = reason;
+    }
+
+    // Clear ban_reason if approving
+    if (normalizedStatus === "APPROVED") {
+      updateData.ban_reason = null;
+    }
+
+    await prismaClient.userDetail.update({
+      where: { userId: id },
+      data: updateData,
+    });
 
     return sendSuccess(
       res,
-      { id, status },
+      { id, status: normalizedStatus },
       "Tester application status updated successfully",
     );
   } catch (error) {

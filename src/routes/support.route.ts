@@ -6,8 +6,6 @@ import {
   getTickets,
   getTicketById,
   updateTicketStatus,
-  getChatHistory,
-  saveChatMessage,
   requestHumanChat,
   getActiveHumanChat,
   sendHumanMessage,
@@ -24,9 +22,7 @@ router.get("/tickets", checkAuthentication, getTickets);
 router.get("/tickets/:id", checkAuthentication, getTicketById);
 router.patch("/tickets/:id/status", checkAuthentication, decryptPayload, updateTicketStatus);
 
-// AI Chat (Alex)
-router.get("/chat/history", checkAuthentication, getChatHistory);
-router.post("/chat/message", checkAuthentication, decryptPayload, saveChatMessage);
+// AI Chat (Alex) — ephemeral, not persisted
 router.post("/chat/stream", checkAuthentication, streamChat);
 
 // Live Chat

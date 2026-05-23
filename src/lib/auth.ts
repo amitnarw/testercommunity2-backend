@@ -17,6 +17,7 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
       initial: true,
       banned: true,
       ban_reason: true,
+      application_status: true,
       role: {
         select: {
           name: true,
@@ -31,12 +32,14 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
     userDetail?.initial || false,
     userDetail?.banned || false,
     userDetail?.ban_reason || null,
+    userDetail?.application_status || null,
   );
   return {
     role: userDetail?.role,
     initial: userDetail?.initial,
     banned: userDetail?.banned,
     ban_reason: userDetail?.ban_reason,
+    applicationStatus: userDetail?.application_status,
     user,
     session,
   };
@@ -72,10 +75,11 @@ async function setRoleCookie(
   initial?: boolean,
   banned?: boolean,
   ban_reason?: string | null,
+  applicationStatus?: string | null,
 ) {
   if (role) {
     const secret = process.env.BETTER_AUTH_SECRET!;
-    const payload = { role, initial, banned, ban_reason };
+    const payload = { role, initial, banned, ban_reason, applicationStatus };
 
     const token = await new SignJWT(payload)
       .setProtectedHeader({ alg: "HS256" })
@@ -249,12 +253,23 @@ export const auth = betterAuth({
           let first_name = ctx?.body?.first_name as string;
           let last_name = ctx?.body?.last_name as string;
 
+          // About You fields
           let bio = ctx?.body?.bio as string;
-          let years_of_experience = ctx?.body?.experience as string;
-          let testing_types = ctx?.body?.testingTypes as string[];
-          let tester_devices = ctx?.body?.devices as string[];
-          let tester_os_versions = ctx?.body?.osVersions as string[];
-          let language = ctx?.body?.languages as string;
+          let years_of_experience = ctx?.body?.years_of_experience as string;
+          let areas_of_expertise = ctx?.body?.areas_of_expertise as string[];
+
+          // Device info
+          let device_company = ctx?.body?.device_company as string;
+          let device_model = ctx?.body?.device_model as string;
+          let ram = ctx?.body?.ram as string;
+          let os = ctx?.body?.os as string;
+          let screen_resolution = ctx?.body?.screen_resolution as string;
+          let language = ctx?.body?.language as string;
+          let network = ctx?.body?.network as string;
+
+          // Contact info
+          let country = ctx?.body?.country as string;
+          let phone = ctx?.body?.phone as string;
 
           // If names are missing (e.g. OAuth), parse from user.name
           if (!first_name || !last_name) {
@@ -268,6 +283,8 @@ export const auth = betterAuth({
             auth_type = "GOOGLE";
           }
 
+          const isTester = roleRecord?.name === "tester";
+
           await prismaClient?.userDetail?.upsert({
             where: {
               userId: user?.id,
@@ -276,10 +293,17 @@ export const auth = betterAuth({
               roleId: roleRecord?.id,
               bio,
               years_of_experience,
-              testing_types,
-              tester_devices,
-              tester_os_versions,
+              areas_of_expertise,
+              device_company,
+              device_model,
+              ram,
+              os,
+              screen_resolution,
               language,
+              network,
+              country,
+              phone,
+              ...(isTester ? { initial: false } : {}),
             },
             create: {
               userId: user?.id,
@@ -289,10 +313,18 @@ export const auth = betterAuth({
               roleId: roleRecord?.id,
               bio,
               years_of_experience,
-              testing_types,
-              tester_devices,
-              tester_os_versions,
+              areas_of_expertise,
+              device_company,
+              device_model,
+              ram,
+              os,
+              screen_resolution,
               language,
+              network,
+              country,
+              phone,
+              initial: isTester ? false : true,
+              ...(isTester ? { application_status: "PENDING" } : {}),
             },
           });
         },

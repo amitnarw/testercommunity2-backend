@@ -14,10 +14,10 @@ export function setupSupportSocket(namespace: Namespace) {
     logger.info(`Socket connected: ${userName} (${role})`);
 
     // -- User Events --
-    socket.on("user:request_human", async (payload: { conversationId?: number }) => {
+    socket.on("user:request_human", async (payload: { conversationId?: number; context?: { role: string; content: string }[] }) => {
       logger.info(`[user:request_human] ${userName} requested human chat`);
       try {
-        const { conversationId } = payload || {};
+        const { conversationId, context } = payload || {};
 
         const control = await prismaClient.controlRoom.findFirst();
         if (control && !control.humanChatEnabled) {
@@ -103,6 +103,23 @@ export function setupSupportSocket(namespace: Namespace) {
               data: { isEscalated: true },
             });
           }
+        } else if (context && context.length > 0) {
+          const formatted = context.map((m) => `${m.role === "user" ? "User" : "AI Alex"}: ${m.content}`).join("\n\n");
+          await prismaClient.message.create({
+            data: {
+              conversationId: chat.id,
+              senderId: userId,
+              senderType: "SYSTEM",
+              messageType: "TRANSFER_NOTICE",
+              content: `[AI Context: Previous conversation transferred from Alex]\n\n${formatted}`,
+              isAi: true,
+            },
+          });
+
+          await prismaClient.conversation.update({
+            where: { id: chat.id },
+            data: { isEscalated: true },
+          });
         }
 
         socket.join(`conv:${chat.id}`);
@@ -198,6 +215,7 @@ export function setupSupportSocket(namespace: Namespace) {
           reason: chat.assignedTo ? "Resolved" : "Closed by user",
         });
         namespace.to("agent").emit("agent:queue_updated");
+        await broadcastQueuePositions(namespace);
       } catch (error) {
         logger.error("Error closing chat:", error);
       }
@@ -220,6 +238,15 @@ export function setupSupportSocket(namespace: Namespace) {
       const { chatId } = payload;
 
       try {
+        const agentStatus = await prismaClient.agentStatus.findUnique({
+          where: { userId },
+        });
+
+        if (agentStatus && agentStatus.currentChats >= 1) {
+          socket.emit("agent:error", { message: "You already have an active chat. Please close it first." });
+          return;
+        }
+
         const chat = await prismaClient.conversation.findUnique({
           where: { id: chatId },
           include: { user: { select: { id: true, name: true } } },
@@ -252,6 +279,7 @@ export function setupSupportSocket(namespace: Namespace) {
 
         namespace.to(`conv:${chatId}`).emit("chat:assigned", { chatId, agentName: userName });
         namespace.to("agent").emit("agent:queue_updated");
+        await broadcastQueuePositions(namespace);
       } catch (error) {
         logger.error("Error taking chat:", error);
       }
@@ -323,6 +351,7 @@ export function setupSupportSocket(namespace: Namespace) {
           reason: "Resolved by support agent",
         });
         namespace.to("agent").emit("agent:queue_updated");
+        await broadcastQueuePositions(namespace);
       } catch (error) {
         logger.error("Error closing chat:", error);
       }
@@ -362,8 +391,77 @@ export function setupSupportSocket(namespace: Namespace) {
       }
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
       logger.info(`Socket disconnected: ${userName}`);
+
+      if (isAgent) {
+        const agentStatus = await prismaClient.agentStatus.findUnique({
+          where: { userId },
+        }).catch(() => null);
+
+        if (agentStatus && agentStatus.status === "ONLINE") {
+          await prismaClient.agentStatus.update({
+            where: { userId },
+            data: { status: "OFFLINE" },
+          }).catch(() => {});
+
+          const activeChats = await prismaClient.conversation.findMany({
+            where: { assignedTo: userId, status: "IN_PROGRESS" },
+          }).catch(() => []);
+
+          for (const chat of activeChats) {
+            await prismaClient.conversation.update({
+              where: { id: chat.id },
+              data: { status: "RESOLVED", resolvedAt: new Date() },
+            }).catch(() => {});
+
+            namespace.to(`conv:${chat.id}`).emit("chat:closed", {
+              chatId: chat.id,
+              reason: "Agent disconnected",
+            });
+          }
+
+          if (activeChats.length > 0) {
+            await prismaClient.agentStatus.update({
+              where: { userId },
+              data: { currentChats: { decrement: activeChats.length } },
+            }).catch(() => {});
+          }
+
+          namespace.emit("agent:status_changed");
+          namespace.to("agent").emit("agent:queue_updated");
+        }
+      } else {
+        const activeChats = await prismaClient.conversation.findMany({
+          where: {
+            userId,
+            type: "LIVE_CHAT",
+            status: { in: ["WAITING_AGENT", "IN_PROGRESS"] },
+          },
+        }).catch(() => []);
+
+        for (const chat of activeChats) {
+          if (chat.status === "WAITING_AGENT") {
+            await prismaClient.conversation.update({
+              where: { id: chat.id },
+              data: { status: "CLOSED", resolvedAt: new Date() },
+            }).catch(() => {});
+          } else if (chat.status === "IN_PROGRESS" && chat.assignedTo) {
+            namespace.to(`conv:${chat.id}`).emit("chat:message", {
+              chatId: chat.id,
+              id: `sys-${Date.now()}`,
+              senderType: "SYSTEM",
+              senderName: "System",
+              message: "The user has disconnected.",
+              createdAt: new Date().toISOString(),
+            });
+          }
+        }
+
+        if (activeChats.some((c) => c.status === "WAITING_AGENT")) {
+          namespace.to("agent").emit("agent:queue_updated");
+        }
+      }
     });
   });
 }
@@ -492,6 +590,24 @@ async function getQueuePosition(conversationId: number): Promise<number> {
   });
   const index = chats.findIndex((c) => c.id === conversationId);
   return index >= 0 ? index + 1 : chats.length;
+}
+
+async function broadcastQueuePositions(namespace: Namespace) {
+  const waitingChats = await prismaClient.conversation.findMany({
+    where: { type: "LIVE_CHAT", status: "WAITING_AGENT" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, userId: true },
+  });
+
+  for (let i = 0; i < waitingChats.length; i++) {
+    const chat = waitingChats[i];
+    if (chat.userId) {
+      namespace.to(`user:${chat.userId}`).emit("chat:position_updated", {
+        chatId: chat.id,
+        position: i + 1,
+      });
+    }
+  }
 }
 
 function resolveSenderName(msg: { senderType: string; isAi: boolean }, userName: string, agentName?: string): string {

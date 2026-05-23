@@ -29,7 +29,7 @@ export const checkAuthentication = async (
 
     const userDetail = await prismaClient?.userDetail?.findUnique({
       where: { userId: session.user.id },
-      select: { banned: true, ban_reason: true },
+      select: { banned: true, ban_reason: true, application_status: true, role: { select: { name: true } } },
     });
 
     if (userDetail?.banned) {
@@ -38,6 +38,25 @@ export const checkAuthentication = async (
         code: "ACCOUNT_BANNED",
         message: userDetail.ban_reason || "Your account has been suspended. Please contact support.",
       });
+    }
+
+    // Block API access for non-approved testers
+    const roleName = userDetail?.role?.name;
+    if (roleName === "tester") {
+      if (userDetail?.application_status === "PENDING") {
+        return res.status(403).json({
+          success: false,
+          code: "APPLICATION_PENDING",
+          message: "Your application is pending approval from the admin.",
+        });
+      }
+      if (userDetail?.application_status === "REJECTED") {
+        return res.status(403).json({
+          success: false,
+          code: "APPLICATION_REJECTED",
+          message: userDetail?.ban_reason || "Your application has been rejected.",
+        });
+      }
     }
 
     req.userId = session?.user?.id;
