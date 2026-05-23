@@ -37,7 +37,7 @@ async function seedTester() {
       } as any,
     });
 
-    // 3. Manually verify the email and create wallet
+    // 3. Manually verify the email, create wallet, and mark as approved
     await prisma.user.update({
       where: { email: testerEmail },
       data: {
@@ -46,6 +46,11 @@ async function seedTester() {
           create: {
             totalPoints: 0,
             totalPackages: 0,
+          },
+        },
+        userDetail: {
+          update: {
+            application_status: "APPROVED",
           },
         },
       },

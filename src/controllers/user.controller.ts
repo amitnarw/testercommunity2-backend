@@ -216,6 +216,9 @@ export const saveProfileData = async (req: Request, res: Response) => {
       screen_resolution,
       language,
       network,
+      years_of_experience,
+      areas_of_expertise,
+      bio,
     } = payload;
 
     await prismaClient?.userDetail?.update({
@@ -245,6 +248,9 @@ export const saveProfileData = async (req: Request, res: Response) => {
         screen_resolution,
         language,
         network,
+        years_of_experience,
+        areas_of_expertise,
+        bio,
         initial: false,
       },
     });

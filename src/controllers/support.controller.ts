@@ -1,7 +1,7 @@
 import { type Request, type Response } from "express";
 import { prismaClient } from "@/lib/prisma";
 import { sendError, sendSuccess } from "@/utils/response";
-import { streamText } from "ai";
+import { streamText, convertToModelMessages } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { SUPPORT_SYSTEM_PROMPT, OPENROUTER_MODEL } from "@/lib/support-config";
 import { z } from "zod";
@@ -55,89 +55,6 @@ export const getTickets = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error fetching tickets:", error);
     return sendError(res, 500, "Failed to fetch tickets");
-  }
-};
-
-export const getChatHistory = async (req: Request, res: Response) => {
-  try {
-    const chat = await prismaClient.conversation.findFirst({
-      where: {
-        userId: req.userId,
-        type: "AI_CHAT",
-        status: { not: "CLOSED" },
-      },
-      orderBy: { updatedAt: "desc" },
-      include: {
-        messages: { orderBy: { createdAt: "asc" } },
-      },
-    });
-
-    return sendSuccess(res, chat?.messages as any || [], "Chat history fetched successfully");
-  } catch (error) {
-    console.error("Error fetching chat history:", error);
-    return sendError(res, 500, "Failed to fetch chat history");
-  }
-};
-
-export const saveChatMessage = async (req: Request, res: Response) => {
-  try {
-    const { message, role, conversationId } = req.body.payload || req.body;
-
-    if (!message || !role) {
-      return sendError(res, 400, "Message and role are required");
-    }
-
-    let conversation: { id: number } | null = null;
-
-    if (conversationId) {
-      conversation = await prismaClient.conversation.findFirst({
-        where: { id: Number(conversationId), userId: req.userId },
-      });
-    }
-
-    if (!conversation) {
-      conversation = await prismaClient.conversation.findFirst({
-        where: {
-          userId: req.userId,
-          type: "AI_CHAT",
-          status: { not: "CLOSED" },
-        },
-        orderBy: { updatedAt: "desc" },
-      });
-    }
-
-    if (!conversation) {
-      conversation = await prismaClient.conversation.create({
-        data: {
-          type: "AI_CHAT",
-          status: "OPEN",
-          userId: req.userId || null,
-          subject: "AI Support Chat",
-          description: "Active chat session with Alex",
-        },
-      });
-    }
-
-    const savedMessage = await prismaClient.message.create({
-      data: {
-        conversationId: conversation.id,
-        senderId: req.userId || null,
-        senderType: role === "user" ? "USER" : "AI",
-        messageType: "TEXT",
-        content: message,
-        isAi: role !== "user",
-      },
-    });
-
-    await prismaClient.conversation.update({
-      where: { id: conversation.id },
-      data: { lastMessageAt: new Date() },
-    });
-
-    return sendSuccess(res, { ...savedMessage, conversationId: conversation.id } as any, "Message saved successfully");
-  } catch (error) {
-    console.error("Error saving message:", error);
-    return sendError(res, 500, "Failed to save message");
   }
 };
 
@@ -383,7 +300,7 @@ export const getAgentStatus = async (_req: Request, res: Response) => {
 const ticketSchema = z.object({
   subject: z.string().describe("Short summary of the issue"),
   description: z.string().describe("Detailed explanation of the issue"),
-  category: z.enum(["GENERAL", "TECHNICAL", "BILLING", "BUG_REPORT"]).default("GENERAL"),
+  category: z.enum(["GENERAL", "TECHNICAL", "BILLING", "ACCOUNT", "BUG_REPORT", "OTHER"]).default("GENERAL"),
 });
 
 export const streamChat = async (req: Request, res: Response) => {
@@ -391,23 +308,40 @@ export const streamChat = async (req: Request, res: Response) => {
     const { messages } = req.body;
     const userId = req.userId;
 
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: "Messages array is required" });
+    }
+
+    const MAX_HISTORY = 20;
+    const trimmedMessages = messages.length > MAX_HISTORY
+      ? messages.slice(-MAX_HISTORY)
+      : messages;
+
+    let modelMessages;
+    try {
+      modelMessages = await convertToModelMessages(trimmedMessages);
+    } catch (convErr) {
+      console.error("Failed to convert messages:", convErr);
+      return res.status(400).json({ error: "Invalid message format" });
+    }
+
     const result = streamText({
-      model: openrouter(OPENROUTER_MODEL),
+      model: openrouter.chat(OPENROUTER_MODEL),
       system: SUPPORT_SYSTEM_PROMPT,
-      messages,
+      messages: modelMessages,
       tools: {
         create_ticket: {
           description: "Create a formal support ticket for complex issues or complaints",
-          parameters: ticketSchema,
-          execute: async ({ subject, description, category }: any) => {
+          inputSchema: ticketSchema,
+          execute: async (args: { subject: string; description: string; category: string }) => {
             try {
               const ticket = await prismaClient.conversation.create({
                 data: {
                   type: "TICKET",
                   status: "OPEN",
-                  category: category || "GENERAL",
-                  subject,
-                  description,
+                  category: (args.category || "GENERAL") as any,
+                  subject: args.subject,
+                  description: args.description,
                   userId: userId || null,
                 },
               });
@@ -420,13 +354,13 @@ export const streamChat = async (req: Request, res: Response) => {
               return { success: false, message: "Failed to create ticket." };
             }
           },
-        } as any,
+        },
         transfer_to_human: {
           description: "Transfer the user to a real human support agent when they request a real person or have a complex issue",
-          parameters: z.object({
+          inputSchema: z.object({
             reason: z.string().describe("Brief reason for the transfer"),
           }),
-          execute: async ({ reason }: any) => {
+          execute: async (args: { reason: string }) => {
             try {
               const existingActive = await prismaClient.conversation.findFirst({
                 where: {
@@ -446,7 +380,7 @@ export const streamChat = async (req: Request, res: Response) => {
                   status: "WAITING_AGENT",
                   category: "GENERAL",
                   subject: "Live Chat Request",
-                  description: reason || "User requested human support via AI chat",
+                  description: args.reason || "User requested human support via AI chat",
                   userId: userId || null,
                 },
               });
@@ -456,57 +390,19 @@ export const streamChat = async (req: Request, res: Response) => {
               return { success: false, message: "All agents are currently offline. You can try again later or continue chatting with me." };
             }
           },
-        } as any,
+        },
       },
       temperature: 0.5,
-      maxOutputTokens: 500,
-      onFinish: async ({ text }) => {
-        try {
-          let conversation = await prismaClient.conversation.findFirst({
-            where: {
-              userId: userId || null,
-              type: "AI_CHAT",
-              status: { not: "CLOSED" },
-            },
-            orderBy: { updatedAt: "desc" },
-          });
-
-          if (!conversation) {
-            conversation = await prismaClient.conversation.create({
-              data: {
-                type: "AI_CHAT",
-                status: "OPEN",
-                userId: userId || null,
-                subject: "AI Support Chat",
-                description: "Active chat session with Alex",
-              },
-            });
-          }
-
-          await prismaClient.message.create({
-            data: {
-              conversationId: conversation.id,
-              senderId: userId || null,
-              senderType: "AI",
-              messageType: "TEXT",
-              content: text,
-              isAi: true,
-            },
-          });
-
-          await prismaClient.conversation.update({
-            where: { id: conversation.id },
-            data: { lastMessageAt: new Date() },
-          });
-        } catch (e) {
-          console.error("Failed to save AI message:", e);
-        }
-      },
+      maxOutputTokens: 1024,
     });
 
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Cache-Control", "no-cache");
     result.pipeUIMessageStreamToResponse(res as any);
   } catch (error) {
     console.error("Support AI Chat Error:", error);
-    res.status(500).json({ error: "Failed to process chat request" });
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to process chat request" });
+    }
   }
 };
