@@ -42,14 +42,7 @@ export const checkAuthentication = async (
 
     // Block API access for non-approved testers
     const roleName = userDetail?.role?.name;
-    if (roleName === "tester") {
-      if (userDetail?.application_status === "PENDING") {
-        return res.status(403).json({
-          success: false,
-          code: "APPLICATION_PENDING",
-          message: "Your application is pending approval from the admin.",
-        });
-      }
+    if (roleName === "tester" && userDetail?.application_status !== "APPROVED") {
       if (userDetail?.application_status === "REJECTED") {
         return res.status(403).json({
           success: false,
@@ -57,6 +50,11 @@ export const checkAuthentication = async (
           message: userDetail?.ban_reason || "Your application has been rejected.",
         });
       }
+      return res.status(403).json({
+        success: false,
+        code: "APPLICATION_PENDING",
+        message: "Your application is pending approval from the admin.",
+      });
     }
 
     req.userId = session?.user?.id;
