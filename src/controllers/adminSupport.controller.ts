@@ -104,6 +104,62 @@ export const assignConversation = async (req: Request, res: Response) => {
   }
 };
 
+export const addConversationMessage = async (req: Request, res: Response) => {
+  try {
+    if (!SUPPORT_ROLES.includes(req.role || "")) {
+      return sendError(res, 403, "Access denied");
+    }
+
+    const { id } = req.params;
+    const { message } = req.body.payload || req.body;
+
+    if (!message?.trim()) {
+      return sendError(res, 400, "Message is required");
+    }
+
+    const conversation = await prismaClient.conversation.findUnique({
+      where: { id: Number(id) },
+    });
+
+    if (!conversation) {
+      return sendError(res, 404, "Conversation not found");
+    }
+
+    const saved = await prismaClient.message.create({
+      data: {
+        conversationId: Number(id),
+        senderId: req.userId,
+        senderType: "AGENT",
+        messageType: "TEXT",
+        content: message.trim(),
+      },
+    });
+
+    const updateData: any = { lastMessageAt: new Date() };
+    if (conversation.status === "RESOLVED" || conversation.status === "CLOSED") {
+      updateData.status = "IN_PROGRESS";
+      updateData.resolvedAt = null;
+    }
+    if (!conversation.assignedTo) {
+      updateData.assignedTo = req.userId;
+      updateData.assignedAt = new Date();
+      if (!conversation.firstResponseAt) {
+        updateData.firstResponseAt = new Date();
+      }
+    }
+
+    await prismaClient.conversation.update({
+      where: { id: Number(id) },
+      data: updateData,
+    });
+
+    return sendSuccess(res, saved as any, "Message sent");
+  } catch (error) {
+    console.error("Error adding conversation message:", error);
+    return sendError(res, 500, "Failed to send message");
+  }
+};
+
 export const closeConversation = async (req: Request, res: Response) => {
   try {
     if (!SUPPORT_ROLES.includes(req.role || "")) {

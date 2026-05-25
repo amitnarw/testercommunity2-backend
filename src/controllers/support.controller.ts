@@ -27,6 +27,17 @@ export const createTicket = async (req: Request, res: Response) => {
         subject,
         description,
         userId: req.userId || null,
+        messages: {
+          create: {
+            senderId: req.userId || null,
+            senderType: "USER",
+            messageType: "TEXT",
+            content: description,
+          },
+        },
+      },
+      include: {
+        messages: true,
       },
     });
 
@@ -114,6 +125,55 @@ export const updateTicketStatus = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error updating ticket status:", error);
     return sendError(res, 500, "Failed to update ticket status");
+  }
+};
+
+export const addTicketMessage = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { message } = req.body.payload || req.body;
+
+    if (!message?.trim()) {
+      return sendError(res, 400, "Message is required");
+    }
+
+    const ticket = await prismaClient.conversation.findFirst({
+      where: {
+        id: Number(id),
+        userId: req.userId,
+        type: "TICKET",
+      },
+    });
+
+    if (!ticket) {
+      return sendError(res, 404, "Ticket not found");
+    }
+
+    const saved = await prismaClient.message.create({
+      data: {
+        conversationId: Number(id),
+        senderId: req.userId,
+        senderType: "USER",
+        messageType: "TEXT",
+        content: message.trim(),
+      },
+    });
+
+    const updateData: any = { lastMessageAt: new Date() };
+    if (ticket.status === "RESOLVED" || ticket.status === "CLOSED") {
+      updateData.status = "OPEN";
+      updateData.resolvedAt = null;
+    }
+
+    await prismaClient.conversation.update({
+      where: { id: Number(id) },
+      data: updateData,
+    });
+
+    return sendSuccess(res, saved as any, "Message sent");
+  } catch (error) {
+    console.error("Error adding ticket message:", error);
+    return sendError(res, 500, "Failed to send message");
   }
 };
 
@@ -283,8 +343,12 @@ export const getChatMessages = async (req: Request, res: Response) => {
 
 export const getAgentStatus = async (_req: Request, res: Response) => {
   try {
+    const staleThreshold = new Date(Date.now() - 60 * 1000);
     const onlineAgents = await prismaClient.agentStatus.count({
-      where: { status: "ONLINE" },
+      where: {
+        status: "ONLINE",
+        lastSeenAt: { gte: staleThreshold },
+      },
     });
 
     return sendSuccess(res, {

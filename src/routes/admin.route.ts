@@ -85,6 +85,7 @@ import {
   getConversations,
   getConversationById,
   assignConversation,
+  addConversationMessage,
   closeConversation,
   getAgentStatus,
   setMyStatus,
@@ -222,6 +223,7 @@ router.post("/control-room", checkAuthentication, decryptPayload, updateControlR
 router.get("/support/conversations", checkAuthentication, getConversations);
 router.get("/support/conversations/:id", checkAuthentication, getConversationById);
 router.post("/support/conversations/:id/assign", checkAuthentication, decryptPayload, assignConversation);
+router.post("/support/conversations/:id/messages", checkAuthentication, decryptPayload, addConversationMessage);
 router.post("/support/conversations/:id/close", checkAuthentication, decryptPayload, closeConversation);
 router.get("/support/agent-statuses", checkAuthentication, getAgentStatus);
 router.post("/support/agents/status", checkAuthentication, decryptPayload, setMyStatus);

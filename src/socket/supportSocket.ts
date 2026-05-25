@@ -210,6 +210,13 @@ export function setupSupportSocket(namespace: Namespace) {
           data: { status: "CLOSED", resolvedAt: new Date() },
         });
 
+        if (chat.assignedTo && chat.status === "IN_PROGRESS") {
+          await prismaClient.agentStatus.update({
+            where: { userId: chat.assignedTo },
+            data: { currentChats: { decrement: 1 } },
+          });
+        }
+
         namespace.to(`conv:${chatId}`).emit("chat:closed", {
           chatId,
           reason: chat.assignedTo ? "Resolved" : "Closed by user",
@@ -231,6 +238,7 @@ export function setupSupportSocket(namespace: Namespace) {
       });
       await initAgentState(socket, userId, userName);
       namespace.emit("agent:status_changed");
+      socket.emit("agent:status", { online: true });
     });
 
     socket.on("agent:take_chat", async (payload: { chatId: number }) => {
@@ -247,20 +255,20 @@ export function setupSupportSocket(namespace: Namespace) {
           return;
         }
 
-        const chat = await prismaClient.conversation.findUnique({
-          where: { id: chatId },
-          include: { user: { select: { id: true, name: true } } },
+        const result = await prismaClient.conversation.updateMany({
+          where: { id: chatId, status: "WAITING_AGENT" },
+          data: {
+            assignedTo: userId,
+            status: "IN_PROGRESS",
+            assignedAt: new Date(),
+            firstResponseAt: new Date(),
+          },
         });
 
-        if (!chat || chat.status !== "WAITING_AGENT") {
+        if (result.count === 0) {
           socket.emit("agent:error", { message: "Chat is no longer available" });
           return;
         }
-
-        await prismaClient.conversation.update({
-          where: { id: chatId },
-          data: { assignedTo: userId, status: "IN_PROGRESS", assignedAt: new Date(), firstResponseAt: new Date() },
-        });
 
         await prismaClient.agentStatus.upsert({
           where: { userId },
@@ -270,12 +278,37 @@ export function setupSupportSocket(namespace: Namespace) {
 
         socket.join(`conv:${chatId}`);
 
-        const existingMessages = await prismaClient.message.findMany({
-          where: { conversationId: chatId },
-          orderBy: { createdAt: "asc" },
+        const fullChat = await prismaClient.conversation.findUnique({
+          where: { id: chatId },
+          include: {
+            user: { select: { id: true, name: true, email: true, image: true } },
+            messages: { orderBy: { createdAt: "asc" } },
+          },
         });
 
-        socket.emit("agent:chat_taken", { chatId });
+        if (fullChat) {
+          socket.emit("agent:chat_taken", {
+            chatId,
+            chat: {
+              id: fullChat.id,
+              userId: fullChat.userId,
+              userName: fullChat.user?.name || "Unknown",
+              userEmail: fullChat.user?.email || "",
+              userImage: fullChat.user?.image || null,
+              messages: fullChat.messages.map((m) => ({
+                id: m.id,
+                senderType: m.senderType,
+                senderName: m.senderType === "USER" ? fullChat.user?.name || "User" : userName,
+                message: m.content,
+                isAi: m.isAi,
+                createdAt: m.createdAt.toISOString(),
+              })),
+              createdAt: fullChat.createdAt.toISOString(),
+            },
+          });
+        } else {
+          socket.emit("agent:chat_taken", { chatId });
+        }
 
         namespace.to(`conv:${chatId}`).emit("chat:assigned", { chatId, agentName: userName });
         namespace.to("agent").emit("agent:queue_updated");
@@ -366,6 +399,30 @@ export function setupSupportSocket(namespace: Namespace) {
         create: { userId, status: "OFFLINE" },
       }).catch(() => {});
       namespace.emit("agent:status_changed");
+      socket.emit("agent:status", { online: false });
+    });
+
+    socket.on("agent:heartbeat", async () => {
+      if (!isAgent) return;
+      await prismaClient.agentStatus.update({
+        where: { userId },
+        data: { lastSeenAt: new Date() },
+      }).catch(() => {});
+    });
+
+    socket.on("agent:refresh_queue", async () => {
+      if (!isAgent) return;
+      await initAgentState(socket, userId, userName);
+    });
+
+    socket.on("agent:get_status", async () => {
+      if (!isAgent) return;
+      const status = await prismaClient.agentStatus.findUnique({
+        where: { userId },
+      }).catch(() => null);
+      socket.emit("agent:status", {
+        online: status?.status === "ONLINE",
+      });
     });
 
     // -- Init state on connect --
@@ -395,42 +452,9 @@ export function setupSupportSocket(namespace: Namespace) {
       logger.info(`Socket disconnected: ${userName}`);
 
       if (isAgent) {
-        const agentStatus = await prismaClient.agentStatus.findUnique({
-          where: { userId },
-        }).catch(() => null);
-
-        if (agentStatus && agentStatus.status === "ONLINE") {
-          await prismaClient.agentStatus.update({
-            where: { userId },
-            data: { status: "OFFLINE" },
-          }).catch(() => {});
-
-          const activeChats = await prismaClient.conversation.findMany({
-            where: { assignedTo: userId, status: "IN_PROGRESS" },
-          }).catch(() => []);
-
-          for (const chat of activeChats) {
-            await prismaClient.conversation.update({
-              where: { id: chat.id },
-              data: { status: "RESOLVED", resolvedAt: new Date() },
-            }).catch(() => {});
-
-            namespace.to(`conv:${chat.id}`).emit("chat:closed", {
-              chatId: chat.id,
-              reason: "Agent disconnected",
-            });
-          }
-
-          if (activeChats.length > 0) {
-            await prismaClient.agentStatus.update({
-              where: { userId },
-              data: { currentChats: { decrement: activeChats.length } },
-            }).catch(() => {});
-          }
-
-          namespace.emit("agent:status_changed");
-          namespace.to("agent").emit("agent:queue_updated");
-        }
+        // Don't set OFFLINE immediately — let the heartbeat/cleanup handle it.
+        // This handles: network blips, multi-tab, page refresh gracefully.
+        logger.info(`Agent socket disconnected: ${userName} (cleanup will handle status)`);
       } else {
         const activeChats = await prismaClient.conversation.findMany({
           where: {
@@ -447,13 +471,19 @@ export function setupSupportSocket(namespace: Namespace) {
               data: { status: "CLOSED", resolvedAt: new Date() },
             }).catch(() => {});
           } else if (chat.status === "IN_PROGRESS" && chat.assignedTo) {
-            namespace.to(`conv:${chat.id}`).emit("chat:message", {
+            await prismaClient.conversation.update({
+              where: { id: chat.id },
+              data: { status: "RESOLVED", resolvedAt: new Date() },
+            }).catch(() => {});
+
+            await prismaClient.agentStatus.update({
+              where: { userId: chat.assignedTo },
+              data: { currentChats: { decrement: 1 } },
+            }).catch(() => {});
+
+            namespace.to(`conv:${chat.id}`).emit("chat:closed", {
               chatId: chat.id,
-              id: `sys-${Date.now()}`,
-              senderType: "SYSTEM",
-              senderName: "System",
-              message: "The user has disconnected.",
-              createdAt: new Date().toISOString(),
+              reason: "User disconnected",
             });
           }
         }
@@ -464,6 +494,71 @@ export function setupSupportSocket(namespace: Namespace) {
       }
     });
   });
+
+  // Periodic cleanup: stale agents + stale queue (runs every 60 seconds)
+  setInterval(async () => {
+    try {
+      // 1. Set stale agents to OFFLINE (no heartbeat for 1 minute)
+      const staleThreshold = new Date(Date.now() - 60 * 1000);
+      const staleAgents = await prismaClient.agentStatus.findMany({
+        where: {
+          status: "ONLINE",
+          lastSeenAt: { lt: staleThreshold },
+        },
+      });
+
+      for (const agent of staleAgents) {
+        await prismaClient.agentStatus.update({
+          where: { userId: agent.userId },
+          data: { status: "OFFLINE" },
+        });
+
+        const activeChats = await prismaClient.conversation.findMany({
+          where: { assignedTo: agent.userId, status: "IN_PROGRESS" },
+        });
+
+        for (const chat of activeChats) {
+          await prismaClient.conversation.update({
+            where: { id: chat.id },
+            data: { status: "RESOLVED", resolvedAt: new Date() },
+          });
+          namespace.to(`conv:${chat.id}`).emit("chat:closed", {
+            chatId: chat.id,
+            reason: "Agent went offline",
+          });
+        }
+
+        if (activeChats.length > 0) {
+          await prismaClient.agentStatus.update({
+            where: { userId: agent.userId },
+            data: { currentChats: { decrement: activeChats.length } },
+          });
+        }
+      }
+
+      if (staleAgents.length > 0) {
+        namespace.emit("agent:status_changed");
+        namespace.to("agent").emit("agent:queue_updated");
+      }
+
+      // 2. Close stale WAITING_AGENT conversations (older than 10 minutes)
+      const queueTimeout = new Date(Date.now() - 10 * 60 * 1000);
+      const staleQueue = await prismaClient.conversation.updateMany({
+        where: {
+          type: "LIVE_CHAT",
+          status: "WAITING_AGENT",
+          createdAt: { lt: queueTimeout },
+        },
+        data: { status: "CLOSED", resolvedAt: new Date() },
+      });
+
+      if (staleQueue.count > 0) {
+        namespace.to("agent").emit("agent:queue_updated");
+      }
+    } catch (error) {
+      logger.error("Error in periodic cleanup:", error);
+    }
+  }, 60 * 1000);
 }
 
 async function initUserChatState(socket: Socket, userId: string, userName: string) {
@@ -580,6 +675,13 @@ async function initAgentState(socket: Socket, userId: string, userName: string) 
       createdAt: c.createdAt.toISOString(),
     }))
   );
+
+  const agentStatus = await prismaClient.agentStatus.findUnique({
+    where: { userId },
+  }).catch(() => null);
+  socket.emit("agent:status", {
+    online: agentStatus?.status === "ONLINE",
+  });
 }
 
 async function getQueuePosition(conversationId: number): Promise<number> {
