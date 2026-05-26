@@ -197,8 +197,16 @@ export function setupSupportSocket(namespace: Namespace) {
       socket.broadcast.to(`conv:${payload.chatId}`).emit("chat:typing", { chatId: payload.chatId });
     });
 
+    socket.on("chat:stop_typing", (payload: { chatId: number }) => {
+      socket.broadcast.to(`conv:${payload.chatId}`).emit("chat:stop_typing", { chatId: payload.chatId });
+    });
+
     socket.on("agent:typing", (payload: { chatId: number }) => {
       socket.broadcast.to(`conv:${payload.chatId}`).emit("agent:typing", { chatId: payload.chatId });
+    });
+
+    socket.on("agent:stop_typing", (payload: { chatId: number }) => {
+      socket.broadcast.to(`conv:${payload.chatId}`).emit("agent:stop_typing", { chatId: payload.chatId });
     });
 
     socket.on("chat:close", async (payload: { chatId: number }) => {
