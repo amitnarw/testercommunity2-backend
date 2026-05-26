@@ -15,6 +15,10 @@ export function setupSupportSocket(namespace: Namespace) {
 
     // -- User Events --
     socket.on("user:request_human", async (payload: { conversationId?: number; context?: { role: string; content: string }[] }) => {
+      if (isAgent) {
+        socket.emit("chat:unavailable", { reason: "Agents cannot request live chat support." });
+        return;
+      }
       logger.info(`[user:request_human] ${userName} requested human chat`);
       try {
         const { conversationId, context } = payload || {};
@@ -237,7 +241,7 @@ export function setupSupportSocket(namespace: Namespace) {
         create: { userId, status: "ONLINE" },
       });
       await initAgentState(socket, userId, userName);
-      namespace.emit("agent:status_changed");
+      namespace.emit("agent:status_changed", { online: true });
       socket.emit("agent:status", { online: true });
     });
 
@@ -390,15 +394,16 @@ export function setupSupportSocket(namespace: Namespace) {
       }
     });
 
-    socket.on("agent:offline", () => {
+    socket.on("agent:offline", async () => {
       if (!isAgent) return;
       socket.leave("agent");
-      prismaClient.agentStatus.upsert({
+      await prismaClient.agentStatus.upsert({
         where: { userId },
         update: { status: "OFFLINE" },
         create: { userId, status: "OFFLINE" },
       }).catch(() => {});
-      namespace.emit("agent:status_changed");
+      const online = await hasOnlineAgents();
+      namespace.emit("agent:status_changed", { online });
       socket.emit("agent:status", { online: false });
     });
 
@@ -537,7 +542,8 @@ export function setupSupportSocket(namespace: Namespace) {
       }
 
       if (staleAgents.length > 0) {
-        namespace.emit("agent:status_changed");
+        const online = await hasOnlineAgents();
+        namespace.emit("agent:status_changed", { online });
         namespace.to("agent").emit("agent:queue_updated");
       }
 
@@ -617,8 +623,18 @@ async function initUserChatState(socket: Socket, userId: string, userName: strin
 async function initAgentState(socket: Socket, userId: string, userName: string) {
   socket.join("agent");
 
+  const agentUserDetails = await prismaClient.userDetail.findMany({
+    where: { role: { name: { in: SUPPORT_ROLES } } },
+    select: { userId: true },
+  });
+  const agentUserIds = agentUserDetails.map(u => u.userId);
+
   const waitingChats = await prismaClient.conversation.findMany({
-    where: { type: "LIVE_CHAT", status: "WAITING_AGENT" },
+    where: {
+      type: "LIVE_CHAT",
+      status: "WAITING_AGENT",
+      userId: { notIn: agentUserIds },
+    },
     orderBy: { createdAt: "asc" },
     include: {
       user: { select: { id: true, name: true, email: true, image: true } },
@@ -682,6 +698,14 @@ async function initAgentState(socket: Socket, userId: string, userName: string) 
   socket.emit("agent:status", {
     online: agentStatus?.status === "ONLINE",
   });
+}
+
+async function hasOnlineAgents(): Promise<boolean> {
+  const staleThreshold = new Date(Date.now() - 60 * 1000);
+  const count = await prismaClient.agentStatus.count({
+    where: { status: "ONLINE", lastSeenAt: { gte: staleThreshold } },
+  });
+  return count > 0;
 }
 
 async function getQueuePosition(conversationId: number): Promise<number> {
