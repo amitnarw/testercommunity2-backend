@@ -257,11 +257,11 @@ export const getActiveHumanChat = async (req: Request, res: Response) => {
         status: { in: ["WAITING_AGENT", "IN_PROGRESS"] },
       },
       include: {
-        messages: { orderBy: { createdAt: "asc" }, take: 50 },
         assignedAgent: { select: { id: true, name: true, image: true } },
       },
     });
 
+    // Messages are ephemeral - they're delivered via Socket.IO
     return sendSuccess(res, chat as any, "Active chat fetched");
   } catch (error) {
     console.error("Error fetching active chat:", error);
@@ -284,22 +284,14 @@ export const sendHumanMessage = async (req: Request, res: Response) => {
       return sendError(res, 404, "Chat not found");
     }
 
-    const saved = await prismaClient.message.create({
-      data: {
-        conversationId: Number(chatId),
-        senderId: req.userId,
-        senderType: "USER",
-        messageType: "TEXT",
-        content: message,
-      },
-    });
-
+    // Messages are now ephemeral - handled via Socket.IO
+    // Just update conversation lastMessageAt
     await prismaClient.conversation.update({
       where: { id: Number(chatId) },
       data: { lastMessageAt: new Date() },
     });
 
-    return sendSuccess(res, saved as any, "Message sent");
+    return sendSuccess(res, { chatId, message }, "Message sent (ephemeral)");
   } catch (error) {
     console.error("Error sending message:", error);
     return sendError(res, 500, "Failed to send message");
@@ -409,10 +401,36 @@ export const streamChat = async (req: Request, res: Response) => {
                   userId: userId || null,
                 },
               });
+
+              // Save the AI conversation messages to the ticket
+              const messagesToSave = trimmedMessages.filter(
+                (m: any) => m.role === "user" || m.role === "assistant"
+              );
+
+              for (const msg of messagesToSave) {
+                const textContent = msg.parts
+                  ?.filter((p: any) => p.type === "text" && p.text)
+                  .map((p: any) => p.text)
+                  .join("\n") || msg.content || "";
+
+                if (textContent) {
+                  await prismaClient.message.create({
+                    data: {
+                      conversationId: ticket.id,
+                      senderId: msg.role === "user" ? userId : null,
+                      senderType: msg.role === "user" ? "USER" : "AI",
+                      messageType: "TEXT",
+                      content: textContent,
+                      isAi: msg.role === "assistant",
+                    },
+                  });
+                }
+              }
+
               return {
                 success: true,
                 ticketId: ticket.id,
-                message: `Ticket #${ticket.id} has been created.`,
+                message: `Ticket #${ticket.id} has been created with your conversation history.`,
               };
             } catch (err) {
               return { success: false, message: "Failed to create ticket." };

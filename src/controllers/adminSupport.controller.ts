@@ -125,6 +125,11 @@ export const addConversationMessage = async (req: Request, res: Response) => {
       return sendError(res, 404, "Conversation not found");
     }
 
+    // Fix #12: Don't allow replying to ephemeral live chats (messages not persisted)
+    if (conversation.type === "LIVE_CHAT") {
+      return sendError(res, 400, "Cannot reply to an active live chat. Use the live chat interface instead.");
+    }
+
     const saved = await prismaClient.message.create({
       data: {
         conversationId: Number(id),
@@ -253,6 +258,9 @@ export const getSupportStats = async (req: Request, res: Response) => {
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
+    // Note: When a LIVE_CHAT is saved as a ticket (type converted to TICKET),
+    // it's counted in todayChats but NOT in todayResolved since type changed.
+    // This makes resolution rate appear slightly lower for active days.
     const [
       todayChats,
       todayResolved,
@@ -296,6 +304,7 @@ export const getSupportStats = async (req: Request, res: Response) => {
       select: {
         createdAt: true,
         assignedAt: true,
+        firstResponseAt: true,
         resolvedAt: true,
         updatedAt: true,
         assignedTo: true,
@@ -305,7 +314,7 @@ export const getSupportStats = async (req: Request, res: Response) => {
 
     let avgWaitTime = 0;
     let avgChatDuration = 0;
-    const agentStats: Record<string, { name: string; chats: number; resolved: number }> = {};
+    const agentStats: Record<string, { name: string; chats: number; resolved: number; totalResponseTime: number; responseCount: number }> = {};
 
     if (resolvedChats.length > 0) {
       let totalWait = 0;
@@ -329,10 +338,16 @@ export const getSupportStats = async (req: Request, res: Response) => {
               name: chat.assignedAgent?.name || "Unknown",
               chats: 0,
               resolved: 0,
+              totalResponseTime: 0,
+              responseCount: 0,
             };
           }
           agentStats[chat.assignedTo].chats++;
           agentStats[chat.assignedTo].resolved++;
+          if (chat.firstResponseAt && chat.assignedAt) {
+            agentStats[chat.assignedTo].totalResponseTime += chat.firstResponseAt.getTime() - chat.assignedAt.getTime();
+            agentStats[chat.assignedTo].responseCount++;
+          }
         }
       }
 
@@ -355,6 +370,7 @@ export const getSupportStats = async (req: Request, res: Response) => {
         chatsHandled: a.chats,
         resolved: a.resolved,
         resolutionRate: a.chats > 0 ? Math.round((a.resolved / a.chats) * 100) : 0,
+        avgResponseTime: a.responseCount > 0 ? Math.round(a.totalResponseTime / a.responseCount) : 0,
       })),
     }, "Stats fetched");
   } catch (error) {
