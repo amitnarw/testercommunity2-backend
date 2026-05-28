@@ -29,7 +29,7 @@ const corsOptions: CorsOptions = {
       new Error(`CORS policy error: Origin '${origin}' not allowed`)
     );
   },
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
   exposedHeaders: ["Set-Cookie"],
   credentials: true,
