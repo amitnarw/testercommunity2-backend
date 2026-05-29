@@ -18,6 +18,7 @@ import {
   updateUserStatus,
   updateUserRole,
   updateUserProfile,
+  updateUserWallet,
   deleteUser,
   getUserCounts,
   // Suggestions
@@ -132,6 +133,7 @@ router.get("/users/:id", checkAuthorization({ module: "users", action: "canReadS
 router.post("/users/update-status", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserStatus);
 router.post("/users/update-role", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserRole);
 router.post("/users/update-profile", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserProfile);
+router.post("/users/update-wallet", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserWallet);
 router.delete("/users/:id", checkAuthorization({ module: "users", action: "canDelete" }), deleteUser);
 
 // Suggestions

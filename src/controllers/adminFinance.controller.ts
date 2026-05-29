@@ -2,6 +2,7 @@ import { prismaClient } from "@/lib/prisma";
 import { sendError, sendSuccess } from "@/utils/response";
 import { type Request, type Response } from "express";
 import logger from "../utils/logger";
+import { amountToWords } from "@/utils/invoice.utils";
 
 const requireSuperAdmin = (req: Request, res: Response): boolean => {
   if (req.role !== "super_admin") {
@@ -332,6 +333,140 @@ export const getFinanceInvoices = async (req: Request, res: Response) => {
   } catch (error) {
     logger.error("Error in getFinanceInvoices:", error);
     return sendError(res, 500, "Failed to fetch invoices");
+  }
+};
+
+export const getUserInvoices = async (req: Request, res: Response) => {
+  try {
+    if (!requireSuperAdmin(req, res)) return;
+    const userId = req.params.userId as string;
+    if (!userId) return sendError(res, 400, "User ID is required");
+
+    const page = Math.max(1, parseInt(qs(req.query.page) || "1"));
+    const limit = Math.min(100, Math.max(1, parseInt(qs(req.query.limit) || "20")));
+    const skip = (page - 1) * limit;
+
+    const where: any = { userId };
+
+    const [invoices, total] = await Promise.all([
+      prismaClient.invoice.findMany({
+        where,
+        include: {
+          payment: {
+            select: {
+              id: true,
+              razorpayPaymentId: true,
+              amount: true,
+              currency: true,
+              status: true,
+              method: true,
+              createdAt: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      prismaClient.invoice.count({ where }),
+    ]);
+
+    return sendSuccess(res, {
+      invoices: invoices.map((inv) => ({
+        id: inv.id,
+        invoice_number: inv.invoice_number,
+        invoice_type: inv.invoice_type,
+        service_name: inv.service_name,
+        sac_code: inv.sac_code,
+        period: inv.period,
+        quantity: inv.quantity,
+        unit_price: inv.unit_price,
+        tax_rate: inv.tax_rate,
+        cgst_amount: inv.cgst_amount,
+        sgst_amount: inv.sgst_amount,
+        igst_amount: inv.igst_amount,
+        due_date: inv.due_date?.toISOString() || null,
+        place_of_supply: inv.place_of_supply,
+        supply_type: inv.supply_type,
+        amount_in_words: inv.amount_in_words,
+        lut_number: inv.lut_number,
+        payment: inv.payment,
+        createdAt: inv.createdAt.toISOString(),
+      })),
+      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    });
+  } catch (error) {
+    logger.error("Error in getUserInvoices:", error);
+    return sendError(res, 500, "Failed to fetch user invoices");
+  }
+};
+
+export const updateInvoice = async (req: Request, res: Response) => {
+  try {
+    if (!requireSuperAdmin(req, res)) return;
+    const { payload } = req.body;
+    if (!payload || !payload.id) {
+      return sendError(res, 400, "Invoice ID is required");
+    }
+
+    const existing = await prismaClient.invoice.findUnique({
+      where: { id: payload.id },
+      include: {
+        payment: { select: { id: true, amount: true, currency: true } },
+      },
+    });
+
+    if (!existing) {
+      return sendError(res, 404, "Invoice not found");
+    }
+
+    const allowedFields = [
+      "service_name", "period", "quantity", "unit_price",
+      "tax_rate", "cgst_amount", "sgst_amount", "igst_amount",
+      "due_date", "place_of_supply", "supply_type",
+      "amount_in_words", "lut_number", "sac_code",
+    ];
+
+    const updateData: any = {};
+    let shouldRecalcWords = false;
+
+    for (const field of allowedFields) {
+      if (payload[field] !== undefined) {
+        if (field === "due_date" && payload[field]) {
+          updateData[field] = new Date(payload[field]);
+        } else {
+          updateData[field] = payload[field];
+        }
+        if (["quantity", "unit_price", "tax_rate", "cgst_amount", "sgst_amount", "igst_amount"].includes(field)) {
+          shouldRecalcWords = true;
+        }
+      }
+    }
+
+    if (shouldRecalcWords && !payload.amount_in_words) {
+      const unitPrice = updateData.unit_price ?? existing.unit_price ?? 0;
+      const quantity = updateData.quantity ?? existing.quantity ?? 1;
+      const totalWithoutTax = unitPrice * quantity;
+      const cgst = updateData.cgst_amount ?? existing.cgst_amount ?? 0;
+      const sgst = updateData.sgst_amount ?? existing.sgst_amount ?? 0;
+      const igst = updateData.igst_amount ?? existing.igst_amount ?? 0;
+      const grandTotal = totalWithoutTax + cgst + sgst + igst;
+      updateData.amount_in_words = amountToWords(grandTotal, existing.payment?.currency || "INR");
+    }
+
+    if (payload.amount_in_words !== undefined) {
+      updateData.amount_in_words = payload.amount_in_words;
+    }
+
+    const updated = await prismaClient.invoice.update({
+      where: { id: payload.id },
+      data: updateData,
+    });
+
+    return sendSuccess(res, updated as any, "Invoice updated successfully");
+  } catch (error) {
+    logger.error("Error in updateInvoice:", error);
+    return sendError(res, 500, "Failed to update invoice");
   }
 };
 

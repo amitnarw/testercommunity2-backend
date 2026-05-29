@@ -3,6 +3,8 @@ import {
   getFinanceOrders,
   getFinancePayments,
   getFinanceInvoices,
+  getUserInvoices,
+  updateInvoice,
   getFinanceRefunds,
   getFinanceWithdrawals,
   approveWithdrawal,
@@ -25,6 +27,8 @@ router.get("/dashboard", getFinanceDashboard);
 router.get("/orders", getFinanceOrders);
 router.get("/payments", getFinancePayments);
 router.get("/invoices", getFinanceInvoices);
+router.get("/invoices/user/:userId", getUserInvoices);
+router.post("/invoices/update", decryptPayload, updateInvoice);
 router.get("/refunds", getFinanceRefunds);
 router.get("/withdrawals", getFinanceWithdrawals);
 router.post("/withdrawals/:id/approve", approveWithdrawal);
