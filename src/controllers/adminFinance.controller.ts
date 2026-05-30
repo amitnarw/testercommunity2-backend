@@ -421,7 +421,7 @@ export const updateInvoice = async (req: Request, res: Response) => {
     }
 
     const allowedFields = [
-      "service_name", "period", "quantity", "unit_price",
+      "invoice_number", "service_name", "period", "quantity", "unit_price",
       "tax_rate", "cgst_amount", "sgst_amount", "igst_amount",
       "due_date", "place_of_supply", "supply_type",
       "amount_in_words", "lut_number", "sac_code",
@@ -429,6 +429,15 @@ export const updateInvoice = async (req: Request, res: Response) => {
 
     const updateData: any = {};
     let shouldRecalcWords = false;
+
+    if (payload.invoice_number !== undefined && payload.invoice_number !== existing.invoice_number) {
+      const duplicate = await prismaClient.invoice.findUnique({
+        where: { invoice_number: payload.invoice_number },
+      });
+      if (duplicate) {
+        return sendError(res, 409, "Invoice number already in use.");
+      }
+    }
 
     for (const field of allowedFields) {
       if (payload[field] !== undefined) {

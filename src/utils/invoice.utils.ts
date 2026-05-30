@@ -98,13 +98,31 @@ export function amountToWords(amountInSmallestUnit: number, currency: string = "
   return `${prefix} ${words} Only`;
 }
 
-const MONTH_LETTERS = "ABCDEFGHIJKL";
+export function getFinancialYear(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1; // 1-12
+  if (month >= 4) {
+    const yy = year % 100;
+    const nextYY = (year + 1) % 100;
+    return `FY${yy.toString().padStart(2, "0")}${nextYY.toString().padStart(2, "0")}`;
+  } else {
+    const prevYY = (year - 1) % 100;
+    const yy = year % 100;
+    return `FY${prevYY.toString().padStart(2, "0")}${yy.toString().padStart(2, "0")}`;
+  }
+}
+
+function getMonthNumber(): string {
+  const now = new Date();
+  return (now.getMonth() + 1).toString().padStart(2, "0");
+}
 
 export async function getNextInvoiceNumber(type: "IND" | "EXP"): Promise<string> {
-  const now = new Date();
-  const yy = now.getFullYear().toString().slice(-2);
-  const monthLetter = MONTH_LETTERS[now.getMonth()];
-  const prefix = `GXIT${type}${yy}${monthLetter}`;
+  const fy = getFinancialYear();
+  const mm = getMonthNumber();
+  const typeLabel = type === "IND" ? "INV" : "EXP";
+  const prefix = `${typeLabel}/${fy}/${mm}/`;
 
   const latest = await prismaClient.invoice.findFirst({
     where: { invoice_number: { startsWith: prefix } },
@@ -113,8 +131,9 @@ export async function getNextInvoiceNumber(type: "IND" | "EXP"): Promise<string>
 
   let seq = 1;
   if (latest) {
-    const seqStr = latest.invoice_number.slice(-4);
-    seq = parseInt(seqStr, 10) + 1;
+    const parts = latest.invoice_number.split("/");
+    const lastSeq = parseInt(parts[parts.length - 1], 10);
+    seq = lastSeq + 1;
   }
 
   return `${prefix}${seq.toString().padStart(4, "0")}`;

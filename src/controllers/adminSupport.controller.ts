@@ -385,17 +385,29 @@ export const updateControlRoom = async (req: Request, res: Response) => {
       return sendError(res, 403, "Only super_admin can update control room");
     }
 
-    const { humanChatEnabled } = req.body.payload || req.body;
+    const payload = req.body.payload || req.body;
+
+    const allowedFields = [
+      "profileSurveyPoints", "pointsWithdrawalLimit", "pointsWithdrawalThreshold",
+      "humanChatEnabled", "communitySize", "bugsFound", "proAppsTested",
+      "communityApps", "uniqueDevices", "communityPoints",
+    ];
+    const data: Record<string, any> = {};
+    for (const field of allowedFields) {
+      if (payload[field] !== undefined) {
+        data[field] = payload[field];
+      }
+    }
 
     let control = await prismaClient.controlRoom.findFirst();
     if (!control) {
       control = await prismaClient.controlRoom.create({
-        data: { humanChatEnabled: humanChatEnabled ?? true },
+        data: { ...data, humanChatEnabled: data.humanChatEnabled ?? true },
       });
     } else {
       control = await prismaClient.controlRoom.update({
         where: { id: control.id },
-        data: { ...(humanChatEnabled !== undefined ? { humanChatEnabled } : {}) },
+        data,
       });
     }
 

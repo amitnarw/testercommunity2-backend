@@ -6,6 +6,15 @@ function serialize(obj: unknown) {
   return JSON.parse(JSON.stringify(obj));
 }
 
+function requireAdmin(req: Request, res: Response): boolean {
+  const adminRoles = ["admin", "super_admin"];
+  if (!adminRoles.includes(req.role || "")) {
+    sendError(res, 403, "Admin access required");
+    return false;
+  }
+  return true;
+}
+
 export async function getDeclaration(req: Request, res: Response) {
   try {
     const appId = req.params.appId as string;
@@ -17,7 +26,7 @@ export async function getDeclaration(req: Request, res: Response) {
 
     const dashboardAndHub = await prismaClient.dashboardAndHub.findUnique({
       where: { id: appIdNum },
-      select: { id: true, appOwnerId: true, status: true },
+      select: { id: true, appOwnerId: true, status: true, appType: true },
     });
 
     if (!dashboardAndHub) return sendError(res, 404, "App not found");
@@ -35,6 +44,22 @@ export async function getDeclaration(req: Request, res: Response) {
     const existing = await prismaClient.playStoreDeclaration.findUnique({
       where: { dashboardAndHubId: appIdNum },
     });
+
+    // For PAID apps: only show if admin has published the declaration
+    if (dashboardAndHub.appType === "PAID") {
+      if (!existing || existing.adminDeclarationStatus !== "PUBLISHED") {
+        return sendError(
+          res,
+          400,
+          "Declaration report is being prepared. Please check back later.",
+        );
+      }
+      return sendSuccess(
+        res,
+        serialize(existing) as any,
+        "Declaration fetched successfully",
+      );
+    }
 
     if (existing) {
       return sendSuccess(
@@ -150,7 +175,7 @@ export async function updateDeclaration(req: Request, res: Response) {
 
     const dashboardAndHub = await prismaClient.dashboardAndHub.findUnique({
       where: { id: appIdNum },
-      select: { id: true, appOwnerId: true, status: true },
+      select: { id: true, appOwnerId: true, status: true, appType: true },
     });
 
     if (!dashboardAndHub) return sendError(res, 404, "App not found");
@@ -158,6 +183,38 @@ export async function updateDeclaration(req: Request, res: Response) {
       return sendError(res, 403, "Forbidden");
 
     const answers = req.body.answers;
+
+    // For PAID apps: only allow user to update customQuestions
+    if (dashboardAndHub.appType === "PAID") {
+      const existing = await prismaClient.playStoreDeclaration.findUnique({
+        where: { dashboardAndHubId: appIdNum },
+      });
+
+      if (!existing || existing.adminDeclarationStatus !== "PUBLISHED") {
+        return sendError(
+          res,
+          400,
+          "Declaration report is not yet available. Admin is preparing it.",
+        );
+      }
+
+      const currentAnswers = (existing.answers || {}) as any;
+      const updatedAnswers = {
+        ...currentAnswers,
+        customQuestions: answers?.customQuestions || currentAnswers.customQuestions || [],
+      };
+
+      const declaration = await prismaClient.playStoreDeclaration.update({
+        where: { dashboardAndHubId: appIdNum },
+        data: { answers: updatedAnswers as any },
+      });
+
+      return sendSuccess(
+        res,
+        serialize(declaration) as any,
+        "Custom questions updated successfully",
+      );
+    }
 
     const declaration = await prismaClient.playStoreDeclaration.upsert({
       where: { dashboardAndHubId: appIdNum },
@@ -180,6 +237,209 @@ export async function updateDeclaration(req: Request, res: Response) {
     );
   } catch (error) {
     console.error("Error in updateDeclaration:", error);
+    return sendError(res, 500, "Internal server error");
+  }
+}
+
+// ==========================================
+// ADMIN DECLARATION
+// ==========================================
+
+export async function getAdminDeclaration(req: Request, res: Response) {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const appId = req.params.appId as string;
+    const appIdNum = parseInt(appId);
+    if (isNaN(appIdNum)) return sendError(res, 400, "Invalid app ID");
+
+    const dashboardAndHub = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: appIdNum },
+      select: { id: true, appOwnerId: true, status: true, appType: true },
+    });
+
+    if (!dashboardAndHub) return sendError(res, 404, "App not found");
+    if (dashboardAndHub.appType !== "PAID")
+      return sendError(res, 400, "Admin declaration is only available for paid apps");
+
+    if (dashboardAndHub.status !== "COMPLETED") {
+      return sendError(res, 400, "Declaration is only available for completed tests");
+    }
+
+    const existing = await prismaClient.playStoreDeclaration.findUnique({
+      where: { dashboardAndHubId: appIdNum },
+    });
+
+    if (existing) {
+      return sendSuccess(res, serialize(existing) as any, "Admin declaration fetched successfully");
+    }
+
+    const fullData = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: appIdNum },
+      include: {
+        androidApp: {
+          include: {
+            appCategory: true,
+            ratings: { select: { rating: true } },
+          },
+        },
+        feedback: { select: { message: true, type: true } },
+        testerRelations: {
+          select: { status: true, daysCompleted: true },
+        },
+      },
+    });
+
+    if (!fullData) return sendError(res, 404, "App details not found");
+
+    const bugs = fullData.feedback.filter((f) => f.type === "BUG").length;
+    const suggestions = fullData.feedback.filter((f) => f.type === "SUGGESTION").length;
+    const praise = fullData.feedback.filter((f) => f.type === "PRAISE").length;
+
+    const autoGeneratedData = {
+      totalTesters: fullData.totalTester,
+      completedTesters: fullData.testerRelations.filter((tr) => tr.status === "COMPLETED").length,
+      totalDays: fullData.totalDay,
+      currentDay: fullData.currentDay,
+      bugs,
+      suggestions,
+      praise,
+      totalFeedback: fullData.feedback.length,
+      totalRatings: fullData.androidApp?.ratings.length || 0,
+      avgRating:
+        fullData.androidApp?.ratings.length > 0
+          ? Number(
+              (
+                fullData.androidApp.ratings.reduce(
+                  (a: number, r: { rating: number }) => a + r.rating,
+                  0,
+                ) / fullData.androidApp.ratings.length
+              ).toFixed(1),
+            )
+          : null,
+      appType: fullData.appType,
+      hasCriticalBugs: false,
+      testingStartDate: fullData.testingStartDate,
+      testingEndDate: fullData.testingEndDate,
+      packageName: fullData.androidApp?.packageName || "",
+      category: fullData.androidApp?.appCategory?.name || "",
+    };
+
+    const emptyAdminAnswers = { questions: [] };
+    const emptyAnswers = {
+      recruitmentMethod: "",
+      recruitmentEase: "",
+      testerEngagement: "",
+      feedbackSummary: "",
+      feedbackCollectionMethod: "",
+      intendedAudience: "",
+      valueDescription: "",
+      expectedInstalls: "",
+      changesMade: "",
+      readinessRationale: "",
+      customQuestions: [] as any[],
+    };
+
+    const declaration = await prismaClient.playStoreDeclaration.create({
+      data: {
+        dashboardAndHubId: appIdNum,
+        appOwnerId: dashboardAndHub.appOwnerId,
+        answers: emptyAnswers as any,
+        autoGeneratedData: autoGeneratedData as any,
+        status: "DRAFT",
+        adminAnswers: emptyAdminAnswers as any,
+        adminDeclarationStatus: "DRAFT",
+      },
+    });
+
+    return sendSuccess(res, serialize(declaration) as any, "Admin declaration created successfully");
+  } catch (error) {
+    console.error("Error in getAdminDeclaration:", error);
+    return sendError(res, 500, "Internal server error");
+  }
+}
+
+export async function updateAdminDeclaration(req: Request, res: Response) {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const appId = req.params.appId as string;
+    const appIdNum = parseInt(appId);
+    if (isNaN(appIdNum)) return sendError(res, 400, "Invalid app ID");
+
+    const dashboardAndHub = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: appIdNum },
+      select: { id: true, appOwnerId: true, status: true, appType: true },
+    });
+
+    if (!dashboardAndHub) return sendError(res, 404, "App not found");
+    if (dashboardAndHub.appType !== "PAID")
+      return sendError(res, 400, "Admin declaration is only available for paid apps");
+    if (dashboardAndHub.status !== "COMPLETED") {
+      return sendError(res, 400, "Declaration is only available for completed tests");
+    }
+
+    const { adminAnswers } = req.body;
+    if (!adminAnswers) return sendError(res, 400, "adminAnswers is required");
+
+    const declaration = await prismaClient.playStoreDeclaration.upsert({
+      where: { dashboardAndHubId: appIdNum },
+      update: {
+        adminAnswers: adminAnswers as any,
+      },
+      create: {
+        dashboardAndHubId: appIdNum,
+        appOwnerId: dashboardAndHub.appOwnerId,
+        answers: {} as any,
+        autoGeneratedData: {} as any,
+        status: "DRAFT",
+        adminAnswers: adminAnswers as any,
+        adminDeclarationStatus: "DRAFT",
+      },
+    });
+
+    return sendSuccess(res, serialize(declaration) as any, "Admin declaration updated successfully");
+  } catch (error) {
+    console.error("Error in updateAdminDeclaration:", error);
+    return sendError(res, 500, "Internal server error");
+  }
+}
+
+export async function publishAdminDeclaration(req: Request, res: Response) {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const appId = req.params.appId as string;
+    const appIdNum = parseInt(appId);
+    if (isNaN(appIdNum)) return sendError(res, 400, "Invalid app ID");
+
+    const dashboardAndHub = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: appIdNum },
+      select: { id: true, status: true, appType: true },
+    });
+
+    if (!dashboardAndHub) return sendError(res, 404, "App not found");
+    if (dashboardAndHub.appType !== "PAID")
+      return sendError(res, 400, "Admin declaration is only available for paid apps");
+    if (dashboardAndHub.status !== "COMPLETED") {
+      return sendError(res, 400, "Declaration is only available for completed tests");
+    }
+
+    const existing = await prismaClient.playStoreDeclaration.findUnique({
+      where: { dashboardAndHubId: appIdNum },
+    });
+    if (!existing) return sendError(res, 400, "Declaration not found. Save admin answers first.");
+
+    const updated = await prismaClient.playStoreDeclaration.update({
+      where: { dashboardAndHubId: appIdNum },
+      data: {
+        adminDeclarationStatus: "PUBLISHED",
+      },
+    });
+
+    return sendSuccess(res, serialize(updated) as any, "Admin declaration published successfully");
+  } catch (error) {
+    console.error("Error in publishAdminDeclaration:", error);
     return sendError(res, 500, "Internal server error");
   }
 }
