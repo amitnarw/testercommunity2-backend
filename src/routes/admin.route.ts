@@ -21,6 +21,7 @@ import {
   updateUserWallet,
   deleteUser,
   getUserCounts,
+  getUserNotificationsById,
   // Suggestions
   getAllSuggestions,
   getSuggestionById,
@@ -83,6 +84,11 @@ import {
   deleteReview,
 } from "@/controllers/review.controller";
 import {
+  getAdminDeclaration,
+  updateAdminDeclaration,
+  publishAdminDeclaration,
+} from "@/controllers/declaration.controller";
+import {
   getConversations,
   getConversationById,
   assignConversation,
@@ -129,6 +135,7 @@ router.delete("/feedback/:id", checkAuthorization({ module: "feedback", action: 
 // Users
 router.get("/users", checkAuthorization({ module: "users", action: "canReadList" }), getAllUsers);
 router.get("/users/counts", checkAuthorization({ module: "users", action: "canReadList" }), getUserCounts);
+router.get("/users/notifications/:id", checkAuthorization({ module: "users", action: "canReadSingle" }), getUserNotificationsById);
 router.get("/users/:id", checkAuthorization({ module: "users", action: "canReadSingle" }), getUserById);
 router.post("/users/update-status", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserStatus);
 router.post("/users/update-role", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserRole);
@@ -213,6 +220,11 @@ router.post(
   updateDailyVerificationStatus,
 );
 router.post("/admin-complete-app", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, adminCompleteApp);
+
+// Admin Declaration (PAID apps)
+router.get("/declarations/:appId", checkAuthorization({ module: "submissions", action: "canReadSingle" }), getAdminDeclaration);
+router.put("/declarations/:appId", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, updateAdminDeclaration);
+router.post("/declarations/:appId/publish", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, publishAdminDeclaration);
 
 // System Logs
 router.get("/logs", checkAuthorization({ module: "logs", action: "canReadList" }), getLogs);

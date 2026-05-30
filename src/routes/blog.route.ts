@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getPublicBlogs, getPublicBlogBySlug, getPublicBlogTags } from "@/controllers/blog.controller";
-import { getPublicTestimonials } from "@/controllers/admin.controller";
+import { getPublicTestimonials, getPublicControlRoomStats } from "@/controllers/admin.controller";
 import { getPublishedReviews } from "@/controllers/review.controller";
 
 const router = Router();
@@ -15,5 +15,8 @@ router.get("/testimonials", getPublicTestimonials);
 
 // Public published reviews
 router.get("/reviews", getPublishedReviews);
+
+// Public landing page stats
+router.get("/stats", getPublicControlRoomStats);
 
 export default router;

@@ -48,6 +48,30 @@ export const getControlRoomData = async (req: Request, res: Response) => {
   }
 };
 
+export const getPublicControlRoomStats = async (req: Request, res: Response) => {
+  try {
+    const response = await prismaClient?.controlRoom?.findFirst();
+    if (!response) {
+      return sendSuccess(res, {}, "ok");
+    }
+    const responseData = {
+      communitySize: response.communitySize ?? 100,
+      bugsFound: response.bugsFound ?? 554,
+      proAppsTested: response.proAppsTested ?? 55,
+      communityApps: response.communityApps ?? 106,
+      uniqueDevices: response.uniqueDevices ?? 350,
+      communityPoints: response.communityPoints ?? 25000,
+    };
+    return sendSuccess(res, responseData, "ok");
+  } catch (error) {
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
 // getSubmittedApps
 export const getSubmittedApps = async (req: Request, res: Response) => {
   try {
@@ -1092,7 +1116,7 @@ export const updateUserWallet = async (req: Request, res: Response) => {
     }
 
     const { payload } = req.body;
-    const { id, totalPoints, totalPackages, reason } = payload;
+    const { id, totalPoints, totalPackages } = payload;
 
     if (!id) {
       return sendError(res, 400, "User ID is required");
@@ -1113,85 +1137,54 @@ export const updateUserWallet = async (req: Request, res: Response) => {
       return sendError(res, 400, "Values cannot be negative");
     }
 
-    const result = await prismaClient.$transaction(async (tx) => {
-      const currentWallet = await tx.userWallet.findUnique({
-        where: { userId: id },
-      });
-
-      const oldPoints = currentWallet?.totalPoints || 0;
-      const oldPackages = currentWallet?.totalPackages || 0;
-
-      const wallet = await tx.userWallet.upsert({
-        where: { userId: id },
-        create: {
-          userId: id,
-          totalPoints: points,
-          totalPackages: packages,
-          balanceMoney: 0,
-        },
-        update: {
-          totalPoints: points,
-          totalPackages: packages,
-        },
-      });
-
-      // Create transaction for points change
-      if (points !== oldPoints) {
-        const pointsDiff = points - oldPoints;
-        await tx.userTransaction.create({
-          data: {
-            userId: id,
-            userWalletId: wallet.id,
-            action: "OTHER",
-            points: Math.abs(pointsDiff),
-            transactionType: "OTHER",
-            status: pointsDiff > 0 ? "CREDIT" : "DEBIT",
-            paymentMethod: "POINTS",
-          },
-        });
-      }
-
-      // Create transaction for packages change
-      if (packages !== oldPackages) {
-        const packagesDiff = packages - oldPackages;
-        await tx.userTransaction.create({
-          data: {
-            userId: id,
-            userWalletId: wallet.id,
-            action: "OTHER",
-            package: Math.abs(packagesDiff),
-            transactionType: "OTHER",
-            status: packagesDiff > 0 ? "CREDIT" : "DEBIT",
-            paymentMethod: "PACKAGE",
-          },
-        });
-      }
-
-      // Send notification about the wallet update
-      if (points !== oldPoints || packages !== oldPackages) {
-        const changedParts: string[] = [];
-        if (points !== oldPoints) {
-          changedParts.push(`points ${points > oldPoints ? "increased" : "decreased"} from ${oldPoints} to ${points}`);
-        }
-        if (packages !== oldPackages) {
-          changedParts.push(`packages ${packages > oldPackages ? "increased" : "decreased"} from ${oldPackages} to ${packages}`);
-        }
-
-        await tx.notification.create({
-          data: {
-            title: "Wallet Balance Updated",
-            description: `Your ${changedParts.join(" and ")}${reason ? `. Reason: ${reason}` : ""}`,
-            type: "ACCOUNT_UPDATE",
-            userId: id,
-            isActive: true,
-          },
-        });
-      }
-
-      return wallet;
+    const result = await prismaClient.userWallet.upsert({
+      where: { userId: id },
+      create: {
+        userId: id,
+        totalPoints: points,
+        totalPackages: packages,
+        balanceMoney: 0,
+      },
+      update: {
+        totalPoints: points,
+        totalPackages: packages,
+      },
     });
 
     return sendSuccess(res, result as any, "User wallet updated successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const getUserNotificationsById = async (req: Request, res: Response) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const id = req.params.id as string;
+
+    if (!id) {
+      return sendError(res, 400, "User ID is required");
+    }
+
+    const notifications = await prismaClient.notification.findMany({
+      where: { userId: id },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        type: true,
+        isActive: true,
+        createdAt: true,
+        url: true,
+      },
+    });
+
+    return sendSuccess(res, notifications, "User notifications fetched successfully");
   } catch (error) {
     return sendError(
       res,
