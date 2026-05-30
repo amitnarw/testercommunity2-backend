@@ -21,6 +21,7 @@ export async function seedControlRoom() {
         communityApps: existing.communityApps ?? 106,
         uniqueDevices: existing.uniqueDevices ?? 350,
         communityPoints: existing.communityPoints ?? 25000,
+        alexSystemPrompt: existing.alexSystemPrompt ?? undefined,
       },
     });
   } else {

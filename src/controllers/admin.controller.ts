@@ -66,8 +66,142 @@ export const getPublicControlRoomStats = async (req: Request, res: Response) => 
   } catch (error) {
     return sendError(
       res,
-      400,
-      error instanceof Error ? error.message : "Unknown error",
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+// ==================== PERMISSION MATRIX (super_admin only) ====================
+
+export const getAllPermissions = async (req: Request, res: Response) => {
+  try {
+    if (req.role !== "super_admin") {
+      return sendError(res, 403, "Forbidden - super_admin only");
+    }
+
+    const roles = await prismaClient.role.findMany({
+      include: {
+        permissions: {
+          include: { module: true },
+        },
+      },
+    });
+
+    const modules = await prismaClient.module.findMany({
+      orderBy: { id: "asc" },
+    });
+
+    const matrix = roles.map((role) => ({
+      roleId: role.id,
+      roleName: role.name,
+      permissions: modules.map((mod) => {
+        const perm = role.permissions.find(
+          (p) => p.module.name === mod.name,
+        );
+        return {
+          moduleId: mod.id,
+          moduleName: mod.name,
+          canReadList: perm?.canReadList ?? false,
+          canReadSingle: perm?.canReadSingle ?? false,
+          canCreate: perm?.canCreate ?? false,
+          canUpdate: perm?.canUpdate ?? false,
+          canDelete: perm?.canDelete ?? false,
+        };
+      }),
+    }));
+
+    return sendSuccess(res, { modules: modules.map((m) => ({ id: m.id, name: m.name })), matrix }, "ok");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const updatePermission = async (req: Request, res: Response) => {
+  try {
+    if (req.role !== "super_admin") {
+      return sendError(res, 403, "Forbidden - super_admin only");
+    }
+
+    const roleId = String(req.params.roleId);
+    const moduleId = String(req.params.moduleId);
+    const payload = req.body.payload || req.body;
+    const { canReadList, canReadSingle, canCreate, canUpdate, canDelete } = payload;
+
+    const permission = await prismaClient.permission.upsert({
+      where: {
+        roleId_moduleId: {
+          roleId: parseInt(roleId),
+          moduleId: parseInt(moduleId),
+        },
+      },
+      update: {
+        canReadList: canReadList !== undefined ? canReadList : undefined,
+        canReadSingle: canReadSingle !== undefined ? canReadSingle : undefined,
+        canCreate: canCreate !== undefined ? canCreate : undefined,
+        canUpdate: canUpdate !== undefined ? canUpdate : undefined,
+        canDelete: canDelete !== undefined ? canDelete : undefined,
+      },
+      create: {
+        roleId: parseInt(roleId),
+        moduleId: parseInt(moduleId),
+        canReadList: canReadList ?? false,
+        canReadSingle: canReadSingle ?? false,
+        canCreate: canCreate ?? false,
+        canUpdate: canUpdate ?? false,
+        canDelete: canDelete ?? false,
+      },
+    });
+
+    return sendSuccess(res, permission, "Permission updated successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+// ==================== SELF PROFILE UPDATE ====================
+
+export const updateMyProfile = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    if (!payload) {
+      return sendError(res, 400, "Payload is required");
+    }
+
+    const userId = req.userId;
+    const { id, ...profileData } = payload;
+
+    if (id && id !== userId) {
+      return sendError(res, 403, "You can only update your own profile");
+    }
+
+    const existing = await prismaClient.userDetail.findUnique({
+      where: { userId: userId },
+    });
+
+    if (!existing) {
+      return sendError(res, 404, "User profile not found");
+    }
+
+    const updated = await prismaClient.userDetail.update({
+      where: { userId: userId },
+      data: profileData,
+    });
+
+    return sendSuccess(res, updated as any, "Profile updated successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
     );
   }
 };
