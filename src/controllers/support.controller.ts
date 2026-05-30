@@ -3,7 +3,7 @@ import { prismaClient } from "@/lib/prisma";
 import { sendError, sendSuccess } from "@/utils/response";
 import { streamText, convertToModelMessages } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
-import { SUPPORT_SYSTEM_PROMPT, OPENROUTER_MODEL } from "@/lib/support-config";
+import { buildAlexSystemPrompt, OPENROUTER_MODEL } from "@/lib/support-config";
 import { z } from "zod";
 
 const openrouter = createOpenAI({
@@ -381,9 +381,12 @@ export const streamChat = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Invalid message format" });
     }
 
+    const controlRoom = await prismaClient.controlRoom.findFirst();
+    const systemPrompt = buildAlexSystemPrompt(controlRoom?.alexSystemPrompt);
+
     const result = streamText({
       model: openrouter.chat(OPENROUTER_MODEL),
-      system: SUPPORT_SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: modelMessages,
       tools: {
         create_ticket: {

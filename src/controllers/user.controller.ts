@@ -899,6 +899,42 @@ export const getUserTransactions = async (req: Request, res: Response) => {
     );
   }
 };
+
+export const saveDiscoverySource = async (req: Request, res: Response) => {
+  try {
+    const { payload } = await req.body;
+    const { discovery_source } = payload || {};
+
+    if (!discovery_source || typeof discovery_source !== "string") {
+      return sendError(res, 400, "discovery_source is required");
+    }
+
+    const detail = await prismaClient?.userDetail?.findFirst({
+      where: { userId: req?.userId },
+    });
+
+    if (!detail) {
+      return sendError(res, 404, "User detail not found");
+    }
+
+    await prismaClient?.userDetail?.update({
+      where: { id: detail.id },
+      data: {
+        discovery_source,
+        discovery_source_answered: true,
+      },
+    });
+
+    return sendSuccess(res, null, "Discovery source saved");
+  } catch (error) {
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
 export const getEarnPoints = async (req: Request, res: Response) => {
   try {
     const userId = req?.userId;

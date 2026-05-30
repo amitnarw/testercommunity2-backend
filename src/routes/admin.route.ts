@@ -76,6 +76,11 @@ import {
   deleteAuthor,
   // Act As
   actAsRole,
+  // Permissions
+  getAllPermissions,
+  updatePermission,
+  // Self profile
+  updateMyProfile,
 } from "@/controllers/admin.controller";
 import {
   getAllReviews,
@@ -108,6 +113,10 @@ const router = Router();
 
 // Act As (must be before checkAuthorization to allow SUPER_ADMIN to use it)
 router.post("/act-as", decryptPayload, actAsRole);
+
+// Permission Matrix (super_admin only — hardcoded check)
+router.get("/permissions", checkAuthentication, getAllPermissions);
+router.put("/permissions/:roleId/:moduleId", checkAuthentication, decryptPayload, updatePermission);
 
 // Authenticate all admin routes below
 router.use(checkAuthentication);
@@ -142,6 +151,8 @@ router.post("/users/update-role", checkAuthorization({ module: "users", action: 
 router.post("/users/update-profile", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserProfile);
 router.post("/users/update-wallet", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserWallet);
 router.delete("/users/:id", checkAuthorization({ module: "users", action: "canDelete" }), deleteUser);
+// Self profile update (no module permission needed — any authenticated admin can update their own)
+router.post("/update-my-profile", checkAuthentication, decryptPayload, updateMyProfile);
 
 // Suggestions
 router.get("/suggestions", checkAuthorization({ module: "suggestions", action: "canReadList" }), getAllSuggestions);

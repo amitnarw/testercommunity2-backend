@@ -90,6 +90,8 @@ model UserDetail {
   areas_of_expertise      String[]                     @default([])
   initial                 Boolean                      @default(true)
   application_status      String?
+  discovery_source        String?
+  discovery_source_answered Boolean                  @default(false)
   createdAt               DateTime                     @default(now())
   updatedAt               DateTime                     @updatedAt
   availability            TesterAvailability?          @default(AVAILABLE)
@@ -514,6 +516,7 @@ model ControlRoom {
   communityApps             Int?
   uniqueDevices             Int?
   communityPoints           Int?
+  alexSystemPrompt          String?
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @default(now()) @updatedAt
 

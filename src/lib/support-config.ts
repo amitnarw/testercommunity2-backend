@@ -51,3 +51,10 @@ Use the appropriate category: GENERAL, TECHNICAL, BILLING, ACCOUNT, BUG_REPORT, 
 `;
 
 export const OPENROUTER_MODEL = "deepseek/deepseek-chat-v3-0324";
+
+export const buildAlexSystemPrompt = (customPrompt?: string | null): string => {
+  if (!customPrompt?.trim()) {
+    return SUPPORT_SYSTEM_PROMPT;
+  }
+  return `${SUPPORT_SYSTEM_PROMPT}\n\n### Additional Instructions (Admin)\n${customPrompt.trim()}`;
+};

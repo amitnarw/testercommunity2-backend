@@ -45,19 +45,15 @@ export async function getDeclaration(req: Request, res: Response) {
       where: { dashboardAndHubId: appIdNum },
     });
 
-    // For PAID apps: only show if admin has published the declaration
+    // For PAID apps: return data regardless of admin publish status
+    // Frontend checks adminDeclarationStatus to show placeholder or full report
     if (dashboardAndHub.appType === "PAID") {
-      if (!existing || existing.adminDeclarationStatus !== "PUBLISHED") {
-        return sendError(
-          res,
-          400,
-          "Declaration report is being prepared. Please check back later.",
-        );
-      }
       return sendSuccess(
         res,
-        serialize(existing) as any,
-        "Declaration fetched successfully",
+        existing ? (serialize(existing) as any) : null,
+        existing
+          ? "Declaration fetched successfully"
+          : "No declaration found",
       );
     }
 

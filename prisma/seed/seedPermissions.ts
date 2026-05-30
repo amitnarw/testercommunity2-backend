@@ -50,33 +50,93 @@ async function seedRolesModulesPermissions() {
     });
   }
 
-  // 3️⃣ Permissions using upsert so re-running updates existing rows
+  // 3️⃣ Permissions — granular per-role matrix
   const allRoles = await prisma.role.findMany();
   const allModules = await prisma.module.findMany();
 
+  const permissionMatrix: Record<
+    string,
+    {
+      canReadList: boolean;
+      canReadSingle: boolean;
+      canCreate: boolean;
+      canUpdate: boolean;
+      canDelete: boolean;
+    }
+  > = {
+    super_admin: {
+      canReadList: true,
+      canReadSingle: true,
+      canCreate: true,
+      canUpdate: true,
+      canDelete: true,
+    },
+    admin: {
+      canReadList: true,
+      canReadSingle: true,
+      canCreate: true,
+      canUpdate: true,
+      canDelete: false,
+    },
+    moderator: {
+      canReadList: false,
+      canReadSingle: false,
+      canCreate: false,
+      canUpdate: false,
+      canDelete: false,
+    },
+    support: {
+      canReadList: true,
+      canReadSingle: true,
+      canCreate: false,
+      canUpdate: false,
+      canDelete: false,
+    },
+    user: {
+      canReadList: false,
+      canReadSingle: false,
+      canCreate: false,
+      canUpdate: false,
+      canDelete: false,
+    },
+    tester: {
+      canReadList: false,
+      canReadSingle: false,
+      canCreate: false,
+      canUpdate: false,
+      canDelete: false,
+    },
+  };
+
+  // Moderator gets full CRUD only on blogs and authors
+  const moderatorFullAccessModules = ["blogs", "authors"];
+
   for (const role of allRoles) {
+    const basePerms = permissionMatrix[role.name] || permissionMatrix.user;
+
     for (const module of allModules) {
-      const canRead = role.name !== "user" && role.name !== "tester";
-      const canWrite = role.name === "admin" || role.name === "super_admin";
-      const canDelete = role.name === "super_admin";
+      let perms = { ...basePerms };
+
+      // Moderator overrides: CRUD on blogs and authors only
+      if (role.name === "moderator") {
+        if (moderatorFullAccessModules.includes(module.name)) {
+          perms = {
+            canReadList: true,
+            canReadSingle: true,
+            canCreate: true,
+            canUpdate: true,
+            canDelete: true,
+          };
+        }
+      }
 
       await prisma.permission.upsert({
         where: { roleId_moduleId: { roleId: role.id, moduleId: module.id } },
-        update: {
-          canReadList: canRead,
-          canReadSingle: canRead,
-          canCreate: canWrite,
-          canUpdate: canWrite,
-          canDelete: canDelete,
-        },
+        update: perms,
         create: {
           roleId: role.id,
           moduleId: module.id,
-          canReadList: canRead,
-          canReadSingle: canRead,
-          canCreate: canWrite,
-          canUpdate: canWrite,
-          canDelete: canDelete,
+          ...perms,
         },
       });
     }

@@ -9,6 +9,7 @@ import {
   getUserTransactions,
   logOutFromAllSession,
   logOutFromSession,
+  saveDiscoverySource,
   saveInitialProfileData,
   saveProfileData,
 } from "@/controllers/user.controller";
@@ -47,6 +48,12 @@ router.post(
   checkAuthentication,
   decryptPayload,
   saveProfileData,
+);
+router.put(
+  "/discovery-source",
+  checkAuthentication,
+  decryptPayload,
+  saveDiscoverySource,
 );
 
 router.get("/get-notifications", checkAuthentication, getNotifications);
