@@ -399,8 +399,7 @@ export const updateControlRoom = async (req: Request, res: Response) => {
         data[field] = payload[field];
       }
     }
-
-    let control = await prismaClient.controlRoom.findFirst();
+    let control = await prismaClient.controlRoom.findFirst({ orderBy: { id: 'asc' } });
     if (!control) {
       control = await prismaClient.controlRoom.create({
         data: { ...data, humanChatEnabled: data.humanChatEnabled ?? true },

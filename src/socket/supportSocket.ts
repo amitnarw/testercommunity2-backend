@@ -48,7 +48,7 @@ export function setupSupportSocket(namespace: Namespace) {
       try {
         const { conversationId, context } = payload || {};
 
-        const control = await prismaClient.controlRoom.findFirst();
+        const control = await prismaClient.controlRoom.findFirst({ orderBy: { id: 'asc' } });
         if (control && !control.humanChatEnabled) {
           socket.emit("chat:unavailable", { reason: "Human chat is currently disabled." });
           return;

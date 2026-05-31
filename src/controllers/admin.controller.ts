@@ -20,7 +20,7 @@ const requireAdmin = (req: Request, res: Response): boolean => {
 
 export const getControlRoomData = async (req: Request, res: Response) => {
   try {
-    const response = await prismaClient?.controlRoom?.findFirst();
+    const response = await prismaClient?.controlRoom?.findFirst({ orderBy: { id: 'asc' } });
     const responseData = {
       ...response,
       createdAt: response?.createdAt?.toISOString() || "",
@@ -50,7 +50,7 @@ export const getControlRoomData = async (req: Request, res: Response) => {
 
 export const getPublicControlRoomStats = async (req: Request, res: Response) => {
   try {
-    const response = await prismaClient?.controlRoom?.findFirst();
+    const response = await prismaClient?.controlRoom?.findFirst({ orderBy: { id: 'asc' } });
     if (!response) {
       return sendSuccess(res, {}, "ok");
     }
