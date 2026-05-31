@@ -6,7 +6,7 @@ const prisma = prismaClient;
 export async function seedControlRoom() {
   logger.info("Seeding control room values...");
 
-  const existing = await prisma.controlRoom.findFirst();
+  const existing = await prisma.controlRoom.findFirst({ orderBy: { id: 'asc' } });
 
   if (existing) {
     await prisma.controlRoom.update({

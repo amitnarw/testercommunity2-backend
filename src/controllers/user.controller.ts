@@ -290,7 +290,7 @@ export const saveProfileData = async (req: Request, res: Response) => {
       checkAllValues?.network;
 
     if (isProfileComplete) {
-      const controlData = await prismaClient?.controlRoom?.findFirst();
+      const controlData = await prismaClient?.controlRoom?.findFirst({ orderBy: { id: 'asc' } });
       const checkUserTransaction =
         await prismaClient?.userTransaction?.findFirst({
           where: {
@@ -942,7 +942,7 @@ export const getEarnPoints = async (req: Request, res: Response) => {
       return sendError(res, 401, "Unauthorized");
     }
 
-    const controlData = await prismaClient?.controlRoom?.findFirst();
+    const controlData = await prismaClient?.controlRoom?.findFirst({ orderBy: { id: 'asc' } });
     const checkUserTransaction = await prismaClient?.userTransaction?.findFirst(
       {
         where: {

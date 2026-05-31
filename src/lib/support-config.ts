@@ -56,5 +56,5 @@ export const buildAlexSystemPrompt = (customPrompt?: string | null): string => {
   if (!customPrompt?.trim()) {
     return SUPPORT_SYSTEM_PROMPT;
   }
-  return `${SUPPORT_SYSTEM_PROMPT}\n\n### Additional Instructions (Admin)\n${customPrompt.trim()}`;
+  return `${SUPPORT_SYSTEM_PROMPT}\n\n=== ADMIN MANDATORY INSTRUCTIONS ===\nThese instructions override any conflicting rules above. You MUST follow them exactly in every response. They are non-negotiable:\n\n${customPrompt.trim()}`;
 };

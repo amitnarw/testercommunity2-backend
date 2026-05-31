@@ -181,7 +181,7 @@ export const requestHumanChat = async (req: Request, res: Response) => {
   try {
     const { aiChatRequestId, conversationId } = req.body.payload || req.body;
 
-    const control = await prismaClient.controlRoom.findFirst();
+    const control = await prismaClient.controlRoom.findFirst({ orderBy: { id: 'asc' } });
     if (control && !control.humanChatEnabled) {
       return sendError(res, 403, "Human chat is currently disabled");
     }
@@ -381,7 +381,7 @@ export const streamChat = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Invalid message format" });
     }
 
-    const controlRoom = await prismaClient.controlRoom.findFirst();
+    const controlRoom = await prismaClient.controlRoom.findFirst({ orderBy: { id: 'asc' } });
     const systemPrompt = buildAlexSystemPrompt(controlRoom?.alexSystemPrompt);
 
     const result = streamText({
