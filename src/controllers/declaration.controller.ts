@@ -375,7 +375,7 @@ export async function updateAdminDeclaration(req: Request, res: Response) {
       return sendError(res, 400, "Declaration is only available for completed tests");
     }
 
-    const { adminAnswers } = req.body;
+    const { adminAnswers } = req.body.payload || req.body;
     if (!adminAnswers) return sendError(res, 400, "adminAnswers is required");
 
     const declaration = await prismaClient.playStoreDeclaration.upsert({

@@ -22,6 +22,7 @@ import {
   deleteUser,
   getUserCounts,
   getUserNotificationsById,
+  createUser,
   // Suggestions
   getAllSuggestions,
   getSuggestionById,
@@ -146,6 +147,7 @@ router.get("/users", checkAuthorization({ module: "users", action: "canReadList"
 router.get("/users/counts", checkAuthorization({ module: "users", action: "canReadList" }), getUserCounts);
 router.get("/users/notifications/:id", checkAuthorization({ module: "users", action: "canReadSingle" }), getUserNotificationsById);
 router.get("/users/:id", checkAuthorization({ module: "users", action: "canReadSingle" }), getUserById);
+router.post("/users", checkAuthorization({ module: "users", action: "canCreate" }), decryptPayload, createUser);
 router.post("/users/update-status", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserStatus);
 router.post("/users/update-role", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserRole);
 router.post("/users/update-profile", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserProfile);
@@ -235,7 +237,7 @@ router.post("/admin-complete-app", checkAuthorization({ module: "submissions", a
 // Admin Declaration (PAID apps)
 router.get("/declarations/:appId", checkAuthorization({ module: "submissions", action: "canReadSingle" }), getAdminDeclaration);
 router.put("/declarations/:appId", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, updateAdminDeclaration);
-router.post("/declarations/:appId/publish", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, publishAdminDeclaration);
+router.post("/declarations/:appId/publish", checkAuthorization({ module: "submissions", action: "canUpdate" }), publishAdminDeclaration);
 
 // System Logs
 router.get("/logs", checkAuthorization({ module: "logs", action: "canReadList" }), getLogs);

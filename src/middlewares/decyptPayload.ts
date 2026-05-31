@@ -8,7 +8,7 @@ export const decryptPayload = async (
   next: NextFunction,
 ) => {
   try {
-    const { payload } = req.body;
+    const payload = req.body?.payload;
     if (!payload) {
       return sendError(res, 400, "Payload is required");
     }

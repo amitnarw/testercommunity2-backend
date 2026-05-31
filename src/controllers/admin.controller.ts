@@ -1295,6 +1295,118 @@ export const updateUserWallet = async (req: Request, res: Response) => {
   }
 };
 
+export const createUser = async (req: Request, res: Response) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const callerRole = req.role;
+    const { payload } = req.body;
+    if (!payload) {
+      return sendError(res, 400, "Payload is required");
+    }
+
+    const { email, password, name, role } = payload;
+
+    if (!email || !password || !name || !role) {
+      return sendError(res, 400, "email, password, name, and role are required");
+    }
+
+    if (role === "super_admin" && callerRole !== "super_admin") {
+      return sendError(res, 403, "Only Super Admins can create Super Admin accounts");
+    }
+
+    const existing = await prismaClient.user.findUnique({ where: { email } });
+    if (existing) {
+      return sendError(res, 409, "A user with this email already exists");
+    }
+
+    const first_name = payload.first_name || name.split(" ")[0];
+    const last_name = payload.last_name || name.split(" ").slice(1).join(" ") || "";
+
+    await auth.api.signUpEmail({
+      body: {
+        email,
+        password,
+        name,
+        role,
+        auth_type: payload.auth_type || "EMAIL_PASSWORD",
+        first_name,
+        last_name,
+        phone: payload.phone,
+        country: payload.country,
+        bio: payload.bio,
+        years_of_experience: payload.years_of_experience,
+        areas_of_expertise: payload.areas_of_expertise,
+        device_company: payload.device_company,
+        device_model: payload.device_model,
+        ram: payload.ram,
+        os: payload.os,
+        screen_resolution: payload.screen_resolution,
+        language: payload.language,
+        network: payload.network,
+      } as any,
+    });
+
+    const newUser = await prismaClient.user.findUnique({ where: { email } });
+    if (!newUser) {
+      return sendError(res, 500, "User was created but could not be found");
+    }
+
+    const userId = newUser.id;
+
+    await prismaClient.user.update({
+      where: { id: userId },
+      data: { emailVerified: payload.emailVerified === true },
+    });
+
+    const detailUpdate: Record<string, any> = {};
+    const detailFields: Array<keyof typeof payload> = [
+      "phone", "country", "profile_type", "job_role", "company_name",
+      "company_size", "position_in_company", "company_website",
+      "experience_level", "total_published_apps", "platform_development",
+      "publish_frequency", "service_usage", "communication_methods",
+      "notification_preference", "device_company", "device_model", "ram",
+      "os", "screen_resolution", "language", "network", "bio",
+      "years_of_experience", "testing_types", "tester_devices",
+      "tester_os_versions", "areas_of_expertise", "initial",
+      "application_status", "discovery_source", "discovery_source_answered",
+      "availability", "banned", "ban_reason",
+    ];
+
+    for (const field of detailFields) {
+      if (payload[field] !== undefined) {
+        detailUpdate[field as string] = payload[field];
+      }
+    }
+
+    if (Object.keys(detailUpdate).length > 0) {
+      await prismaClient.userDetail.update({
+        where: { userId },
+        data: detailUpdate,
+      });
+    }
+
+    await prismaClient.userWallet.upsert({
+      where: { userId },
+      create: { userId, totalPoints: 0, totalPackages: 0, balanceMoney: 0 },
+      update: {},
+    });
+
+    const finalUser = await prismaClient.user.findUnique({
+      where: { id: userId },
+      include: { userDetail: { include: { role: true } }, wallet: true },
+    });
+
+    return sendSuccess(res, finalUser, "User created successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
 export const getUserNotificationsById = async (req: Request, res: Response) => {
   try {
     if (!requireAdmin(req, res)) return;
