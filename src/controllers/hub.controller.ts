@@ -257,7 +257,7 @@ export const addHubApp = async (req: Request, res: Response) => {
       where: { userId: req.userId! },
     });
 
-    if (!userWallet || userWallet.totalPoints < final_points_cost) {
+    if (final_points_cost > 0 && (!userWallet || userWallet.totalPoints < final_points_cost)) {
       return sendError(res, 400, "Insufficient points balance.");
     }
 
@@ -294,16 +294,19 @@ export const addHubApp = async (req: Request, res: Response) => {
           },
         });
 
-        const walletData = await tx?.userWallet?.update({
-          where: {
-            userId: req?.userId,
-          },
-          data: {
-            totalPoints: {
-              decrement: final_points_cost,
+        let walletData = null;
+        if (userWallet) {
+          walletData = await tx?.userWallet?.update({
+            where: {
+              userId: req?.userId,
             },
-          },
-        });
+            data: {
+              totalPoints: {
+                decrement: final_points_cost,
+              },
+            },
+          });
+        }
 
         if (appliedPromoCodeId) {
           await tx?.promoCode?.update({
