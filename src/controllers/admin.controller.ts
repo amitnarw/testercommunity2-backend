@@ -1,22 +1,15 @@
 import { parsePrismaError } from "@/utils/prismaErrorHandler";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import logger from "../utils/logger";
 import { prismaClient, Prisma } from "@/lib/prisma";
 import { auth, type SessionWithRole } from "@/lib/auth";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
+import { normalizeR2Url } from "@/utils/helperFunctions";
+import { hashPassword, generateRandomString } from "better-auth/crypto"; // MUST use better-auth/crypto (scrypt), not @/utils/passwordUtils (bcrypt), because signIn.email verifies with scrypt
 import { type Request, type Response } from "express";
-
-const ADMIN_ROLES = ["admin", "super_admin", "moderator", "support"];
-
-const requireAdmin = (req: Request, res: Response): boolean => {
-  if (!req.role || !ADMIN_ROLES.includes(req.role)) {
-    sendError(res, 403, "Forbidden - admin access required");
-    return false;
-  }
-  return true;
-};
 
 export const getControlRoomData = async (req: Request, res: Response) => {
   try {
@@ -264,7 +257,6 @@ export const getSubmittedApps = async (req: Request, res: Response) => {
 
 export const acceptApp = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { id, totalTester, totalDay, minimumAndroidVersion, rewardPoints } =
       payload;
@@ -340,7 +332,6 @@ export const acceptApp = async (req: Request, res: Response) => {
 
 export const updateProjectStatus = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { id, status } = payload;
     if (!id) {
@@ -374,7 +365,6 @@ export const updateProjectStatus = async (req: Request, res: Response) => {
 
 export const rejectApp = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
 
     const { id, title, description, image, video } = payload;
@@ -394,8 +384,8 @@ export const rejectApp = async (req: Request, res: Response) => {
         statusDetails: {
           title: title || "Submission Rejected",
           description: description,
-          image: image || "",
-          video: video || "",
+          image: normalizeR2Url(image || ""),
+          video: normalizeR2Url(video || ""),
         },
       },
     });
@@ -462,7 +452,6 @@ export const getSubmittedAppsCount = async (req: Request, res: Response) => {
 
 export const getDashboardStats = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     // Get total users count
     const totalUsers = await prismaClient.user.count();
 
@@ -835,7 +824,6 @@ export const getFeedbackCounts = async (req: Request, res: Response) => {
 
 export const getAllUsers = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const role = req.query.role as string;
     const status = req.query.status as string;
     const search = req.query.search as string;
@@ -948,7 +936,6 @@ export const getAllUsers = async (req: Request, res: Response) => {
 
 export const getUserById = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { id } = req.params;
 
     const user = await prismaClient.user.findUnique({
@@ -1022,6 +1009,7 @@ export const getUserById = async (req: Request, res: Response) => {
       email: user.email,
       image: user.image,
       emailVerified: user.emailVerified,
+      authType: user.userDetail?.auth_type || "EMAIL_PASSWORD",
       role: user.userDetail?.role?.name || "User",
       status: user.userDetail?.banned ? "Banned" : "Active",
       banReason: user.userDetail?.ban_reason || "",
@@ -1113,7 +1101,6 @@ export const getUserById = async (req: Request, res: Response) => {
 
 export const updateUserStatus = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { id, status, banReason } = payload;
 
@@ -1244,7 +1231,6 @@ export const updateUserProfile = async (req: Request, res: Response) => {
 
 export const updateUserWallet = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     if (req.role !== "super_admin") {
       return sendError(res, 403, "Only Super Admins can modify wallet balances");
     }
@@ -1297,7 +1283,6 @@ export const updateUserWallet = async (req: Request, res: Response) => {
 
 export const createUser = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
 
     const callerRole = req.role;
     const { payload } = req.body;
@@ -1409,7 +1394,6 @@ export const createUser = async (req: Request, res: Response) => {
 
 export const getUserNotificationsById = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const id = req.params.id as string;
 
     if (!id) {
@@ -1840,7 +1824,6 @@ export const getAllNotifications = async (req: Request, res: Response) => {
 
 export const createNotification = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { title, description, type, url, userId, isActive } = payload;
 
@@ -1931,7 +1914,6 @@ export const updateNotification = async (req: Request, res: Response) => {
 
 export const deleteNotification = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { id } = req.params;
 
     await prismaClient.notification.delete({
@@ -1950,7 +1932,6 @@ export const deleteNotification = async (req: Request, res: Response) => {
 
 export const broadcastNotification = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { title, description, type, url } = payload;
 
@@ -2535,7 +2516,6 @@ export const getAllPromoCodes = async (req: Request, res: Response) => {
 
 export const createPromoCode = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { code, discountType, discountValue, isActive, maxUses, maxPerUser } =
       payload;
@@ -2624,7 +2604,6 @@ export const updatePromoCode = async (req: Request, res: Response) => {
 
 export const deletePromoCode = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { id } = req.params;
     await prismaClient.promoCode.delete({
       where: { id: parseInt(id as string) },
@@ -2683,7 +2662,6 @@ export const updateDailyVerificationStatus = async (
   res: Response,
 ) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { id, status, reason } = payload;
 
@@ -2739,7 +2717,6 @@ export const updateDailyVerificationStatus = async (
 
 export const adminCompleteApp = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { id } = payload; // id is DashboardAndHub ID
 
@@ -3199,7 +3176,6 @@ const getLogFilePath = (filename: string) => {
 // @access  Private (Admin)
 export const getLogs = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const logDir = path.resolve(process.cwd(), "logs");
 
     if (!fs.existsSync(logDir)) {
@@ -3265,7 +3241,6 @@ export const getLogContent = async (req: Request, res: Response) => {
 // @access  Private (Admin)
 export const deleteLog = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { filename } = req.params;
     const filePath = getLogFilePath(filename as string);
 
@@ -3328,7 +3303,6 @@ export const actAsRole = async (req: Request, res: Response) => {
 // @access  Private (Admin)
 export const deleteLogsBatch = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { filenames } = payload;
 
@@ -3391,7 +3365,6 @@ export const getAuthorById = async (req: Request, res: Response) => {
 
 export const createAuthor = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { payload } = req.body;
     const { name, avatarUrl, bio, dataAiHint } = payload;
 
@@ -3457,7 +3430,6 @@ export const updateAuthor = async (req: Request, res: Response) => {
 
 export const deleteAuthor = async (req: Request, res: Response) => {
   try {
-    if (!requireAdmin(req, res)) return;
     const { id } = req.params;
     await prismaClient.author.delete({
       where: { id: parseInt(id as string) },
@@ -3468,6 +3440,150 @@ export const deleteAuthor = async (req: Request, res: Response) => {
       res,
       500,
       error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const convertUserAuthType = async (req: Request, res: Response) => {
+  try {
+    const callerRole = req.role;
+    if (callerRole !== "super_admin") {
+      return sendError(res, 403, "Only Super Admins can convert user auth type");
+    }
+
+    const { payload } = req.body;
+    const { userId, newAuthType, newPassword } = payload;
+
+    if (userId === req.userId) {
+      return sendError(res, 400, "You cannot convert your own auth type");
+    }
+
+    if (!userId || !newAuthType) {
+      return sendError(res, 400, "User ID and new auth type are required");
+    }
+
+    if (!["EMAIL_PASSWORD", "GOOGLE"].includes(newAuthType)) {
+      return sendError(res, 400, "Invalid auth type. Must be EMAIL_PASSWORD or GOOGLE");
+    }
+
+    const user = await prismaClient.user.findUnique({
+      where: { id: userId },
+      include: {
+        userDetail: true,
+        accounts: true,
+      },
+    });
+
+    if (!user) {
+      return sendError(res, 404, "User not found");
+    }
+
+    if (!user.userDetail) {
+      return sendError(res, 400, "User profile not found");
+    }
+
+    if (user.userDetail.banned) {
+      return sendError(res, 400, "Cannot convert auth type for a banned user. Unban the user first.");
+    }
+
+    const currentAuthType = user.userDetail.auth_type;
+    if (currentAuthType === newAuthType) {
+      return sendError(res, 400, `User already uses ${newAuthType} authentication`);
+    }
+
+    if (newAuthType === "EMAIL_PASSWORD") {
+      if (!newPassword || newPassword.length < 8 || newPassword.length > 128) {
+        return sendError(res, 400, "Password must be between 8 and 128 characters");
+      }
+
+      const hashed = await hashPassword(newPassword);
+
+      await prismaClient.$transaction(async (tx) => {
+        await tx.account.deleteMany({
+          where: { userId, providerId: "google" },
+        });
+
+        await tx.account.deleteMany({
+          where: { userId, providerId: "credential" },
+        });
+
+        await tx.account.create({
+          data: {
+            id: generateRandomString(32, "a-z", "A-Z", "0-9"),
+            userId,
+            accountId: userId,
+            providerId: "credential",
+            password: hashed,
+          },
+        });
+
+        await tx.userDetail.update({
+          where: { userId },
+          data: { auth_type: "EMAIL_PASSWORD" },
+        });
+
+        // emailVerified=true because admin is vouching for the user's email ownership.
+        // Setting false would block sign-in since requireEmailVerification is enabled,
+        // creating a worse lockout than the GOOGLE conversion gap.
+        await tx.user.update({
+          where: { id: userId },
+          data: { emailVerified: true },
+        });
+
+        await tx.session.deleteMany({
+          where: { userId },
+        });
+      });
+    }
+
+    if (newAuthType === "GOOGLE") {
+      await prismaClient.$transaction(async (tx) => {
+        await tx.account.deleteMany({
+          where: { userId, providerId: "credential" },
+        });
+
+        await tx.passwordReset.updateMany({
+          where: { userId, isActive: true },
+          data: { isActive: false },
+        });
+
+        await tx.verification.deleteMany({
+          where: { identifier: user.email },
+        });
+
+        await tx.userDetail.update({
+          where: { userId },
+          data: { auth_type: "GOOGLE" },
+        });
+
+        await tx.session.deleteMany({
+          where: { userId },
+        });
+      });
+    }
+
+    const auditLogPayload: AuditLogPayload = {
+      actorId: req.userId || "",
+      actorRole: req.role as string,
+      module: "users",
+      action: "convertAuthType",
+      targetId: userId,
+      result: "success",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+    return sendSuccess(res, null, "Auth type converted successfully", auditLogPayload);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === "P2002") {
+        return sendError(res, 409, "Concurrent modification detected. Please try again.");
+      }
+    }
+    logger.error("convertUserAuthType failed", error);
+    return sendError(
+      res,
+      500,
+      "Failed to convert auth type. Please try again.",
     );
   }
 };

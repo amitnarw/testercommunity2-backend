@@ -75,6 +75,7 @@ export const renewTokens = async (req: Request, res: Response) => {
     const checkAccount = await prismaClient?.account?.findFirst({
       where: {
         userId: checkUserData?.id,
+        providerId: "credential",
       },
     });
 
@@ -88,29 +89,33 @@ export const renewTokens = async (req: Request, res: Response) => {
     const accessTokenExpiry = new Date(Date.now() + accessExpiryMs);
     const refreshTokenExpiry = new Date(Date.now() + refreshExpiryMs);
 
-    await prismaClient?.session?.update({
-      where: {
-        id: checkSession?.id,
-      },
-      data: {
-        token: access_token?.data || "",
-        expiresAt: accessTokenExpiry,
-        ipAddress: req?.userIpAddress,
-        userAgent: req?.userAgent,
-      },
-    });
+    if (checkSession?.id) {
+      await prismaClient?.session?.update({
+        where: {
+          id: checkSession.id,
+        },
+        data: {
+          token: access_token?.data || "",
+          expiresAt: accessTokenExpiry,
+          ipAddress: req?.userIpAddress,
+          userAgent: req?.userAgent,
+        },
+      });
+    }
 
-    await prismaClient?.account?.update({
-      where: {
-        id: checkAccount?.id,
-      },
-      data: {
-        accessToken: access_token?.data || "",
-        accessTokenExpiresAt: accessTokenExpiry,
-        refreshToken: refresh_token?.data || "",
-        refreshTokenExpiresAt: refreshTokenExpiry,
-      },
-    });
+    if (checkAccount?.id) {
+      await prismaClient?.account?.update({
+        where: {
+          id: checkAccount.id,
+        },
+        data: {
+          accessToken: access_token?.data || "",
+          accessTokenExpiresAt: accessTokenExpiry,
+          refreshToken: refresh_token?.data || "",
+          refreshTokenExpiresAt: refreshTokenExpiry,
+        },
+      });
+    }
 
     await prismaClient?.userActivity?.create({
       data: {

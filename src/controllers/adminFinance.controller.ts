@@ -4,20 +4,11 @@ import { type Request, type Response } from "express";
 import logger from "../utils/logger";
 import { amountToWords } from "@/utils/invoice.utils";
 
-const requireSuperAdmin = (req: Request, res: Response): boolean => {
-  if (req.role !== "super_admin") {
-    sendError(res, 403, "Only super_admin can access finance data");
-    return false;
-  }
-  return true;
-};
-
 const qs = (val: any): string | undefined =>
   typeof val === "string" ? val : undefined;
 
 export const getFinanceDashboard = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
 
     const totalRevenue = await prismaClient.payment.aggregate({
       _sum: { amount: true },
@@ -141,7 +132,6 @@ export const getFinanceDashboard = async (req: Request, res: Response) => {
 
 export const getFinanceOrders = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
     const page = Math.max(1, parseInt(qs(req.query.page) || "1"));
     const limit = Math.min(100, Math.max(1, parseInt(qs(req.query.limit) || "20")));
     const skip = (page - 1) * limit;
@@ -205,7 +195,6 @@ export const getFinanceOrders = async (req: Request, res: Response) => {
 
 export const getFinancePayments = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
     const page = Math.max(1, parseInt(qs(req.query.page) || "1"));
     const limit = Math.min(100, Math.max(1, parseInt(qs(req.query.limit) || "20")));
     const skip = (page - 1) * limit;
@@ -279,7 +268,6 @@ export const getFinancePayments = async (req: Request, res: Response) => {
 
 export const getFinanceInvoices = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
     const page = Math.max(1, parseInt(qs(req.query.page) || "1"));
     const limit = Math.min(100, Math.max(1, parseInt(qs(req.query.limit) || "20")));
     const skip = (page - 1) * limit;
@@ -338,7 +326,6 @@ export const getFinanceInvoices = async (req: Request, res: Response) => {
 
 export const getUserInvoices = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
     const userId = req.params.userId as string;
     if (!userId) return sendError(res, 400, "User ID is required");
 
@@ -403,7 +390,6 @@ export const getUserInvoices = async (req: Request, res: Response) => {
 
 export const updateInvoice = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
     const { payload } = req.body;
     if (!payload || !payload.id) {
       return sendError(res, 400, "Invoice ID is required");
@@ -481,7 +467,6 @@ export const updateInvoice = async (req: Request, res: Response) => {
 
 export const getFinanceRefunds = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
     const page = Math.max(1, parseInt(qs(req.query.page) || "1"));
     const limit = Math.min(100, Math.max(1, parseInt(qs(req.query.limit) || "20")));
     const skip = (page - 1) * limit;
@@ -537,7 +522,6 @@ export const getFinanceRefunds = async (req: Request, res: Response) => {
 
 export const getFinanceWithdrawals = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
     const page = Math.max(1, parseInt(qs(req.query.page) || "1"));
     const limit = Math.min(100, Math.max(1, parseInt(qs(req.query.limit) || "20")));
     const skip = (page - 1) * limit;
@@ -588,7 +572,6 @@ export const getFinanceWithdrawals = async (req: Request, res: Response) => {
 
 export const approveWithdrawal = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
     const id = parseInt(req.params.id as string);
     if (isNaN(id)) return sendError(res, 400, "Invalid withdrawal ID");
 
@@ -612,7 +595,6 @@ export const approveWithdrawal = async (req: Request, res: Response) => {
 
 export const rejectWithdrawal = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
     const id = parseInt(req.params.id as string);
     if (isNaN(id)) return sendError(res, 400, "Invalid withdrawal ID");
 
@@ -639,7 +621,6 @@ export const rejectWithdrawal = async (req: Request, res: Response) => {
 
 export const getFinancePricing = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
 
     const pricing = await prismaClient.pricing.findMany({
       orderBy: { country_name: "asc" },
@@ -654,7 +635,6 @@ export const getFinancePricing = async (req: Request, res: Response) => {
 
 export const updateFinancePricing = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
     const id = parseInt(req.params.id as string);
     if (isNaN(id)) return sendError(res, 400, "Invalid pricing ID");
 
@@ -684,7 +664,6 @@ export const updateFinancePricing = async (req: Request, res: Response) => {
 
 export const getUserWalletDetail = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
     const userId = req.params.userId as string;
     if (!userId) return sendError(res, 400, "User ID is required");
 
@@ -733,7 +712,6 @@ export const getUserWalletDetail = async (req: Request, res: Response) => {
 
 export const getFinancePlans = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
 
     const plans = await prismaClient.plans.findMany({
       orderBy: { price: "asc" },
@@ -757,7 +735,6 @@ export const getFinancePlans = async (req: Request, res: Response) => {
 
 export const getFinancePaymentMethods = async (req: Request, res: Response) => {
   try {
-    if (!requireSuperAdmin(req, res)) return;
 
     const methods = await prismaClient.payment.groupBy({
       by: ["method"],

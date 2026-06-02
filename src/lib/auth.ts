@@ -21,7 +21,19 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
       role: {
         select: {
           name: true,
-          permissions: true,
+          permissions: {
+            select: {
+              moduleId: true,
+              canReadList: true,
+              canReadSingle: true,
+              canCreate: true,
+              canUpdate: true,
+              canDelete: true,
+              module: {
+                select: { name: true },
+              },
+            },
+          },
         },
       },
     },
@@ -60,16 +72,13 @@ async function setRoleCookie(
   role?: {
     name: string;
     permissions: {
-      id: number;
-      createdAt: Date;
-      updatedAt: Date;
-      roleId: number;
       moduleId: number;
       canReadList: boolean;
       canReadSingle: boolean;
       canCreate: boolean;
       canUpdate: boolean;
       canDelete: boolean;
+      module: { name: string };
     }[];
   },
   initial?: boolean,
@@ -208,9 +217,9 @@ export const auth = betterAuth({
         process.env.CORS_ORIGIN?.split(",")[0]
       }/auth/verification?token=${token}`;
       await sendEmail({
-        from: "InTesters <noreply@system.intesters.com>",
+        from: "inTesters <noreply@system.intesters.com>",
         to: user.email,
-        subject: "Verify your email address | InTesters",
+        subject: "Verify your email address | inTesters",
         html: `Click the link to verify your email: ${frontendUrl}`,
       });
     },

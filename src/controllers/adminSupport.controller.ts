@@ -2,13 +2,8 @@ import { type Request, type Response } from "express";
 import { prismaClient } from "@/lib/prisma";
 import { sendError, sendSuccess } from "@/utils/response";
 
-const SUPPORT_ROLES = ["support", "admin", "super_admin"];
-
 export const getConversations = async (req: Request, res: Response) => {
   try {
-    if (!SUPPORT_ROLES.includes(req.role || "")) {
-      return sendError(res, 403, "Access denied");
-    }
 
     const { type, status } = req.query;
     const where: any = {};
@@ -40,9 +35,6 @@ export const getConversations = async (req: Request, res: Response) => {
 
 export const getConversationById = async (req: Request, res: Response) => {
   try {
-    if (!SUPPORT_ROLES.includes(req.role || "")) {
-      return sendError(res, 403, "Access denied");
-    }
 
     const { id } = req.params;
 
@@ -68,9 +60,6 @@ export const getConversationById = async (req: Request, res: Response) => {
 
 export const assignConversation = async (req: Request, res: Response) => {
   try {
-    if (!SUPPORT_ROLES.includes(req.role || "")) {
-      return sendError(res, 403, "Access denied");
-    }
 
     const { id } = req.params;
     const conversation = await prismaClient.conversation.findUnique({
@@ -106,9 +95,6 @@ export const assignConversation = async (req: Request, res: Response) => {
 
 export const addConversationMessage = async (req: Request, res: Response) => {
   try {
-    if (!SUPPORT_ROLES.includes(req.role || "")) {
-      return sendError(res, 403, "Access denied");
-    }
 
     const { id } = req.params;
     const { message } = req.body.payload || req.body;
@@ -167,9 +153,6 @@ export const addConversationMessage = async (req: Request, res: Response) => {
 
 export const closeConversation = async (req: Request, res: Response) => {
   try {
-    if (!SUPPORT_ROLES.includes(req.role || "")) {
-      return sendError(res, 403, "Access denied");
-    }
 
     const { id } = req.params;
     const conversation = await prismaClient.conversation.findUnique({
@@ -204,9 +187,6 @@ export const closeConversation = async (req: Request, res: Response) => {
 
 export const getAgentStatus = async (req: Request, res: Response) => {
   try {
-    if (!SUPPORT_ROLES.includes(req.role || "")) {
-      return sendError(res, 403, "Access denied");
-    }
 
     const agents = await prismaClient.agentStatus.findMany({
       include: {
@@ -224,9 +204,6 @@ export const getAgentStatus = async (req: Request, res: Response) => {
 
 export const setMyStatus = async (req: Request, res: Response) => {
   try {
-    if (!SUPPORT_ROLES.includes(req.role || "")) {
-      return sendError(res, 403, "Access denied");
-    }
 
     const { status } = req.body.payload || req.body;
 
@@ -249,9 +226,6 @@ export const setMyStatus = async (req: Request, res: Response) => {
 
 export const getSupportStats = async (req: Request, res: Response) => {
   try {
-    if (!SUPPORT_ROLES.includes(req.role || "")) {
-      return sendError(res, 403, "Access denied");
-    }
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -381,10 +355,6 @@ export const getSupportStats = async (req: Request, res: Response) => {
 
 export const updateControlRoom = async (req: Request, res: Response) => {
   try {
-    if (req.role !== "super_admin") {
-      return sendError(res, 403, "Only super_admin can update control room");
-    }
-
     const payload = req.body.payload || req.body;
 
     const allowedFields = [

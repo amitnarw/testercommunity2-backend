@@ -1,4 +1,4 @@
-import { prismaClient } from "@/lib/prisma";
+import { prismaClient, Prisma } from "@/lib/prisma";
 
 const ONES = [
   "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
@@ -98,42 +98,48 @@ export function amountToWords(amountInSmallestUnit: number, currency: string = "
   return `${prefix} ${words} Only`;
 }
 
-export function getFinancialYear(): string {
-  const now = new Date();
+function getFiscalYearStartYY(date?: Date): string {
+  const now = date || new Date();
   const year = now.getFullYear();
-  const month = now.getMonth() + 1; // 1-12
+  const month = now.getMonth() + 1;
   if (month >= 4) {
-    const yy = year % 100;
-    const nextYY = (year + 1) % 100;
-    return `FY${yy.toString().padStart(2, "0")}${nextYY.toString().padStart(2, "0")}`;
+    return (year % 100).toString().padStart(2, "0");
   } else {
-    const prevYY = (year - 1) % 100;
-    const yy = year % 100;
-    return `FY${prevYY.toString().padStart(2, "0")}${yy.toString().padStart(2, "0")}`;
+    return ((year - 1) % 100).toString().padStart(2, "0");
   }
 }
 
-function getMonthNumber(): string {
-  const now = new Date();
-  return (now.getMonth() + 1).toString().padStart(2, "0");
+function getMonthLetter(date?: Date): string {
+  const now = date || new Date();
+  const month = now.getMonth() + 1;
+  return String.fromCharCode(64 + month);
 }
 
-export async function getNextInvoiceNumber(type: "IND" | "EXP"): Promise<string> {
-  const fy = getFinancialYear();
-  const mm = getMonthNumber();
-  const typeLabel = type === "IND" ? "INV" : "EXP";
-  const prefix = `${typeLabel}/${fy}/${mm}/`;
+export async function getNextInvoiceNumber(
+  type: "IND" | "EXP",
+  tx?: Prisma.TransactionClient,
+  date?: Date
+): Promise<string> {
+  const fyYY = getFiscalYearStartYY(date);
+  const monthLetter = getMonthLetter(date);
+  const typeLabel = type === "IND" ? "IND" : "EXP";
+  const prefix = `GXIT${typeLabel}${fyYY}${monthLetter}`;
 
-  const latest = await prismaClient.invoice.findFirst({
+  const client = tx || prismaClient;
+
+  const latest = await client.invoice.findFirst({
     where: { invoice_number: { startsWith: prefix } },
     orderBy: { invoice_number: "desc" },
   });
 
   let seq = 1;
   if (latest) {
-    const parts = latest.invoice_number.split("/");
-    const lastSeq = parseInt(parts[parts.length - 1], 10);
-    seq = lastSeq + 1;
+    const lastSeq = parseInt(latest.invoice_number.slice(-4), 10);
+    if (!isNaN(lastSeq)) seq = lastSeq + 1;
+  }
+
+  if (seq > 9999) {
+    throw new Error(`Invoice sequence overflow for prefix ${prefix}`);
   }
 
   return `${prefix}${seq.toString().padStart(4, "0")}`;
@@ -142,7 +148,7 @@ export async function getNextInvoiceNumber(type: "IND" | "EXP"): Promise<string>
 export const COMPANY_DETAILS = {
   name: "Gamdix Private Limited",
   legalName: "Gamdix Private Limited",
-  brandName: "InTesters",
+  brandName: "inTesters",
   address: {
     line1: "C/o Spring House Co-working Pvt Ltd",
     line2: "B 1/639 A Janakpuri, Janakpuri B-1",

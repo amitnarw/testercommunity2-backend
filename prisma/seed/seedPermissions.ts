@@ -29,6 +29,7 @@ async function seedRolesModulesPermissions() {
     "dashboard",
     "submissions",
     "feedback",
+    "finance",
     "users",
     "suggestions",
     "notifications",
@@ -41,6 +42,7 @@ async function seedRolesModulesPermissions() {
     "verification",
     "logs",
     "support",
+    "permissions",
   ];
   for (const moduleName of modules) {
     await prisma.module.upsert({
@@ -130,9 +132,42 @@ async function seedRolesModulesPermissions() {
         }
       }
 
+      // Finance is super_admin only by default
+      if (role.name !== "super_admin" && module.name === "finance") {
+        perms = {
+          canReadList: false,
+          canReadSingle: false,
+          canCreate: false,
+          canUpdate: false,
+          canDelete: false,
+        };
+      }
+
+      // Permissions module is super_admin only (uses controller-level check, not checkAuthorization)
+      if (role.name !== "super_admin" && module.name === "permissions") {
+        perms = {
+          canReadList: false,
+          canReadSingle: false,
+          canCreate: false,
+          canUpdate: false,
+          canDelete: false,
+        };
+      }
+
+      // Support role needs update access on the support module for chat
+      if (role.name === "support" && module.name === "support") {
+        perms = {
+          canReadList: true,
+          canReadSingle: true,
+          canCreate: false,
+          canUpdate: true,
+          canDelete: false,
+        };
+      }
+
       await prisma.permission.upsert({
         where: { roleId_moduleId: { roleId: role.id, moduleId: module.id } },
-        update: perms,
+        update: {},
         create: {
           roleId: role.id,
           moduleId: module.id,

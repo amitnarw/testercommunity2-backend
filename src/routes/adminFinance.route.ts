@@ -16,6 +16,7 @@ import {
   getFinancePaymentMethods,
 } from "@/controllers/adminFinance.controller";
 import { checkAuthentication } from "@/middlewares/checkAuthentication";
+import { checkAuthorization } from "@/middlewares/checkAuthorization";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 import Router from "express";
 
@@ -23,20 +24,20 @@ const router = Router();
 
 router.use(checkAuthentication);
 
-router.get("/dashboard", getFinanceDashboard);
-router.get("/orders", getFinanceOrders);
-router.get("/payments", getFinancePayments);
-router.get("/invoices", getFinanceInvoices);
-router.get("/invoices/user/:userId", getUserInvoices);
-router.post("/invoices/update", decryptPayload, updateInvoice);
-router.get("/refunds", getFinanceRefunds);
-router.get("/withdrawals", getFinanceWithdrawals);
-router.post("/withdrawals/:id/approve", approveWithdrawal);
-router.post("/withdrawals/:id/reject", decryptPayload, rejectWithdrawal);
-router.get("/pricing", getFinancePricing);
-router.put("/pricing/:id", decryptPayload, updateFinancePricing);
-router.get("/user/:userId/wallet", getUserWalletDetail);
-router.get("/plans", getFinancePlans);
-router.get("/payment-methods", getFinancePaymentMethods);
+router.get("/dashboard", checkAuthorization({ module: "finance", action: "canReadList" }), getFinanceDashboard);
+router.get("/orders", checkAuthorization({ module: "finance", action: "canReadList" }), getFinanceOrders);
+router.get("/payments", checkAuthorization({ module: "finance", action: "canReadList" }), getFinancePayments);
+router.get("/invoices", checkAuthorization({ module: "finance", action: "canReadList" }), getFinanceInvoices);
+router.get("/invoices/user/:userId", checkAuthorization({ module: "finance", action: "canReadSingle" }), getUserInvoices);
+router.post("/invoices/update", checkAuthorization({ module: "finance", action: "canUpdate" }), decryptPayload, updateInvoice);
+router.get("/refunds", checkAuthorization({ module: "finance", action: "canReadList" }), getFinanceRefunds);
+router.get("/withdrawals", checkAuthorization({ module: "finance", action: "canReadList" }), getFinanceWithdrawals);
+router.post("/withdrawals/:id/approve", checkAuthorization({ module: "finance", action: "canUpdate" }), approveWithdrawal);
+router.post("/withdrawals/:id/reject", checkAuthorization({ module: "finance", action: "canUpdate" }), decryptPayload, rejectWithdrawal);
+router.get("/pricing", checkAuthorization({ module: "finance", action: "canReadList" }), getFinancePricing);
+router.put("/pricing/:id", checkAuthorization({ module: "finance", action: "canUpdate" }), decryptPayload, updateFinancePricing);
+router.get("/user/:userId/wallet", checkAuthorization({ module: "finance", action: "canReadSingle" }), getUserWalletDetail);
+router.get("/plans", checkAuthorization({ module: "finance", action: "canReadList" }), getFinancePlans);
+router.get("/payment-methods", checkAuthorization({ module: "finance", action: "canReadList" }), getFinancePaymentMethods);
 
 export default router;
