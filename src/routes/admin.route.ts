@@ -23,6 +23,7 @@ import {
   getUserCounts,
   getUserNotificationsById,
   createUser,
+  convertUserAuthType,
   // Suggestions
   getAllSuggestions,
   getSuggestionById,
@@ -113,7 +114,7 @@ import Router from "express";
 const router = Router();
 
 // Act As (must be before checkAuthorization to allow SUPER_ADMIN to use it)
-router.post("/act-as", decryptPayload, actAsRole);
+router.post("/act-as", checkAuthentication, decryptPayload, actAsRole);
 
 // Permission Matrix (super_admin only — hardcoded check)
 router.get("/permissions", checkAuthentication, getAllPermissions);
@@ -151,7 +152,8 @@ router.post("/users", checkAuthorization({ module: "users", action: "canCreate" 
 router.post("/users/update-status", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserStatus);
 router.post("/users/update-role", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserRole);
 router.post("/users/update-profile", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserProfile);
-router.post("/users/update-wallet", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserWallet);
+router.post("/users/convert-auth-type", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, convertUserAuthType);
+router.post("/users/update-wallet", checkAuthentication, decryptPayload, updateUserWallet);
 router.delete("/users/:id", checkAuthorization({ module: "users", action: "canDelete" }), deleteUser);
 // Self profile update (no module permission needed — any authenticated admin can update their own)
 router.post("/update-my-profile", checkAuthentication, decryptPayload, updateMyProfile);
@@ -246,14 +248,14 @@ router.delete("/logs/:filename", checkAuthorization({ module: "logs", action: "c
 router.post("/logs/batch-delete", checkAuthorization({ module: "logs", action: "canDelete" }), decryptPayload, deleteLogsBatch);
 
 // Support Operations
-router.post("/control-room", checkAuthentication, decryptPayload, updateControlRoom);
-router.get("/support/conversations", checkAuthentication, getConversations);
-router.get("/support/conversations/:id", checkAuthentication, getConversationById);
-router.post("/support/conversations/:id/assign", checkAuthentication, decryptPayload, assignConversation);
-router.post("/support/conversations/:id/messages", checkAuthentication, decryptPayload, addConversationMessage);
-router.post("/support/conversations/:id/close", checkAuthentication, decryptPayload, closeConversation);
-router.get("/support/agent-statuses", checkAuthentication, getAgentStatus);
-router.post("/support/agents/status", checkAuthentication, decryptPayload, setMyStatus);
-router.get("/support/stats", checkAuthentication, getSupportStats);
+router.post("/control-room", checkAuthentication, checkAuthorization({ module: "control_room", action: "canUpdate" }), decryptPayload, updateControlRoom);
+router.get("/support/conversations", checkAuthorization({ module: "support", action: "canReadList" }), getConversations);
+router.get("/support/conversations/:id", checkAuthorization({ module: "support", action: "canReadSingle" }), getConversationById);
+router.post("/support/conversations/:id/assign", checkAuthorization({ module: "support", action: "canUpdate" }), decryptPayload, assignConversation);
+router.post("/support/conversations/:id/messages", checkAuthorization({ module: "support", action: "canUpdate" }), decryptPayload, addConversationMessage);
+router.post("/support/conversations/:id/close", checkAuthorization({ module: "support", action: "canUpdate" }), decryptPayload, closeConversation);
+router.get("/support/agent-statuses", checkAuthorization({ module: "support", action: "canReadList" }), getAgentStatus);
+router.post("/support/agents/status", checkAuthorization({ module: "support", action: "canUpdate" }), decryptPayload, setMyStatus);
+router.get("/support/stats", checkAuthorization({ module: "support", action: "canReadList" }), getSupportStats);
 
 export default router;

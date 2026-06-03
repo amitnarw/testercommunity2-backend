@@ -2,7 +2,7 @@ import logger from "../utils/logger";
 import { type Request, type Response } from "express";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
-import { prismaClient } from "@/lib/prisma";
+import { prismaClient, Prisma } from "@/lib/prisma";
 import {
   getRazorpayInstance,
   getRazorpayKeyId,
@@ -23,6 +23,27 @@ import {
   formatPeriod,
   COMPANY_DETAILS,
 } from "@/utils/invoice.utils";
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 5
+): Promise<T> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt >= maxRetries - 1) throw error;
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const target = error.meta?.target as string[] | undefined;
+        if (!Array.isArray(target) || !target.includes("invoice_number")) throw error;
+        await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 100));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Max retries exceeded");
+}
 
 /**
  * Get billing info for the user
@@ -227,7 +248,7 @@ export const getInvoice = async (req: Request, res: Response) => {
     }
 
     // Check authorization
-    if (req.userId !== invoice.userId && req.role !== "admin" && req.role !== "super_admin") {
+    if (req.userId !== invoice.userId && req.role !== "admin" && req.role !== "super_admin" && req.role !== "moderator" && req.role !== "support") {
       return sendError(res, 403, "Unauthorized to view this invoice");
     }
 
@@ -474,17 +495,19 @@ export const verifyPayment = async (req: Request, res: Response) => {
     const paymentDetails = await razorpay.payments.fetch(razorpay_payment_id);
 
     // Start transaction to update order, create payment record, and update wallet
-    const result = await prismaClient.$transaction(async (tx) => {
-      // Get user billing info for payment record
-      const billingInfo = await tx.billingInfo.findUnique({
-        where: { userId },
-      });
+    const transactionDate = new Date();
+    const result = await withRetry(() =>
+      prismaClient.$transaction(async (tx) => {
+        // Get user billing info for payment record
+        const billingInfo = await tx.billingInfo.findUnique({
+          where: { userId },
+        });
 
-      // Determine invoice type and tax
-      const customerCountry = billingInfo?.country || "India";
-      const customerState = billingInfo?.state || null;
-      const invoiceType = determineInvoiceType(customerCountry);
-      const invoiceNumber = await getNextInvoiceNumber(invoiceType);
+        // Determine invoice type and tax
+        const customerCountry = billingInfo?.country || "India";
+        const customerState = billingInfo?.state || null;
+        const invoiceType = determineInvoiceType(customerCountry);
+        const invoiceNumber = await getNextInvoiceNumber(invoiceType, tx, transactionDate);
 
       // Calculate amount in INR (simplistic for now)
       const amount = typeof paymentDetails.amount === "string"
@@ -544,7 +567,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
           invoice_type: invoiceType,
           service_name: order.plan?.name || "Android App Closed Testing Package",
           sac_code: COMPANY_DETAILS.sacCode,
-          period: formatPeriod(new Date()),
+           period: formatPeriod(transactionDate),
           quantity: quantity,
           unit_price: unitPrice,
           tax_rate: taxInfo.taxRate,
@@ -606,7 +629,8 @@ export const verifyPayment = async (req: Request, res: Response) => {
         packagesAwarded: packagesToAward,
         invoiceId: invoiceNumber,
       };
-    });
+    })
+  );
 
     // Send receipt email
     const userEmail = paymentDetails.email || "";
@@ -615,13 +639,13 @@ export const verifyPayment = async (req: Request, res: Response) => {
       const invoiceId = result.invoiceId;
 
       await sendEmail({
-        from: "InTesters <noreply@intesters.com>",
+        from: "inTesters <noreply@intesters.com>",
         to: userEmail,
         subject: `Payment Receipt - ${invoiceId}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #7c3aed;">Payment Successful!</h2>
-            <p>Thank you for your purchase on InTesters.</p>
+            <p>Thank you for your purchase on inTesters.</p>
             <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <p><strong>Invoice ID:</strong> ${invoiceId}</p>
               <p><strong>Date:</strong> ${orderDate}</p>
@@ -630,7 +654,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
               <p><strong>Total Packages:</strong> ${result.wallet.totalPackages}</p>
             </div>
             <p>You can view your packages and transaction history in your wallet.</p>
-            <p>Thank you for choosing InTesters!</p>
+            <p>Thank you for choosing inTesters!</p>
           </div>
         `,
       });
@@ -689,7 +713,7 @@ export const getPaymentConfig = async (req: Request, res: Response) => {
         isConfigured: true,
         keyId: getRazorpayKeyId(),
         currency: "INR",
-        name: "InTesters",
+        name: "inTesters",
         description: "Testing Packages",
         image: "https://intesters.com/apple-icon.png",
         theme: {
@@ -810,16 +834,18 @@ export const handleWebhook = async (req: Request, res: Response) => {
         if (order && order.status !== "PAID") {
           const userId = order.userId;
 
-          await prismaClient.$transaction(async (tx) => {
-            const billingInfo = await tx.billingInfo.findUnique({
-              where: { userId },
-            });
+          const transactionDate = new Date();
+          await withRetry(() =>
+            prismaClient.$transaction(async (tx) => {
+              const billingInfo = await tx.billingInfo.findUnique({
+                where: { userId },
+              });
 
-            // Determine invoice type and tax
-            const customerCountry = billingInfo?.country || "India";
-            const customerState = billingInfo?.state || null;
-            const invoiceType = determineInvoiceType(customerCountry);
-            const invoiceNumber = await getNextInvoiceNumber(invoiceType);
+              // Determine invoice type and tax
+              const customerCountry = billingInfo?.country || "India";
+              const customerState = billingInfo?.state || null;
+              const invoiceType = determineInvoiceType(customerCountry);
+              const invoiceNumber = await getNextInvoiceNumber(invoiceType, tx, transactionDate);
             const amount = paymentData.amount;
             const currency = paymentData.currency;
             let amountInr = currency === "INR" ? amount : null;
@@ -869,7 +895,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
                 invoice_type: invoiceType,
           service_name: order.plan?.name || "Android App Closed Testing Package",
                 sac_code: COMPANY_DETAILS.sacCode,
-                period: formatPeriod(new Date()),
+          period: formatPeriod(transactionDate),
                 quantity: quantity,
                 unit_price: unitPrice,
                 tax_rate: taxInfo.taxRate,
@@ -911,12 +937,13 @@ export const handleWebhook = async (req: Request, res: Response) => {
                 paymentMethod: "PACKAGE",
               },
             });
-          });
-        }
+          })
+        );
       }
     }
+  }
 
-    return res.status(200).json({ status: "processed" });
+  return res.status(200).json({ status: "processed" });
   } catch (error) {
     logger.error("Webhook error:", error);
     return res.status(500).json({ error: "Internal server error" });
@@ -938,7 +965,7 @@ export const initiateRefund = async (req: Request, res: Response) => {
       where: { userId },
       include: { role: true },
     });
-    const isAdmin = userDetail?.role?.name === "admin";
+    const isAdmin = userDetail?.role?.name === "admin" || userDetail?.role?.name === "super_admin";
 
     const { paymentId, amount, reason } = req.body;
 

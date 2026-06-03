@@ -6,15 +6,6 @@ function serialize(obj: unknown) {
   return JSON.parse(JSON.stringify(obj));
 }
 
-function requireAdmin(req: Request, res: Response): boolean {
-  const adminRoles = ["admin", "super_admin"];
-  if (!adminRoles.includes(req.role || "")) {
-    sendError(res, 403, "Admin access required");
-    return false;
-  }
-  return true;
-}
-
 export async function getDeclaration(req: Request, res: Response) {
   try {
     const appId = req.params.appId as string;
@@ -243,8 +234,6 @@ export async function updateDeclaration(req: Request, res: Response) {
 
 export async function getAdminDeclaration(req: Request, res: Response) {
   try {
-    if (!requireAdmin(req, res)) return;
-
     const appId = req.params.appId as string;
     const appIdNum = parseInt(appId);
     if (isNaN(appIdNum)) return sendError(res, 400, "Invalid app ID");
@@ -357,8 +346,6 @@ export async function getAdminDeclaration(req: Request, res: Response) {
 
 export async function updateAdminDeclaration(req: Request, res: Response) {
   try {
-    if (!requireAdmin(req, res)) return;
-
     const appId = req.params.appId as string;
     const appIdNum = parseInt(appId);
     if (isNaN(appIdNum)) return sendError(res, 400, "Invalid app ID");
@@ -403,8 +390,6 @@ export async function updateAdminDeclaration(req: Request, res: Response) {
 
 export async function publishAdminDeclaration(req: Request, res: Response) {
   try {
-    if (!requireAdmin(req, res)) return;
-
     const appId = req.params.appId as string;
     const appIdNum = parseInt(appId);
     if (isNaN(appIdNum)) return sendError(res, 400, "Invalid app ID");

@@ -804,7 +804,7 @@ export const initiateRefund = async (req: Request, res: Response) => {
             include: { role: true },
         });
 
-        if (payment.order.userId !== userId && userDetail?.role?.name !== "admin") {
+        if (payment.order.userId !== userId && userDetail?.role?.name !== "admin" && userDetail?.role?.name !== "super_admin") {
             return sendError(res, 403, "Unauthorized");
         }
 

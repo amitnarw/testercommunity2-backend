@@ -5,11 +5,13 @@ declare module "better-auth" {
     role?: {
       name: string;
       permissions: {
-        id: number;
         moduleId: number;
-        canRead: boolean;
+        canReadList: boolean;
+        canReadSingle: boolean;
+        canCreate: boolean;
         canUpdate: boolean;
         canDelete: boolean;
+        module: { name: string };
       }[];
     };
   }

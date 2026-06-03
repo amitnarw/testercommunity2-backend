@@ -32,7 +32,7 @@ export const checkAuthorization =
 
       const hasPermission = role.permissions.some(
         (p) =>
-          p.module.name.toLowerCase() === module.toLowerCase() &&
+          p.module?.name?.toLowerCase() === module.toLowerCase() &&
           p[action as keyof typeof p] === true,
       );
 

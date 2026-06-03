@@ -957,20 +957,47 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
       },
     });
 
+    const parsedStatusDetails = JSON.parse(
+      JSON.stringify(hubAppDetails?.statusDetails),
+    ) as Record<string, unknown> | null;
+    if (parsedStatusDetails?.image) {
+      parsedStatusDetails.image = normalizeR2Url(
+        parsedStatusDetails.image as string,
+      );
+    }
+    if (parsedStatusDetails?.video) {
+      parsedStatusDetails.video = normalizeR2Url(
+        parsedStatusDetails.video as string,
+      );
+    }
+
     const result: any = {
       ...hubAppDetails,
-      statusDetails: JSON.parse(JSON.stringify(hubAppDetails?.statusDetails)),
+      statusDetails: parsedStatusDetails,
       testerRelations:
         hubAppDetails?.testerRelations &&
         hubAppDetails?.testerRelations?.length > 0
-          ? hubAppDetails?.testerRelations?.map((item) => ({
-              ...item,
-              statusDetails: JSON.parse(JSON.stringify(item?.statusDetails)),
-              dailyVerifications: item?.dailyVerifications?.map((item2) => ({
-                ...item2,
-                metaData: JSON.parse(JSON.stringify(item2?.metaData)),
-              })),
-            }))
+          ? hubAppDetails?.testerRelations?.map((item) => {
+              const parsed = JSON.parse(
+                JSON.stringify(item?.statusDetails),
+              ) as Record<string, unknown> | null;
+              if (parsed?.image) {
+                parsed.image = normalizeR2Url(parsed.image as string);
+              }
+              if (parsed?.video) {
+                parsed.video = normalizeR2Url(parsed.video as string);
+              }
+              return {
+                ...item,
+                statusDetails: parsed,
+                dailyVerifications: item?.dailyVerifications?.map(
+                  (item2) => ({
+                    ...item2,
+                    metaData: JSON.parse(JSON.stringify(item2?.metaData)),
+                  }),
+                ),
+              };
+            })
           : [],
     };
 
@@ -1350,10 +1377,10 @@ export const rejectSubmittedHubAppTestingRequest = async (
       description,
     };
     if (image) {
-      statusDetails["image"] = image;
+      statusDetails["image"] = normalizeR2Url(image);
     }
     if (video) {
-      statusDetails["video"] = video;
+      statusDetails["video"] = normalizeR2Url(video);
     }
 
     await prismaClient.$transaction(async (tx) => {
