@@ -101,7 +101,7 @@ async function setRoleCookie(
 ) {
   if (role) {
     const secret = process.env.BETTER_AUTH_SECRET!;
-    const payload = { role, initial, banned, ban_reason, applicationStatus };
+    const payload = { role: role?.name, initial, banned, ban_reason, applicationStatus };
 
     const token = await new SignJWT(payload)
       .setProtectedHeader({ alg: "HS256" })
@@ -133,7 +133,7 @@ export const auth = betterAuth({
   session: {
     expiresIn: 60 * 60 * 24 * 7,
     cookieCache: {
-      enabled: true,
+      enabled: false,
       maxAge: 60 * 60,
     },
   },
