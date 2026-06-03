@@ -35,7 +35,11 @@ async function withRetry<T>(
       if (attempt >= maxRetries - 1) throw error;
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         const target = error.meta?.target as string[] | undefined;
-        if (!Array.isArray(target) || !target.includes("invoice_number")) throw error;
+        const targetStr = Array.isArray(target) ? target.join(",") : "";
+        // Retry on any payment/invoice/order unique constraint collision
+        if (!targetStr.includes("invoice_number") && !targetStr.includes("invoiceId") && !targetStr.includes("razorpayPaymentId")) {
+          throw error;
+        }
         await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 100));
         continue;
       }
@@ -483,9 +487,22 @@ export const verifyPayment = async (req: Request, res: Response) => {
     }
 
     if (order.status === "PAID") {
+      const existingPayment = await prismaClient?.payment.findFirst({
+        where: { razorpayOrderId: razorpay_order_id },
+        orderBy: { createdAt: "desc" },
+        include: { invoice: true },
+      });
       return sendSuccess(
         res,
-        { alreadyProcessed: true },
+        {
+          success: true,
+          orderId: order.id,
+          paymentId: existingPayment?.id || null,
+          invoiceId: existingPayment?.invoice?.invoice_number || null,
+          packagesAwarded: 0,
+          totalPackages: 0,
+          alreadyProcessed: true,
+        },
         "Payment already processed",
       );
     }
@@ -498,6 +515,29 @@ export const verifyPayment = async (req: Request, res: Response) => {
     const transactionDate = new Date();
     const result = await withRetry(() =>
       prismaClient.$transaction(async (tx) => {
+        // 🔒 Serialise concurrent requests for this order
+        await tx.$executeRaw`SELECT id FROM "order" WHERE id = ${order.id} FOR UPDATE`;
+
+        // Idempotency check: if a payment record already exists, return early
+        const existingPayment = await tx.payment.findUnique({
+          where: { razorpayPaymentId: razorpay_payment_id },
+        });
+        if (existingPayment) {
+          const existingInvoice = await tx.invoice.findUnique({
+            where: { paymentId: existingPayment.id },
+          });
+          const existingWallet = await tx.userWallet.findUnique({
+            where: { userId },
+          });
+          return {
+            alreadyProcessed: true,
+            payment: existingPayment,
+            invoiceId: existingInvoice?.invoice_number || null,
+            packagesAwarded: 0,
+            wallet: existingWallet || { totalPackages: 0 },
+          };
+        }
+
         // Get user billing info for payment record
         const billingInfo = await tx.billingInfo.findUnique({
           where: { userId },
@@ -523,9 +563,13 @@ export const verifyPayment = async (req: Request, res: Response) => {
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 30);
 
-      // Create payment record
-      const payment = await tx.payment.create({
-        data: {
+      // Create payment record (upsert for safety)
+      const payment = await tx.payment.upsert({
+        where: { razorpayPaymentId: razorpay_payment_id },
+        update: {
+          status: paymentDetails.status === "captured" ? "CAPTURED" : "AUTHORIZED",
+        },
+        create: {
           orderId: order.id,
           userId: userId,
           razorpayPaymentId: razorpay_payment_id,
@@ -558,9 +602,11 @@ export const verifyPayment = async (req: Request, res: Response) => {
         },
       });
 
-      // Create Invoice record with all professional fields
-      await tx.invoice.create({
-        data: {
+      // Create Invoice record (upsert for safety)
+      await tx.invoice.upsert({
+        where: { paymentId: payment.id },
+        update: {},
+        create: {
           paymentId: payment.id,
           userId: userId,
           invoice_number: invoiceNumber,
@@ -628,9 +674,30 @@ export const verifyPayment = async (req: Request, res: Response) => {
         transaction,
         packagesAwarded: packagesToAward,
         invoiceId: invoiceNumber,
+        alreadyProcessed: false,
       };
     })
   );
+
+    // If another request already processed this payment, fetch current state
+    if (result.alreadyProcessed) {
+      const userWallet = await prismaClient?.userWallet.findUnique({
+        where: { userId },
+      });
+      return sendSuccess(
+        res,
+        {
+          success: true,
+          orderId: order.id,
+          paymentId: result.payment.id,
+          invoiceId: result.invoiceId,
+          packagesAwarded: result.packagesAwarded,
+          totalPackages: userWallet?.totalPackages || 0,
+          alreadyProcessed: true,
+        },
+        "Payment already processed",
+      );
+    }
 
     // Send receipt email
     const userEmail = paymentDetails.email || "";
@@ -837,6 +904,22 @@ export const handleWebhook = async (req: Request, res: Response) => {
           const transactionDate = new Date();
           await withRetry(() =>
             prismaClient.$transaction(async (tx) => {
+              // 🔒 Serialise concurrent requests for this order
+              await tx.$executeRaw`SELECT id FROM "order" WHERE id = ${order.id} FOR UPDATE`;
+
+              // Re-check order status inside the transaction (race condition guard)
+              const currentOrder = await tx.order.findUnique({
+                where: { id: order.id },
+                select: { id: true, status: true },
+              });
+              if (!currentOrder || currentOrder.status === "PAID") {
+                await tx.webhookEventLog.update({
+                  where: { eventId },
+                  data: { processed: true, processedAt: new Date() },
+                });
+                return;
+              }
+
               const billingInfo = await tx.billingInfo.findUnique({
                 where: { userId },
               });
@@ -936,6 +1019,12 @@ export const handleWebhook = async (req: Request, res: Response) => {
                 status: "CREDIT",
                 paymentMethod: "PACKAGE",
               },
+            });
+
+            // Mark webhook event as processed (atomic with payment)
+            await tx.webhookEventLog.update({
+              where: { eventId },
+              data: { processed: true, processedAt: new Date() },
             });
           })
         );

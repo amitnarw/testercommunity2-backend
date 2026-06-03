@@ -5,6 +5,9 @@ import {
   getFinanceInvoices,
   getUserInvoices,
   updateInvoice,
+  getInvoicePreview,
+  generateDemoPayment,
+  createInvoice,
   getFinanceRefunds,
   getFinanceWithdrawals,
   approveWithdrawal,
@@ -30,6 +33,9 @@ router.get("/payments", checkAuthorization({ module: "finance", action: "canRead
 router.get("/invoices", checkAuthorization({ module: "finance", action: "canReadList" }), getFinanceInvoices);
 router.get("/invoices/user/:userId", checkAuthorization({ module: "finance", action: "canReadSingle" }), getUserInvoices);
 router.post("/invoices/update", checkAuthorization({ module: "finance", action: "canUpdate" }), decryptPayload, updateInvoice);
+router.get("/invoices/preview/:userId", checkAuthorization({ module: "finance", action: "canReadSingle" }), getInvoicePreview);
+router.post("/invoices/demo-payment", checkAuthorization({ module: "finance", action: "canUpdate" }), decryptPayload, generateDemoPayment);
+router.post("/invoices/create", checkAuthorization({ module: "finance", action: "canUpdate" }), decryptPayload, createInvoice);
 router.get("/refunds", checkAuthorization({ module: "finance", action: "canReadList" }), getFinanceRefunds);
 router.get("/withdrawals", checkAuthorization({ module: "finance", action: "canReadList" }), getFinanceWithdrawals);
 router.post("/withdrawals/:id/approve", checkAuthorization({ module: "finance", action: "canUpdate" }), approveWithdrawal);

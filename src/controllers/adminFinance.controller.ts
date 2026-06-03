@@ -2,7 +2,14 @@ import { prismaClient } from "@/lib/prisma";
 import { sendError, sendSuccess } from "@/utils/response";
 import { type Request, type Response } from "express";
 import logger from "../utils/logger";
-import { amountToWords } from "@/utils/invoice.utils";
+import {
+  amountToWords,
+  getNextInvoiceNumber,
+  calculateTax,
+  determineInvoiceType,
+  formatPeriod,
+  COMPANY_DETAILS,
+} from "@/utils/invoice.utils";
 
 const qs = (val: any): string | undefined =>
   typeof val === "string" ? val : undefined;
@@ -462,6 +469,283 @@ export const updateInvoice = async (req: Request, res: Response) => {
   } catch (error) {
     logger.error("Error in updateInvoice:", error);
     return sendError(res, 500, "Failed to update invoice");
+  }
+};
+
+export const getInvoicePreview = async (req: Request, res: Response) => {
+  try {
+    const userId = req.params.userId as string;
+    if (!userId) return sendError(res, 400, "User ID is required");
+
+    const user = await prismaClient.user.findUnique({
+      where: { id: userId },
+      include: { billingInfo: true, userDetail: true },
+    });
+    if (!user) return sendError(res, 404, "User not found");
+
+    const typeParam = qs(req.query.type);
+    const invoiceType: "IND" | "EXP" =
+      typeParam === "IND" || typeParam === "EXP"
+        ? typeParam
+        : determineInvoiceType(user.billingInfo?.country || "India");
+
+    const invoiceNumber = await getNextInvoiceNumber(invoiceType);
+
+    const state = user.billingInfo?.state || user.userDetail?.country || "";
+    const taxPreview = calculateTax(0, invoiceType, state);
+
+    const now = new Date();
+    const dueDate = new Date(now);
+    dueDate.setDate(dueDate.getDate() + 30);
+
+    const orphanPayments = await prismaClient.payment.findMany({
+      where: {
+        userId,
+        invoice: null,
+        status: "CAPTURED",
+      },
+      select: {
+        id: true,
+        razorpayPaymentId: true,
+        amount: true,
+        currency: true,
+        method: true,
+        createdAt: true,
+        order: {
+          select: { packageCount: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const period = formatPeriod(now);
+
+    return sendSuccess(res, {
+      preview: {
+        invoice_number: invoiceNumber,
+        invoice_type: invoiceType,
+        service_name: "Android App Closed Testing Package",
+        sac_code: COMPANY_DETAILS.sacCode,
+        period,
+        quantity: 1,
+        unit_price: 0,
+        due_date: dueDate.toISOString().split("T")[0],
+        place_of_supply: taxPreview.placeOfSupply,
+        supply_type: taxPreview.supplyType,
+        tax_rate: taxPreview.taxRate,
+        cgst_amount: taxPreview.cgstAmount,
+        sgst_amount: taxPreview.sgstAmount,
+        igst_amount: taxPreview.igstAmount,
+        amount_in_words: amountToWords(0, "INR"),
+        lut_number: COMPANY_DETAILS.lutNumber,
+      },
+      orphanPayments,
+    });
+  } catch (error) {
+    logger.error("Error in getInvoicePreview:", error);
+    return sendError(res, 500, "Failed to fetch invoice preview");
+  }
+};
+
+export const generateDemoPayment = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    if (!payload || !payload.userId) {
+      return sendError(res, 400, "User ID is required");
+    }
+
+    const { userId, amount, currency = "INR", quantity = 1 } = payload;
+
+    const user = await prismaClient.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true, userDetail: { select: { phone: true } } },
+    });
+    if (!user) return sendError(res, 404, "User not found");
+
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const demoOrderId = `DEMO_ORDER_${timestamp}_${random}`;
+    const demoReceipt = `DEMO_RECEIPT_${timestamp}_${random}`;
+
+    const result = await prismaClient.$transaction(async (tx) => {
+      const order = await tx.order.create({
+        data: {
+          userId,
+          amount: Math.round(amount),
+          currency,
+          status: "PAID",
+          packageCount: Math.max(1, Math.round(quantity)),
+          razorpayOrderId: demoOrderId,
+          receipt: demoReceipt,
+        },
+      });
+
+      const demoPaymentId = `DEMO_PAY_${timestamp}_${random}`;
+      const payment = await tx.payment.create({
+        data: {
+          orderId: order.id,
+          userId,
+          amount: Math.round(amount),
+          amount_inr: Math.round(amount),
+          currency,
+          status: "CAPTURED",
+          method: "manual",
+          captured: true,
+          razorpayPaymentId: demoPaymentId,
+          razorpayOrderId: demoOrderId,
+          customer_name: user.name || null,
+          customer_email: user.email || null,
+          contact: user.userDetail?.phone || null,
+          fee: 0,
+          tax: 0,
+          amountRefunded: 0,
+          refundStatus: "NONE",
+        },
+      });
+
+      return { payment, order };
+    });
+
+    return sendSuccess(
+      res,
+      {
+        paymentId: result.payment.id,
+        orderId: result.order.id,
+        razorpayPaymentId: result.payment.razorpayPaymentId,
+        amount: result.payment.amount,
+        currency: result.payment.currency,
+      },
+      "Demo payment generated successfully"
+    );
+  } catch (error) {
+    logger.error("Error in generateDemoPayment:", error);
+    return sendError(res, 500, "Failed to generate demo payment");
+  }
+};
+
+export const createInvoice = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    if (!payload) return sendError(res, 400, "Payload is required");
+    if (!payload.userId) return sendError(res, 400, "User ID is required");
+    if (!payload.paymentId) return sendError(res, 400, "Payment ID is required");
+
+    const user = await prismaClient.user.findUnique({
+      where: { id: payload.userId },
+      include: { billingInfo: true, userDetail: true },
+    });
+    if (!user) return sendError(res, 404, "User not found");
+
+    const payment = await prismaClient.payment.findUnique({
+      where: { id: payload.paymentId },
+      include: { invoice: true, order: true },
+    });
+    if (!payment) return sendError(res, 404, "Payment not found");
+    if (payment.userId !== payload.userId) {
+      return sendError(res, 403, "Payment does not belong to this user");
+    }
+    if (payment.invoice) {
+      return sendError(res, 409, "Payment already has an invoice linked");
+    }
+
+    const isDemoPayment = payment.razorpayPaymentId.startsWith("DEMO_");
+
+    const result = await prismaClient.$transaction(async (tx) => {
+      let invoiceNumber = payload.invoice_number;
+
+      if (!invoiceNumber) {
+        invoiceNumber = await getNextInvoiceNumber(
+          payload.invoice_type as "IND" | "EXP",
+          tx
+        );
+      } else {
+        const existing = await tx.invoice.findUnique({
+          where: { invoice_number: invoiceNumber },
+        });
+        if (existing) {
+          invoiceNumber = await getNextInvoiceNumber(
+            payload.invoice_type as "IND" | "EXP",
+            tx
+          );
+        }
+      }
+
+      const unitPrice = Math.max(0, Math.round(payload.unit_price || 0));
+      const quantity = Math.max(1, Math.round(payload.quantity || 1));
+      const baseAmount = unitPrice * quantity;
+
+      const state = user.billingInfo?.state || user.userDetail?.country || "";
+      const invoiceType: "IND" | "EXP" =
+        payload.invoice_type === "IND" || payload.invoice_type === "EXP"
+          ? payload.invoice_type
+          : determineInvoiceType(user.billingInfo?.country || "India");
+
+      const taxInfo = calculateTax(baseAmount, invoiceType, state);
+
+      if (isDemoPayment) {
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: {
+            amount: baseAmount,
+            amount_inr: baseAmount,
+            currency: payment.currency,
+          },
+        });
+        await tx.order.update({
+          where: { id: payment.orderId },
+          data: {
+            amount: baseAmount,
+            packageCount: quantity,
+          },
+        });
+      }
+
+      const cgst = taxInfo.cgstAmount;
+      const sgst = taxInfo.sgstAmount;
+      const igst = taxInfo.igstAmount;
+      const taxRate = taxInfo.taxRate;
+      const grandTotal = baseAmount + cgst + sgst + igst;
+
+      let amountInWords = payload.amount_in_words || amountToWords(grandTotal, payment.currency || "INR");
+
+      const invoiceData: any = {
+        paymentId: payment.id,
+        userId: payload.userId,
+        invoice_number: invoiceNumber,
+        invoice_type: invoiceType,
+        service_name: payload.service_name || "Android App Closed Testing Package",
+        sac_code: payload.sac_code || COMPANY_DETAILS.sacCode,
+        period: payload.period || formatPeriod(new Date()),
+        quantity,
+        unit_price: unitPrice,
+        tax_rate: taxRate,
+        cgst_amount: cgst,
+        sgst_amount: sgst,
+        igst_amount: igst,
+        place_of_supply: payload.place_of_supply || taxInfo.placeOfSupply,
+        supply_type: payload.supply_type || taxInfo.supplyType,
+        amount_in_words: amountInWords,
+        lut_number: payload.lut_number || COMPANY_DETAILS.lutNumber,
+      };
+
+      if (payload.due_date) {
+        invoiceData.due_date = new Date(payload.due_date);
+      }
+
+      const invoice = await tx.invoice.create({ data: invoiceData });
+
+      await tx.order.update({
+        where: { id: payment.orderId },
+        data: { invoiceId: invoiceNumber },
+      });
+
+      return invoice;
+    });
+
+    return sendSuccess(res, result as any, "Invoice created successfully");
+  } catch (error) {
+    logger.error("Error in createInvoice:", error);
+    return sendError(res, 500, "Failed to create invoice");
   }
 };
 
