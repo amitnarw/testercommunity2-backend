@@ -9,52 +9,65 @@ import { SignJWT } from "jose";
 import logger from "../utils/logger";
 
 const rolePlugin = customSession(async ({ user, session }, ctx) => {
-  const userDetail = await prismaClient?.userDetail?.findUnique({
-    where: {
-      userId: session?.userId,
-    },
-    select: {
-      initial: true,
-      banned: true,
-      ban_reason: true,
-      application_status: true,
-      role: {
-        select: {
-          name: true,
-          permissions: {
-            select: {
-              moduleId: true,
-              canReadList: true,
-              canReadSingle: true,
-              canCreate: true,
-              canUpdate: true,
-              canDelete: true,
-              module: {
-                select: { name: true },
+  try {
+    const userDetail = await prismaClient?.userDetail?.findUnique({
+      where: {
+        userId: session?.userId,
+      },
+      select: {
+        initial: true,
+        banned: true,
+        ban_reason: true,
+        application_status: true,
+        role: {
+          select: {
+            name: true,
+            permissions: {
+              select: {
+                moduleId: true,
+                canReadList: true,
+                canReadSingle: true,
+                canCreate: true,
+                canUpdate: true,
+                canDelete: true,
+                module: {
+                  select: { name: true },
+                },
               },
             },
           },
         },
       },
-    },
-  });
-  await setRoleCookie(
-    ctx,
-    userDetail?.role,
-    userDetail?.initial || false,
-    userDetail?.banned || false,
-    userDetail?.ban_reason || null,
-    userDetail?.application_status || null,
-  );
-  return {
-    role: userDetail?.role,
-    initial: userDetail?.initial,
-    banned: userDetail?.banned,
-    ban_reason: userDetail?.ban_reason,
-    applicationStatus: userDetail?.application_status,
-    user,
-    session,
-  };
+    });
+    await setRoleCookie(
+      ctx,
+      userDetail?.role,
+      userDetail?.initial || false,
+      userDetail?.banned || false,
+      userDetail?.ban_reason || null,
+      userDetail?.application_status || null,
+    );
+    return {
+      role: userDetail?.role,
+      initial: userDetail?.initial,
+      banned: userDetail?.banned,
+      ban_reason: userDetail?.ban_reason,
+      applicationStatus: userDetail?.application_status,
+      user,
+      session,
+    };
+  } catch (error) {
+    logger.error("rolePlugin error during get-session", error);
+    return {
+      role: null,
+      initial: false,
+      banned: false,
+      ban_reason: null,
+      applicationStatus: null,
+      user,
+      session,
+    };
+  }
 });
 
 const isProduction = process.env.NODE_ENV === "production";
