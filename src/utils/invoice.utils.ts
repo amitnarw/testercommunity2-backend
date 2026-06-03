@@ -1,5 +1,16 @@
 import { prismaClient, Prisma } from "@/lib/prisma";
 
+/**
+ * INVOICE NUMBER FORMAT
+ * Format: GXITIND25J0012
+ * - GXIT  = fixed prefix
+ * - IND   = type (IND for India, EXP for foreign)
+ * - 25    = fiscal year start (Apr-Mar). Eg: FY 2025-26 → 25
+ * - J     = month letter (A=Jan, B=Feb, C=Mar, D=Apr, E=May, F=Jun,
+ *           G=Jul, H=Aug, I=Sep, J=Oct, K=Nov, L=Dec)
+ * - 0012  = 4-digit auto-incrementing sequence per prefix
+ */
+
 const ONES = [
   "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
   "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
