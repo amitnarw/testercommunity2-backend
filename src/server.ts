@@ -65,6 +65,15 @@ app.get("/health", (_, res) => {
   return sendSuccess(res, null, "Server is running");
 });
 
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (err?.code === "P2025") {
+    logger.warn("Prisma P2025: Record not found", { model: err?.meta?.modelName });
+    return res.status(200).json({ message: "Operation completed" });
+  }
+  logger.error("Unhandled error", err);
+  return res.status(500).json({ error: "Internal server error" });
+});
+
 const { httpServer } = createSocketServer(app);
 
 httpServer.listen(PORT, () => {
