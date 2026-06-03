@@ -15,7 +15,7 @@ const professionalPathFeatures: string[] = [
 const plans = [
   {
     id: "1",
-    name: "Professional",
+    name: "App Testing",
     price: 999,
     package: 1,
     features: professionalPathFeatures,

@@ -524,7 +524,7 @@ export const getInvoicePreview = async (req: Request, res: Response) => {
       preview: {
         invoice_number: invoiceNumber,
         invoice_type: invoiceType,
-        service_name: "Android App Closed Testing Package",
+        service_name: "Android App Testing Package",
         sac_code: COMPANY_DETAILS.sacCode,
         period,
         quantity: 1,
@@ -713,7 +713,7 @@ export const createInvoice = async (req: Request, res: Response) => {
         userId: payload.userId,
         invoice_number: invoiceNumber,
         invoice_type: invoiceType,
-        service_name: payload.service_name || "Android App Closed Testing Package",
+        service_name: payload.service_name || "Android App Testing Package",
         sac_code: payload.sac_code || COMPANY_DETAILS.sacCode,
         period: payload.period || formatPeriod(new Date()),
         quantity,
