@@ -120,7 +120,7 @@ export const auth = betterAuth({
   session: {
     expiresIn: 60 * 60 * 24 * 7,
     cookieCache: {
-      enabled: false,
+      enabled: true,
       maxAge: 60 * 60,
     },
   },
