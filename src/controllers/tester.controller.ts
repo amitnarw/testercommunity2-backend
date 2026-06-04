@@ -137,7 +137,7 @@ export const getTesterProjects = async (req: Request, res: Response) => {
 
 export const rateApp = async (req: Request, res: Response) => {
   try {
-    const { appId, rating } = req.body;
+    const { appId, rating } = req.body.payload || req.body;
 
     if (!appId || rating === undefined) {
       return sendError(res, 400, "App ID and rating are required");

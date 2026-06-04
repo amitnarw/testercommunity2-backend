@@ -904,6 +904,19 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
           include: {
             appCategory: true,
             ratings: true,
+            reviews: {
+              include: {
+                user: {
+                  select: {
+                    name: true,
+                    image: true,
+                  },
+                },
+              },
+              orderBy: {
+                createdAt: "desc",
+              },
+            },
           },
         },
         appOwner: true,
@@ -2068,6 +2081,80 @@ export const validatePromoCode = async (req: Request, res: Response) => {
       actorRole: req?.role as string,
       module: "hub",
       action: "validatePromoCode",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+export const startTestingHubApp = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    if (!payload?.appId) {
+      return sendError(res, 400, "App ID is required");
+    }
+
+    const { appId } = payload;
+    const userId = req.userId;
+
+    const app = await prismaClient.dashboardAndHub.findFirst({
+      where: {
+        id: Number(appId),
+        appOwnerId: userId,
+      },
+      include: {
+        androidApp: true,
+      },
+    });
+
+    if (!app) {
+      return sendError(res, 404, "App not found or you are not the owner");
+    }
+
+    if (app.status === "IN_TESTING") {
+      return sendSuccess(res, null, "App is already in testing");
+    }
+
+    if (app.status !== "AVAILABLE") {
+      return sendError(
+        res,
+        400,
+        `Cannot start testing when app status is ${app.status}`,
+      );
+    }
+
+    const now = new Date();
+    const updatedApp = await prismaClient.dashboardAndHub.update({
+      where: { id: app.id },
+      data: {
+        status: "IN_TESTING",
+        testingStartDate: now,
+        testingEndDate: new Date(
+          now.getTime() + (app.totalDay || 14) * 24 * 60 * 60 * 1000
+        ),
+      },
+    });
+
+    return sendSuccess(
+      res,
+      updatedApp as any,
+      "App testing started successfully",
+    );
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "hub",
+      action: "startTestingHubApp",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",

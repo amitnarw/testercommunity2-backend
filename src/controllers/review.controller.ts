@@ -11,19 +11,36 @@ export const createReview = async (req: Request, res: Response) => {
     if (!userId) return sendError(res, 401, "Unauthorized");
     if (!rating || !comment) return sendError(res, 400, "Rating and comment are required");
 
+    let status: "PENDING" | "APPROVED" = "PENDING";
+    let isPublished = false;
+
+    if (appId) {
+      const project = await prismaClient.dashboardAndHub.findUnique({
+        where: { appId: Number(appId) },
+      });
+      if (project && project.appOwnerId === userId) {
+        status = "APPROVED";
+        isPublished = true;
+      }
+    }
+
     const review = await prismaClient.review.create({
       data: {
         userId,
         rating: Number(rating),
         comment,
         appId: appId ? Number(appId) : null,
-        status: "PENDING",
-        isPublished: false,
+        status,
+        isPublished,
       },
       include: { user: { select: { id: true, name: true, image: true } } },
     });
 
-    return sendSuccess(res, review, "Review submitted successfully. Pending admin approval.");
+    const msg = status === "APPROVED" 
+      ? "Review submitted successfully." 
+      : "Review submitted successfully. Pending admin approval.";
+
+    return sendSuccess(res, review, msg);
   } catch (error) {
     return sendError(res, 500, error instanceof Error ? error.message : "Internal Server Error");
   }
@@ -191,7 +208,18 @@ export const getPublishedReviews = async (req: Request, res: Response) => {
       },
       include: {
         user: { select: { id: true, name: true, image: true } },
-        androidApp: { select: { id: true, appName: true } },
+        androidApp: {
+          select: {
+            id: true,
+            appName: true,
+            packageName: true,
+            dashboardAndHubs: {
+              select: {
+                appOwnerId: true,
+              },
+            },
+          },
+        },
       },
       orderBy: { createdAt: "desc" },
     });

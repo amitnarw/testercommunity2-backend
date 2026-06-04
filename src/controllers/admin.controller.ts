@@ -341,12 +341,30 @@ export const updateProjectStatus = async (req: Request, res: Response) => {
       return sendError(res, 400, "Status is required");
     }
 
+    const app = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: parseInt(id) },
+    });
+
+    if (!app) {
+      return sendError(res, 404, "App not found");
+    }
+
+    const updateData: any = {
+      status: status,
+      ...(status === "IN_REVIEW" ? { statusDetails: Prisma.DbNull } : {}),
+    };
+
+    if (status === "IN_TESTING" && !app.testingStartDate) {
+      const now = new Date();
+      updateData.testingStartDate = now;
+      updateData.testingEndDate = new Date(
+        now.getTime() + (app.totalDay || 14) * 24 * 60 * 60 * 1000
+      );
+    }
+
     const updatedApp = await prismaClient.dashboardAndHub.update({
       where: { id: parseInt(id) },
-      data: {
-        status: status,
-        ...(status === "IN_REVIEW" ? { statusDetails: Prisma.DbNull } : {}),
-      },
+      data: updateData,
     });
 
     return sendSuccess(
