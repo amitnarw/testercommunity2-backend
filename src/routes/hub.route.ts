@@ -19,6 +19,7 @@ import {
   rejectSubmittedHubAppTestingRequest,
   submitDailyVerification,
   completeHostedApp,
+  startTestingHubApp,
 } from "@/controllers/hub.controller";
 import { decryptPayload } from "@/middlewares/decyptPayload";
 
@@ -73,6 +74,13 @@ router.post(
   checkAuthentication,
   decryptPayload,
   completeHostedApp,
+);
+
+router.post(
+  "/start-testing",
+  checkAuthentication,
+  decryptPayload,
+  startTestingHubApp,
 );
 
 // Feedback
