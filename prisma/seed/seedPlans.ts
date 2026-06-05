@@ -4,8 +4,9 @@ import { prismaClient } from "../../src/lib/prisma";
 const prisma = prismaClient;
 
 const professionalPathFeatures: string[] = [
-  "14-Day Testing Cycle",
-  "20+ Vetted Testers",
+  "15-20 Days Testing Cycle",
+  "15-25 Vetted Testers",
+  "Google Play Production Answers",
   "Managed by inTesters Team",
   "Detailed Bug Reports",
   "Device & OS Coverage Stats",
