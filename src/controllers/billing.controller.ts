@@ -550,16 +550,32 @@ export const verifyPayment = async (req: Request, res: Response) => {
         const invoiceNumber = await getNextInvoiceNumber(invoiceType, tx, transactionDate);
 
       // Calculate amount in INR (simplistic for now)
-      const amount = typeof paymentDetails.amount === "string"
+      const totalPaid = typeof paymentDetails.amount === "string"
         ? parseInt(paymentDetails.amount)
         : (paymentDetails.amount as number);
       const currency = paymentDetails.currency;
-      let amountInr = currency === "INR" ? amount : null;
+      let amountInr = currency === "INR" ? totalPaid : null;
 
-      // Calculate tax and invoice fields
-      const taxInfo = calculateTax(amount, invoiceType, customerState);
+      // Back-calculate base price (pre-GST) from the total the customer paid
       const quantity = order.packageCount || order.plan?.package || 1;
-      const unitPrice = Math.round(amount / quantity);
+      const taxPreview = calculateTax(totalPaid, invoiceType, customerState);
+      const divisor = (100 + taxPreview.taxRate) / 100;
+      const baseAmount = invoiceType === "EXP" ? totalPaid : Math.round(totalPaid / divisor);
+
+      let taxInfo = calculateTax(baseAmount, invoiceType, customerState);
+
+      // Rounding adjustment: make base + tax match the exact amount collected
+      const computedTotal = baseAmount + taxInfo.cgstAmount + taxInfo.sgstAmount + taxInfo.igstAmount;
+      const roundingDiff = totalPaid - computedTotal;
+      if (roundingDiff !== 0) {
+        if (taxInfo.igstAmount > 0) {
+          taxInfo.igstAmount += roundingDiff;
+        } else {
+          taxInfo.sgstAmount += roundingDiff;
+        }
+      }
+
+      const unitPrice = Math.round(baseAmount / quantity);
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 30);
 
@@ -575,7 +591,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
           razorpayPaymentId: razorpay_payment_id,
           razorpayOrderId: razorpay_order_id,
           razorpaySignature: razorpay_signature,
-          amount: amount,
+          amount: totalPaid,
           currency: currency,
           amount_inr: amountInr,
           customer_name: billingInfo?.name || null,
@@ -623,7 +639,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
           due_date: dueDate,
           place_of_supply: taxInfo.placeOfSupply,
           supply_type: taxInfo.supplyType,
-          amount_in_words: amountToWords(amount + taxInfo.cgstAmount + taxInfo.sgstAmount + taxInfo.igstAmount, currency),
+          amount_in_words: amountToWords(totalPaid, currency),
           lut_number: COMPANY_DETAILS.lutNumber || null,
         },
       });
@@ -929,13 +945,30 @@ export const handleWebhook = async (req: Request, res: Response) => {
               const customerState = billingInfo?.state || null;
               const invoiceType = determineInvoiceType(customerCountry);
               const invoiceNumber = await getNextInvoiceNumber(invoiceType, tx, transactionDate);
-            const amount = paymentData.amount;
+            const totalPaid = paymentData.amount;
             const currency = paymentData.currency;
-            let amountInr = currency === "INR" ? amount : null;
+            let amountInr = currency === "INR" ? totalPaid : null;
 
-            const taxInfo = calculateTax(amount, invoiceType, customerState);
+            // Back-calculate base price (pre-GST) from the total the customer paid
             const quantity = order.packageCount || order.plan?.package || 1;
-            const unitPrice = Math.round(amount / quantity);
+            const taxPreview = calculateTax(totalPaid, invoiceType, customerState);
+            const divisor = (100 + taxPreview.taxRate) / 100;
+            const baseAmount = invoiceType === "EXP" ? totalPaid : Math.round(totalPaid / divisor);
+
+            let taxInfo = calculateTax(baseAmount, invoiceType, customerState);
+
+            // Rounding adjustment: make base + tax match the exact amount collected
+            const computedTotal = baseAmount + taxInfo.cgstAmount + taxInfo.sgstAmount + taxInfo.igstAmount;
+            const roundingDiff = totalPaid - computedTotal;
+            if (roundingDiff !== 0) {
+              if (taxInfo.igstAmount > 0) {
+                taxInfo.igstAmount += roundingDiff;
+              } else {
+                taxInfo.sgstAmount += roundingDiff;
+              }
+            }
+
+            const unitPrice = Math.round(baseAmount / quantity);
             const dueDate = new Date();
             dueDate.setDate(dueDate.getDate() + 30);
 
@@ -954,7 +987,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
                 userId: userId,
                 razorpayPaymentId: paymentData.id,
                 razorpayOrderId: paymentData.order_id,
-                amount: amount,
+          amount: totalPaid,
                 currency: currency,
                 amount_inr: amountInr,
                 customer_name: billingInfo?.name || null,
@@ -988,7 +1021,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
                 due_date: dueDate,
                 place_of_supply: taxInfo.placeOfSupply,
                 supply_type: taxInfo.supplyType,
-                amount_in_words: amountToWords(amount + taxInfo.cgstAmount + taxInfo.sgstAmount + taxInfo.igstAmount, currency),
+          amount_in_words: amountToWords(totalPaid, currency),
                 lut_number: COMPANY_DETAILS.lutNumber || null,
               },
             });

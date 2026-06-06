@@ -1,4 +1,5 @@
 import { type Request, type Response } from "express";
+import { type DashboardAndHubStatus } from "@prisma/client";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient } from "@/lib/prisma";
@@ -433,14 +434,23 @@ export const getDashboardApps = async (req: Request, res: Response) => {
       return sendError(res, 400, "Type is required");
     }
 
-    const typeArray = (type as string).split(",");
+    const VALID_STATUSES = ["IN_REVIEW", "DRAFT", "REJECTED", "IN_TESTING", "COMPLETED", "ON_HOLD", "REQUESTED", "AVAILABLE"] as const;
+
+    const typeArray = (type as string)
+      .split(",")
+      .map((s) => (s.trim() === "ACCEPTED" ? "AVAILABLE" : s.trim()))
+      .filter((s): s is DashboardAndHubStatus => VALID_STATUSES.includes(s as any));
+
+    if (typeArray.length === 0) {
+      return sendError(res, 400, "No valid statuses provided");
+    }
 
     const apps = await prismaClient.dashboardAndHub.findMany({
       where: {
         appOwnerId: userId,
         appType: "PAID", // Corrected enum value based on schema
         status: {
-          in: typeArray as any[],
+          in: typeArray,
         },
       },
       include: {

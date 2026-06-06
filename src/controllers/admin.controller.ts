@@ -1057,6 +1057,8 @@ export const getUserById = async (req: Request, res: Response) => {
       totalPublishedApps: user.userDetail?.total_published_apps || null,
       platformDevelopment: user.userDetail?.platform_development || null,
       publishFrequency: user.userDetail?.publish_frequency || null,
+      discoverySource: user.userDetail?.discovery_source || null,
+      discoverySourceAnswered: user.userDetail?.discovery_source_answered || false,
       serviceUsage: user.userDetail?.service_usage || null,
       communicationMethods: user.userDetail?.communication_methods || [],
       bio: user.userDetail?.bio || null,
@@ -1591,6 +1593,31 @@ export const getUserCounts = async (req: Request, res: Response) => {
       formattedCounts,
       "User counts fetched successfully",
     );
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const getDiscoverySourceCounts = async (req: Request, res: Response) => {
+  try {
+    const sources = await prismaClient.userDetail.groupBy({
+      by: ["discovery_source"],
+      _count: { _all: true },
+      where: { discovery_source: { not: null }, discovery_source_answered: true },
+    });
+
+    const formatted = sources
+      .filter((s) => s.discovery_source)
+      .map((s) => ({
+        source: s.discovery_source!.replace(/_/g, " "),
+        count: s._count._all,
+      }));
+
+    return sendSuccess(res, formatted, "Discovery source counts fetched successfully");
   } catch (error) {
     return sendError(
       res,
