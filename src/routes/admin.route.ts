@@ -21,6 +21,7 @@ import {
   updateUserWallet,
   deleteUser,
   getUserCounts,
+  getDiscoverySourceCounts,
   getUserNotificationsById,
   createUser,
   convertUserAuthType,
@@ -146,6 +147,7 @@ router.delete("/feedback/:id", checkAuthorization({ module: "feedback", action: 
 // Users
 router.get("/users", checkAuthorization({ module: "users", action: "canReadList" }), getAllUsers);
 router.get("/users/counts", checkAuthorization({ module: "users", action: "canReadList" }), getUserCounts);
+router.get("/users/discovery-source", checkAuthorization({ module: "users", action: "canReadList" }), getDiscoverySourceCounts);
 router.get("/users/notifications/:id", checkAuthorization({ module: "users", action: "canReadSingle" }), getUserNotificationsById);
 router.get("/users/:id", checkAuthorization({ module: "users", action: "canReadSingle" }), getUserById);
 router.post("/users", checkAuthorization({ module: "users", action: "canCreate" }), decryptPayload, createUser);

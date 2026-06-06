@@ -97,16 +97,27 @@ function convertWesternAmount(amount: number): string {
 
 export function amountToWords(amountInSmallestUnit: number, currency: string = "INR"): string {
   const isINR = currency.toUpperCase() === "INR";
-  const amount = isINR ? Math.floor(amountInSmallestUnit / 100) : Math.floor(amountInSmallestUnit / 100);
+  const prefix = isINR ? "Rupees" : "US Dollars";
+  const fractionalName = isINR ? "Paise" : "Cents";
 
-  if (amount === 0) {
-    const prefix = isINR ? "Rupees" : "US Dollars";
+  const mainAmount = Math.floor(amountInSmallestUnit / 100);
+  const fractionalAmount = amountInSmallestUnit % 100;
+
+  if (mainAmount === 0 && fractionalAmount === 0) {
     return `${prefix} Zero Only`;
   }
 
-  const words = isINR ? convertIndianAmount(amount) : convertWesternAmount(amount);
-  const prefix = isINR ? "Rupees" : "US Dollars";
-  return `${prefix} ${words} Only`;
+  const parts: string[] = [];
+  if (mainAmount > 0) {
+    const mainWords = isINR ? convertIndianAmount(mainAmount) : convertWesternAmount(mainAmount);
+    parts.push(`${prefix} ${mainWords}`);
+  }
+  if (fractionalAmount > 0) {
+    const fracWords = isINR ? convertIndianAmount(fractionalAmount) : convertWesternAmount(fractionalAmount);
+    parts.push(`${fractionalName} ${fracWords}`);
+  }
+
+  return parts.join(" and ") + " Only";
 }
 
 function getFiscalYearStartYY(date?: Date): string {
