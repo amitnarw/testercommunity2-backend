@@ -1,3 +1,9 @@
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "public";
+
+-- CreateEnum
+CREATE TYPE "BlogCategory" AS ENUM ('AUTOMATION', 'UI_UX', 'SECURITY', 'AI', 'MOBILE', 'DEVOPS', 'GENERAL');
+
 -- CreateEnum
 CREATE TYPE "UserAuthType" AS ENUM ('EMAIL_PASSWORD', 'GOOGLE');
 
@@ -8,7 +14,7 @@ CREATE TYPE "UserProfileType" AS ENUM ('INDIVIDUAL', 'COMPANY', 'AGENCY', 'CLIEN
 CREATE TYPE "UserJobRole" AS ENUM ('DEVELOPER', 'QA_TESTER', 'PRODUCT_MANAGER', 'DESIGNER', 'BUSINESS_OWNER', 'MARKETING', 'SALES', 'PROJECT_MANAGER', 'STUDENT', 'HOBBYIST', 'AGENCY', 'OTHER');
 
 -- CreateEnum
-CREATE TYPE "UserCompanySize" AS ENUM ('SIZE_1', 'SIZE_2_10', 'SIZE_11_50', 'SIZE_51_200', 'SIZE_201_500', 'SIZE_501_1000', 'SIZE_1001_5000', 'SIZE_5001_10000', 'SIZE_10000_PLUS');
+CREATE TYPE "UserCompanySize" AS ENUM ('SIZE_1', 'SIZE_2_10', 'SIZE_11_50', 'SIZE_51_200', 'SIZE_201_500', 'SIZE_501_1000', 'SIZE_1001_5000', 'SIZE_10000_PLUS');
 
 -- CreateEnum
 CREATE TYPE "UserCompanyPosition" AS ENUM ('FOUNDER_CEO', 'CTO_TECH_LEAD', 'PRODUCT_MANAGER', 'PROJECT_MANAGER', 'SOFTWARE_ENGINEER', 'QA_TESTER', 'DESIGNER', 'MARKETING', 'SALES_BUSINESS_DEV', 'OPERATIONS_ADMIN', 'CUSTOMER_SUPPORT', 'OTHER');
@@ -41,6 +47,9 @@ CREATE TYPE "TesterAvailability" AS ENUM ('AVAILABLE', 'BUSY', 'AWAY', 'DO_NOT_D
 CREATE TYPE "TesterStatus" AS ENUM ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'DROPPED', 'REMOVED', 'REJECTED');
 
 -- CreateEnum
+CREATE TYPE "TesterAssignmentSource" AS ENUM ('SELF_JOIN', 'ADMIN_ASSIGNED');
+
+-- CreateEnum
 CREATE TYPE "VerificationStatus" AS ENUM ('PENDING', 'VERIFIED', 'REJECTED');
 
 -- CreateEnum
@@ -62,13 +71,16 @@ CREATE TYPE "MediaCategory" AS ENUM ('APP_LOGO', 'SCREENSHOT', 'FEATURED_VIDEO',
 CREATE TYPE "RatingType" AS ENUM ('APP', 'USER');
 
 -- CreateEnum
+CREATE TYPE "ReviewStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
+
+-- CreateEnum
 CREATE TYPE "FeedbackType" AS ENUM ('BUG', 'SUGGESTION', 'PRAISE', 'OTHER');
 
 -- CreateEnum
 CREATE TYPE "FeedbackPriority" AS ENUM ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW');
 
 -- CreateEnum
-CREATE TYPE "NotificationType" AS ENUM ('NEW_TEST', 'FEEDBACK_RECEIVED', 'TEST_COMPLETED', 'BUG_REPORT', 'POINTS_AWARDED', 'POINTS_DEDUCTED', 'NEW_JOIN_REQUEST', 'NEW_JOIN_ACCEPT', 'REJECTED', 'APP_APPROVED', 'APP_REJECTED', 'TEST_INVITATION', 'GENERAL_MESSAGE', 'REMINDER', 'ANNOUNCEMENT', 'ACCOUNT_UPDATE', 'INSUFFICIENT_BALANCE', 'OTHER');
+CREATE TYPE "NotificationType" AS ENUM ('NEW_TEST', 'FEEDBACK_RECEIVED', 'TEST_COMPLETED', 'BUG_REPORT', 'POINTS_AWARDED', 'POINTS_DEDUCTED', 'NEW_JOIN_REQUEST', 'NEW_JOIN_ACCEPT', 'REJECTED', 'APP_APPROVED', 'APP_REJECTED', 'TEST_INVITATION', 'GENERAL_MESSAGE', 'REMINDER', 'ANNOUNCEMENT', 'ACCOUNT_UPDATE', 'INSUFFICIENT_BALANCE', 'OTHER', 'SPECIAL_OFFERS');
 
 -- CreateEnum
 CREATE TYPE "UserActionType" AS ENUM ('SUBMIT_APP', 'JOIN_TEST_REQUEST', 'JOIN_TEST_ACCEPT', 'JOIN_TEST_REJECTED', 'COMPLETE_TEST', 'GIVE_FEEDBACK', 'RATE_APP', 'LOGIN', 'LOGOUT', 'UPDATE_PROFILE', 'REGISTER', 'RENEW_TOKENS', 'OTHER', 'DRAFT');
@@ -84,6 +96,30 @@ CREATE TYPE "FeedbackSuggestionType" AS ENUM ('BUG', 'SUGGESTIONS', 'PRAISE', 'O
 
 -- CreateEnum
 CREATE TYPE "FeedbackStatus" AS ENUM ('PENDING', 'REVIEWED', 'IMPLEMENTED', 'REJECTED');
+
+-- CreateEnum
+CREATE TYPE "ConversationType" AS ENUM ('AI_CHAT', 'LIVE_CHAT', 'TICKET');
+
+-- CreateEnum
+CREATE TYPE "ConversationStatus" AS ENUM ('OPEN', 'IN_PROGRESS', 'WAITING_AGENT', 'RESOLVED', 'CLOSED');
+
+-- CreateEnum
+CREATE TYPE "ConversationPriority" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'URGENT');
+
+-- CreateEnum
+CREATE TYPE "ConversationCategory" AS ENUM ('GENERAL', 'TECHNICAL', 'BILLING', 'ACCOUNT', 'BUG_REPORT', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "MessageSenderType" AS ENUM ('USER', 'AGENT', 'AI', 'SYSTEM');
+
+-- CreateEnum
+CREATE TYPE "MessageType" AS ENUM ('TEXT', 'SYSTEM', 'TRANSFER_NOTICE', 'TICKET_CREATED');
+
+-- CreateEnum
+CREATE TYPE "AgentOnlineStatus" AS ENUM ('ONLINE', 'AWAY', 'OFFLINE');
+
+-- CreateEnum
+CREATE TYPE "SupportRequestType" AS ENUM ('TICKET', 'AI_CHAT', 'HUMAN_CHAT');
 
 -- CreateEnum
 CREATE TYPE "SupportStatus" AS ENUM ('PENDING', 'IN_PROGRESS', 'RESOLVED', 'CLOSED');
@@ -120,6 +156,9 @@ CREATE TYPE "RefundStatus" AS ENUM ('NONE', 'PARTIAL', 'FULL');
 
 -- CreateEnum
 CREATE TYPE "RefundModelStatus" AS ENUM ('PENDING', 'PROCESSED', 'FAILED');
+
+-- CreateEnum
+CREATE TYPE "PaymentMethod" AS ENUM ('POINTS', 'PACKAGE', 'PROMO_FREE');
 
 -- CreateTable
 CREATE TABLE "user" (
@@ -171,7 +210,11 @@ CREATE TABLE "user_detail" (
     "testing_types" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "tester_devices" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "tester_os_versions" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "areas_of_expertise" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "initial" BOOLEAN NOT NULL DEFAULT true,
+    "application_status" TEXT,
+    "discovery_source" TEXT,
+    "discovery_source_answered" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "availability" "TesterAvailability" DEFAULT 'AVAILABLE',
@@ -191,6 +234,7 @@ CREATE TABLE "tester_relation" (
     "daysCompleted" INTEGER NOT NULL DEFAULT 0,
     "lastActivityAt" TIMESTAMP(3),
     "statusDetails" JSONB,
+    "assignmentSource" "TesterAssignmentSource" NOT NULL DEFAULT 'SELF_JOIN',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -266,12 +310,27 @@ CREATE TABLE "blog" (
     "imageUrl" TEXT NOT NULL,
     "dataAiHint" TEXT,
     "tags" TEXT[],
+    "category" "BlogCategory" NOT NULL DEFAULT 'GENERAL',
     "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "viewCount" INTEGER NOT NULL DEFAULT 0,
     "date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "blog_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "author" (
+    "id" SERIAL NOT NULL,
+    "name" TEXT NOT NULL,
+    "avatarUrl" TEXT,
+    "bio" TEXT,
+    "dataAiHint" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "author_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -319,6 +378,14 @@ CREATE TABLE "dashboard_and_hub" (
     "promoCodeId" INTEGER,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "testingEndDate" TIMESTAMP(3),
+    "testingStartDate" TIMESTAMP(3),
+    "activeTestersOverride" INTEGER,
+    "bugCountOverride" INTEGER,
+    "completedTestersOverride" INTEGER,
+    "pendingTestersOverride" INTEGER,
+    "praiseCountOverride" INTEGER,
+    "suggestionCountOverride" INTEGER,
 
     CONSTRAINT "dashboard_and_hub_pkey" PRIMARY KEY ("id")
 );
@@ -351,6 +418,8 @@ CREATE TABLE "media" (
     "blogId" INTEGER,
     "feedbackId" INTEGER,
     "notificationId" INTEGER,
+    "conversationId" INTEGER,
+    "messageId" INTEGER,
     "supportRequestId" INTEGER,
     "supportMessageId" INTEGER,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -452,16 +521,89 @@ CREATE TABLE "website_feedback_suggestion" (
 );
 
 -- CreateTable
+CREATE TABLE "conversation" (
+    "id" SERIAL NOT NULL,
+    "type" "ConversationType" NOT NULL DEFAULT 'AI_CHAT',
+    "status" "ConversationStatus" NOT NULL DEFAULT 'OPEN',
+    "priority" "ConversationPriority" NOT NULL DEFAULT 'MEDIUM',
+    "category" "ConversationCategory" NOT NULL DEFAULT 'GENERAL',
+    "subject" TEXT,
+    "description" TEXT,
+    "userId" TEXT,
+    "assignedTo" TEXT,
+    "isEscalated" BOOLEAN NOT NULL DEFAULT false,
+    "assignedAt" TIMESTAMP(3),
+    "firstResponseAt" TIMESTAMP(3),
+    "resolvedAt" TIMESTAMP(3),
+    "lastMessageAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "conversation_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "message" (
+    "id" SERIAL NOT NULL,
+    "conversationId" INTEGER NOT NULL,
+    "senderId" TEXT,
+    "senderType" "MessageSenderType" NOT NULL,
+    "messageType" "MessageType" NOT NULL DEFAULT 'TEXT',
+    "content" TEXT NOT NULL,
+    "metadata" JSONB,
+    "isAi" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "message_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "agent_status" (
+    "id" SERIAL NOT NULL,
+    "userId" TEXT NOT NULL,
+    "status" "AgentOnlineStatus" NOT NULL DEFAULT 'OFFLINE',
+    "currentChats" INTEGER NOT NULL DEFAULT 0,
+    "lastSeenAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "agent_status_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "control_room" (
+    "id" SERIAL NOT NULL,
+    "profileSurveyPoints" INTEGER,
+    "pointsWithdrawalLimit" INTEGER,
+    "pointsWithdrawalThreshold" INTEGER,
+    "humanChatEnabled" BOOLEAN NOT NULL DEFAULT true,
+    "communitySize" INTEGER,
+    "bugsFound" INTEGER,
+    "proAppsTested" INTEGER,
+    "communityApps" INTEGER,
+    "uniqueDevices" INTEGER,
+    "communityPoints" INTEGER,
+    "alexSystemPrompt" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "control_room_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "support_request" (
     "id" SERIAL NOT NULL,
     "userId" TEXT,
     "supportAgentId" INTEGER,
+    "assignedTo" TEXT,
     "name" TEXT,
     "email" TEXT,
     "subject" TEXT NOT NULL,
     "description" TEXT NOT NULL,
     "status" "SupportStatus" NOT NULL DEFAULT 'PENDING',
     "category" "SupportCategory" NOT NULL DEFAULT 'GENERAL',
+    "type" "SupportRequestType" NOT NULL DEFAULT 'TICKET',
+    "isEscalated" BOOLEAN NOT NULL DEFAULT false,
+    "assignedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -475,6 +617,7 @@ CREATE TABLE "support_message" (
     "senderId" TEXT,
     "senderType" "SenderType" NOT NULL,
     "message" TEXT NOT NULL,
+    "isAi" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -517,6 +660,7 @@ CREATE TABLE "user_transactions" (
     "transactionType" "UserTransactionType" NOT NULL,
     "status" "UserTransactionStatus" NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "paymentMethod" "PaymentMethod",
 
     CONSTRAINT "user_transactions_pkey" PRIMARY KEY ("id")
 );
@@ -632,18 +776,6 @@ CREATE TABLE "password_reset" (
 );
 
 -- CreateTable
-CREATE TABLE "control_room" (
-    "id" SERIAL NOT NULL,
-    "profileSurveyPoints" INTEGER,
-    "pointsWithdrawalLimit" INTEGER,
-    "pointsWithdrawalThreshold" INTEGER,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "control_room_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "order" (
     "id" SERIAL NOT NULL,
     "userId" TEXT NOT NULL,
@@ -654,6 +786,7 @@ CREATE TABLE "order" (
     "amount" INTEGER NOT NULL,
     "currency" TEXT NOT NULL DEFAULT 'INR',
     "status" "OrderStatus" NOT NULL DEFAULT 'CREATED',
+    "invoiceId" TEXT,
     "notes" JSONB,
     "attempts" INTEGER NOT NULL DEFAULT 0,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -693,8 +826,52 @@ CREATE TABLE "payment" (
     "webhookPayload" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "userId" TEXT,
+    "customer_name" TEXT,
+    "customer_email" TEXT,
+    "amount_inr" INTEGER,
 
     CONSTRAINT "payment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "pricing" (
+    "id" SERIAL NOT NULL,
+    "country_code" TEXT NOT NULL,
+    "country_name" TEXT NOT NULL,
+    "currency_code" TEXT NOT NULL,
+    "currency_symbol" TEXT NOT NULL,
+    "amount" INTEGER NOT NULL,
+    "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "pricing_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "invoice" (
+    "id" SERIAL NOT NULL,
+    "paymentId" INTEGER NOT NULL,
+    "userId" TEXT NOT NULL,
+    "invoice_number" TEXT NOT NULL,
+    "invoice_type" TEXT NOT NULL DEFAULT 'IND',
+    "service_name" TEXT NOT NULL,
+    "sac_code" TEXT NOT NULL DEFAULT '998313',
+    "period" TEXT,
+    "quantity" INTEGER NOT NULL DEFAULT 1,
+    "unit_price" INTEGER,
+    "tax_rate" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "cgst_amount" INTEGER NOT NULL DEFAULT 0,
+    "sgst_amount" INTEGER NOT NULL DEFAULT 0,
+    "igst_amount" INTEGER NOT NULL DEFAULT 0,
+    "due_date" TIMESTAMP(3),
+    "place_of_supply" TEXT,
+    "supply_type" TEXT,
+    "amount_in_words" TEXT,
+    "lut_number" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "invoice_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -731,6 +908,22 @@ CREATE TABLE "webhook_event_log" (
 );
 
 -- CreateTable
+CREATE TABLE "play_store_declaration" (
+    "id" SERIAL NOT NULL,
+    "dashboardAndHubId" INTEGER NOT NULL,
+    "appOwnerId" TEXT NOT NULL,
+    "answers" JSONB NOT NULL DEFAULT '{}',
+    "autoGeneratedData" JSONB NOT NULL DEFAULT '{}',
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "adminAnswers" JSONB,
+    "adminDeclarationStatus" TEXT NOT NULL DEFAULT 'DRAFT',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "play_store_declaration_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "promo_code" (
     "id" SERIAL NOT NULL,
     "code" TEXT NOT NULL,
@@ -747,6 +940,42 @@ CREATE TABLE "promo_code" (
 );
 
 -- CreateTable
+CREATE TABLE "testimonial" (
+    "id" SERIAL NOT NULL,
+    "name" TEXT NOT NULL,
+    "role" TEXT NOT NULL,
+    "title" TEXT,
+    "avatar" TEXT NOT NULL,
+    "dataAiHint" TEXT,
+    "comment" TEXT NOT NULL,
+    "image" TEXT,
+    "appLink" TEXT,
+    "tags" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "rating" DOUBLE PRECISION NOT NULL DEFAULT 5,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "testimonial_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "review" (
+    "id" SERIAL NOT NULL,
+    "userId" TEXT NOT NULL,
+    "appId" INTEGER,
+    "rating" DOUBLE PRECISION NOT NULL,
+    "comment" TEXT NOT NULL,
+    "status" "ReviewStatus" NOT NULL DEFAULT 'PENDING',
+    "isPublished" BOOLEAN NOT NULL DEFAULT false,
+    "adminNote" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "review_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "user_promo_usage" (
     "id" SERIAL NOT NULL,
     "userId" TEXT NOT NULL,
@@ -754,6 +983,24 @@ CREATE TABLE "user_promo_usage" (
     "usedCount" INTEGER NOT NULL DEFAULT 0,
 
     CONSTRAINT "user_promo_usage_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "billing_info" (
+    "id" SERIAL NOT NULL,
+    "userId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "email" TEXT NOT NULL,
+    "address" TEXT NOT NULL,
+    "city" TEXT,
+    "state" TEXT,
+    "zipCode" TEXT,
+    "country" TEXT NOT NULL,
+    "gstin" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "billing_info_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -794,6 +1041,9 @@ CREATE UNIQUE INDEX "session_token_key" ON "session"("token");
 CREATE UNIQUE INDEX "blog_slug_key" ON "blog"("slug");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "author_name_key" ON "author"("name");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "app_category_name_key" ON "app_category"("name");
 
 -- CreateIndex
@@ -812,6 +1062,30 @@ CREATE UNIQUE INDEX "android_app_packageName_key" ON "android_app"("packageName"
 CREATE UNIQUE INDEX "media_feedbackId_key" ON "media"("feedbackId");
 
 -- CreateIndex
+CREATE INDEX "conversation_userId_idx" ON "conversation"("userId");
+
+-- CreateIndex
+CREATE INDEX "conversation_assignedTo_idx" ON "conversation"("assignedTo");
+
+-- CreateIndex
+CREATE INDEX "conversation_status_idx" ON "conversation"("status");
+
+-- CreateIndex
+CREATE INDEX "conversation_type_idx" ON "conversation"("type");
+
+-- CreateIndex
+CREATE INDEX "conversation_createdAt_idx" ON "conversation"("createdAt");
+
+-- CreateIndex
+CREATE INDEX "message_conversationId_idx" ON "message"("conversationId");
+
+-- CreateIndex
+CREATE INDEX "message_createdAt_idx" ON "message"("createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "agent_status_userId_key" ON "agent_status"("userId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "support_agent_userId_key" ON "support_agent"("userId");
 
 -- CreateIndex
@@ -824,6 +1098,12 @@ CREATE UNIQUE INDEX "role_name_key" ON "role"("name");
 CREATE UNIQUE INDEX "module_name_key" ON "module"("name");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "permission_roleId_moduleId_key" ON "permission"("roleId", "moduleId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "account_userId_providerId_key" ON "account"("userId", "providerId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "password_reset_password_reset_token_key" ON "password_reset"("password_reset_token");
 
 -- CreateIndex
@@ -831,6 +1111,9 @@ CREATE UNIQUE INDEX "order_razorpayOrderId_key" ON "order"("razorpayOrderId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "order_receipt_key" ON "order"("receipt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "order_invoiceId_key" ON "order"("invoiceId");
 
 -- CreateIndex
 CREATE INDEX "order_userId_idx" ON "order"("userId");
@@ -857,6 +1140,18 @@ CREATE INDEX "payment_razorpayOrderId_idx" ON "payment"("razorpayOrderId");
 CREATE INDEX "payment_status_idx" ON "payment"("status");
 
 -- CreateIndex
+CREATE INDEX "payment_userId_idx" ON "payment"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "pricing_country_code_key" ON "pricing"("country_code");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "invoice_paymentId_key" ON "invoice"("paymentId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "invoice_invoice_number_key" ON "invoice"("invoice_number");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "refund_razorpayRefundId_key" ON "refund"("razorpayRefundId");
 
 -- CreateIndex
@@ -875,10 +1170,16 @@ CREATE INDEX "webhook_event_log_eventId_idx" ON "webhook_event_log"("eventId");
 CREATE INDEX "webhook_event_log_eventType_idx" ON "webhook_event_log"("eventType");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "play_store_declaration_dashboardAndHubId_key" ON "play_store_declaration"("dashboardAndHubId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "promo_code_code_key" ON "promo_code"("code");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "user_promo_usage_userId_promoCodeId_key" ON "user_promo_usage"("userId", "promoCodeId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "billing_info_userId_key" ON "billing_info"("userId");
 
 -- CreateIndex
 CREATE INDEX "_DashboardAndHubTesters_B_index" ON "_DashboardAndHubTesters"("B");
@@ -935,6 +1236,12 @@ ALTER TABLE "media" ADD CONSTRAINT "media_feedbackId_fkey" FOREIGN KEY ("feedbac
 ALTER TABLE "media" ADD CONSTRAINT "media_notificationId_fkey" FOREIGN KEY ("notificationId") REFERENCES "notification"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "media" ADD CONSTRAINT "media_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "conversation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "media" ADD CONSTRAINT "media_messageId_fkey" FOREIGN KEY ("messageId") REFERENCES "message"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "media" ADD CONSTRAINT "media_supportMessageId_fkey" FOREIGN KEY ("supportMessageId") REFERENCES "support_message"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -974,10 +1281,28 @@ ALTER TABLE "user_logs" ADD CONSTRAINT "user_logs_userId_fkey" FOREIGN KEY ("use
 ALTER TABLE "website_feedback_suggestion" ADD CONSTRAINT "website_feedback_suggestion_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "conversation" ADD CONSTRAINT "conversation_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "conversation" ADD CONSTRAINT "conversation_assignedTo_fkey" FOREIGN KEY ("assignedTo") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "message" ADD CONSTRAINT "message_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "conversation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "message" ADD CONSTRAINT "message_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "agent_status" ADD CONSTRAINT "agent_status_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "support_request" ADD CONSTRAINT "support_request_supportAgentId_fkey" FOREIGN KEY ("supportAgentId") REFERENCES "support_agent"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "support_request" ADD CONSTRAINT "support_request_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "support_request" ADD CONSTRAINT "support_request_assignedTo_fkey" FOREIGN KEY ("assignedTo") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "support_message" ADD CONSTRAINT "support_message_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -1025,16 +1350,40 @@ ALTER TABLE "order" ADD CONSTRAINT "order_planId_fkey" FOREIGN KEY ("planId") RE
 ALTER TABLE "order" ADD CONSTRAINT "order_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "payment" ADD CONSTRAINT "payment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "payment" ADD CONSTRAINT "payment_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "order"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "invoice" ADD CONSTRAINT "invoice_paymentId_fkey" FOREIGN KEY ("paymentId") REFERENCES "payment"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "invoice" ADD CONSTRAINT "invoice_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "refund" ADD CONSTRAINT "refund_paymentId_fkey" FOREIGN KEY ("paymentId") REFERENCES "payment"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "play_store_declaration" ADD CONSTRAINT "play_store_declaration_dashboardAndHubId_fkey" FOREIGN KEY ("dashboardAndHubId") REFERENCES "dashboard_and_hub"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "play_store_declaration" ADD CONSTRAINT "play_store_declaration_appOwnerId_fkey" FOREIGN KEY ("appOwnerId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "review" ADD CONSTRAINT "review_appId_fkey" FOREIGN KEY ("appId") REFERENCES "android_app"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "review" ADD CONSTRAINT "review_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "user_promo_usage" ADD CONSTRAINT "user_promo_usage_promoCodeId_fkey" FOREIGN KEY ("promoCodeId") REFERENCES "promo_code"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "user_promo_usage" ADD CONSTRAINT "user_promo_usage_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "billing_info" ADD CONSTRAINT "billing_info_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "_DashboardAndHubTesters" ADD CONSTRAINT "_DashboardAndHubTesters_A_fkey" FOREIGN KEY ("A") REFERENCES "dashboard_and_hub"("id") ON DELETE CASCADE ON UPDATE CASCADE;
