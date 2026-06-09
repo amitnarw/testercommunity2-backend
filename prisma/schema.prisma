@@ -194,6 +194,7 @@ model Blog {
   imageUrl         String
   dataAiHint       String?
   tags             String[]
+  category         BlogCategory @default(GENERAL)
   isActive         Boolean  @default(true)
   viewCount        Int      @default(0)
   date             DateTime @default(now())
@@ -911,6 +912,7 @@ model Testimonial {
   id         Int      @id @default(autoincrement())
   name       String
   role       String
+  title      String?
   avatar     String
   dataAiHint String?
   comment    String
@@ -952,6 +954,16 @@ model UserPromoUsage {
 
   @@unique([userId, promoCodeId])
   @@map("user_promo_usage")
+}
+
+enum BlogCategory {
+  AUTOMATION
+  UI_UX
+  SECURITY
+  AI
+  MOBILE
+  DEVOPS
+  GENERAL
 }
 
 enum UserAuthType {

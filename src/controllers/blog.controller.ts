@@ -18,12 +18,10 @@ export const getPublicBlogs = async (req: Request, res: Response) => {
       isActive: true,
     };
 
-    // Filter by tag/category if provided
+    // Filter by category if provided
     if (category && typeof category === "string") {
-      // Use tag matching (case insensitive)
-      where.tags = {
-        hasSome: [category],
-      };
+      // The category filter expects a valid BlogCategory enum value (case-insensitive)
+      where.category = category.toUpperCase() as any;
     }
 
     const blogs = await prismaClient.blog.findMany({
@@ -40,6 +38,7 @@ export const getPublicBlogs = async (req: Request, res: Response) => {
         imageUrl: true,
         dataAiHint: true,
         tags: true,
+        category: true,
         viewCount: true,
         date: true,
         createdAt: true,
@@ -101,6 +100,7 @@ export const getPublicBlogBySlug = async (req: Request, res: Response) => {
         imageUrl: true,
         dataAiHint: true,
         tags: true,
+        category: true,
         viewCount: true,
         date: true,
         createdAt: true,
@@ -133,31 +133,29 @@ export const getPublicBlogBySlug = async (req: Request, res: Response) => {
  */
 export const getPublicBlogTags = async (req: Request, res: Response) => {
   try {
-    // Get all unique tags from active blogs
-    const blogs = await prismaClient.blog.findMany({
+    // Get distinct categories from active blogs
+    const distinctCategories = await prismaClient.blog.findMany({
       where: {
         isActive: true,
       },
       select: {
-        tags: true,
+        category: true,
       },
+      distinct: ["category"],
     });
 
-    // Extract and deduplicate all tags
-    const allTags = new Set<string>();
-    blogs.forEach((blog) => {
-      blog.tags.forEach((tag) => allTags.add(tag));
-    });
+    const categories = distinctCategories
+      .map((b) => b.category)
+      .filter(Boolean)
+      .sort();
 
-    const uniqueTags = Array.from(allTags).sort();
-
-    return sendSuccess(res, uniqueTags, "Tags fetched successfully");
+    return sendSuccess(res, categories, "Categories fetched successfully");
   } catch (error) {
-    console.error("Error fetching blog tags:", error);
+    console.error("Error fetching blog categories:", error);
     return sendError(
       res,
       500,
-      error instanceof Error ? error.message : "Failed to fetch tags",
+      error instanceof Error ? error.message : "Failed to fetch categories",
     );
   }
 };

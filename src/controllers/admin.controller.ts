@@ -2949,6 +2949,7 @@ export const createBlog = async (req: Request, res: Response) => {
       imageUrl,
       dataAiHint,
       tags,
+      category,
       isActive,
       date,
     } = payload;
@@ -2979,6 +2980,7 @@ export const createBlog = async (req: Request, res: Response) => {
         imageUrl,
         dataAiHint: dataAiHint || null,
         tags: tags || [],
+        category: category || undefined,
         isActive: isActive !== undefined ? isActive : true,
         date: date ? new Date(date) : new Date(),
       },
@@ -3009,6 +3011,7 @@ export const updateBlog = async (req: Request, res: Response) => {
       imageUrl,
       dataAiHint,
       tags,
+      category,
       isActive,
       date,
     } = payload;
@@ -3026,6 +3029,7 @@ export const updateBlog = async (req: Request, res: Response) => {
       imageUrl: imageUrl !== undefined ? imageUrl : undefined,
       dataAiHint: dataAiHint !== undefined ? dataAiHint : undefined,
       tags: tags !== undefined ? tags : undefined,
+      category: category !== undefined ? category : undefined,
       isActive: isActive !== undefined ? isActive : undefined,
       date: date !== undefined ? new Date(date) : undefined,
     };
@@ -3101,7 +3105,7 @@ export const getTestimonialById = async (req: Request, res: Response) => {
 export const createTestimonial = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
-    const { name, role, avatar, dataAiHint, comment, image, appLink, tags, rating, isActive } = payload;
+    const { name, role, title, avatar, dataAiHint, comment, image, appLink, tags, rating, isActive } = payload;
 
     if (!name || !role || !avatar || !comment) {
       return sendError(res, 400, "Name, role, avatar, and comment are required");
@@ -3111,6 +3115,7 @@ export const createTestimonial = async (req: Request, res: Response) => {
       data: {
         name,
         role,
+        title: title || null,
         avatar,
         dataAiHint: dataAiHint || null,
         comment,
@@ -3135,13 +3140,14 @@ export const createTestimonial = async (req: Request, res: Response) => {
 export const updateTestimonial = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
-    const { id, name, role, avatar, dataAiHint, comment, image, appLink, tags, rating, isActive } = payload;
+    const { id, name, role, title, avatar, dataAiHint, comment, image, appLink, tags, rating, isActive } = payload;
 
     if (!id) return sendError(res, 400, "Testimonial ID is required");
 
     const updateData: any = {
       name: name !== undefined ? name : undefined,
       role: role !== undefined ? role : undefined,
+      title: title !== undefined ? title : undefined,
       avatar: avatar !== undefined ? avatar : undefined,
       dataAiHint: dataAiHint !== undefined ? dataAiHint : undefined,
       comment: comment !== undefined ? comment : undefined,
