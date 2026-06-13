@@ -798,7 +798,7 @@ export const getPaymentConfig = async (req: Request, res: Response) => {
         currency: "INR",
         name: "inTesters",
         description: "Testing Packages",
-        image: "https://intesters.com/apple-icon.png",
+        image: "https://intesters.com/apple-icon-dark.png",
         theme: {
           color: "#3c83f6",
         },

@@ -1,7 +1,7 @@
 import { type Request, type Response } from "express";
 import { prismaClient } from "@/lib/prisma";
 import { sendError, sendSuccess } from "@/utils/response";
-import { streamText, convertToModelMessages } from "ai";
+import { streamText, convertToModelMessages, stepCountIs } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { buildAlexSystemPrompt, OPENROUTER_MODEL } from "@/lib/support-config";
 import { z } from "zod";
@@ -382,7 +382,24 @@ export const streamChat = async (req: Request, res: Response) => {
     }
 
     const controlRoom = await prismaClient.controlRoom.findFirst({ orderBy: { id: 'asc' } });
-    const systemPrompt = buildAlexSystemPrompt(controlRoom?.alexSystemPrompt);
+
+    const activePlans = await prismaClient.plans.findMany({
+      where: { isActive: true },
+      orderBy: { price: 'asc' },
+    });
+
+    let plansContext = "";
+    if (activePlans.length > 0) {
+      plansContext = activePlans
+        .map((p) => {
+          const features = Array.isArray(p.features) ? p.features.join(", ") : "";
+          const cycleLabel = p.package === 1 ? "1 Pro testing cycle" : `${p.package} Pro testing cycles`;
+          return `- ${p.name}: ₹${p.price} (${cycleLabel})${features ? ` — Features: ${features}` : ""}`;
+        })
+        .join("\n");
+    }
+
+    const systemPrompt = buildAlexSystemPrompt(controlRoom?.alexSystemPrompt, plansContext);
 
     const result = streamText({
       model: openrouter.chat(OPENROUTER_MODEL),
@@ -459,7 +476,15 @@ export const streamChat = async (req: Request, res: Response) => {
                 return { success: true, message: "You already have an active chat with support." };
               }
 
-              await prismaClient.conversation.create({
+              const onlineAgentCount = await prismaClient.agentStatus.count({
+                where: { status: "ONLINE" },
+              });
+
+              if (onlineAgentCount === 0) {
+                return { success: false, message: "No agents are available right now, but I can help you. Would you like to continue chatting with me?" };
+              }
+
+              const chat = await prismaClient.conversation.create({
                 data: {
                   type: "LIVE_CHAT",
                   status: "WAITING_AGENT",
@@ -470,13 +495,14 @@ export const streamChat = async (req: Request, res: Response) => {
                 },
               });
 
-              return { success: true, message: "A support agent will be with you shortly. Please hold on!" };
+              return { success: true, message: "A support agent will be with you shortly. Please hold on!", chatId: chat.id };
             } catch (err) {
-              return { success: false, message: "All agents are currently offline. You can try again later or continue chatting with me." };
+              return { success: false, message: "No support agents are available right now. Please try again later or continue chatting with me." };
             }
           },
         },
       },
+      stopWhen: stepCountIs(2),
       temperature: 0.5,
       maxOutputTokens: 1024,
     });

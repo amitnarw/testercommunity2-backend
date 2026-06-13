@@ -292,6 +292,9 @@ export const auth = betterAuth({
           // Contact info
           let country = ctx?.body?.country as string;
           let phone = ctx?.body?.phone as string;
+          if (phone === null || phone === undefined || phone.trim() === "") {
+            phone = undefined as any;
+          }
 
           // If names are missing (e.g. OAuth), parse from user.name
           if (!first_name || !last_name) {
