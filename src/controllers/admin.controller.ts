@@ -1337,7 +1337,7 @@ export const createUser = async (req: Request, res: Response) => {
         auth_type: payload.auth_type || "EMAIL_PASSWORD",
         first_name,
         last_name,
-        phone: payload.phone,
+        phone: payload.phone?.trim() || undefined,
         country: payload.country,
         bio: payload.bio,
         years_of_experience: payload.years_of_experience,
