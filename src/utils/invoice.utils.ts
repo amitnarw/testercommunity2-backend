@@ -167,6 +167,70 @@ export async function getNextInvoiceNumber(
   return `${prefix}${seq.toString().padStart(4, "0")}`;
 }
 
+export interface IndianStateData {
+  numericCode: string;
+  alphaCode: string;
+  name: string;
+}
+
+export const INDIAN_STATES_DATA: IndianStateData[] = [
+  { numericCode: "01", alphaCode: "JK", name: "Jammu and Kashmir" },
+  { numericCode: "02", alphaCode: "HP", name: "Himachal Pradesh" },
+  { numericCode: "03", alphaCode: "PB", name: "Punjab" },
+  { numericCode: "04", alphaCode: "CH", name: "Chandigarh" },
+  { numericCode: "05", alphaCode: "UK", name: "Uttarakhand" },
+  { numericCode: "06", alphaCode: "HR", name: "Haryana" },
+  { numericCode: "07", alphaCode: "DL", name: "Delhi" },
+  { numericCode: "08", alphaCode: "RJ", name: "Rajasthan" },
+  { numericCode: "09", alphaCode: "UP", name: "Uttar Pradesh" },
+  { numericCode: "10", alphaCode: "BR", name: "Bihar" },
+  { numericCode: "11", alphaCode: "SK", name: "Sikkim" },
+  { numericCode: "12", alphaCode: "AR", name: "Arunachal Pradesh" },
+  { numericCode: "13", alphaCode: "NL", name: "Nagaland" },
+  { numericCode: "14", alphaCode: "MN", name: "Manipur" },
+  { numericCode: "15", alphaCode: "MZ", name: "Mizoram" },
+  { numericCode: "16", alphaCode: "TR", name: "Tripura" },
+  { numericCode: "17", alphaCode: "ML", name: "Meghalaya" },
+  { numericCode: "18", alphaCode: "AS", name: "Assam" },
+  { numericCode: "19", alphaCode: "WB", name: "West Bengal" },
+  { numericCode: "20", alphaCode: "JH", name: "Jharkhand" },
+  { numericCode: "21", alphaCode: "OD", name: "Odisha" },
+  { numericCode: "22", alphaCode: "CG", name: "Chhattisgarh" },
+  { numericCode: "23", alphaCode: "MP", name: "Madhya Pradesh" },
+  { numericCode: "24", alphaCode: "GJ", name: "Gujarat" },
+  { numericCode: "25", alphaCode: "DD", name: "Daman and Diu" },
+  { numericCode: "26", alphaCode: "DN", name: "Dadra and Nagar Haveli" },
+  { numericCode: "27", alphaCode: "MH", name: "Maharashtra" },
+  { numericCode: "28", alphaCode: "AP", name: "Andhra Pradesh" },
+  { numericCode: "29", alphaCode: "KA", name: "Karnataka" },
+  { numericCode: "30", alphaCode: "GA", name: "Goa" },
+  { numericCode: "31", alphaCode: "LD", name: "Lakshadweep" },
+  { numericCode: "32", alphaCode: "KL", name: "Kerala" },
+  { numericCode: "33", alphaCode: "TN", name: "Tamil Nadu" },
+  { numericCode: "34", alphaCode: "PY", name: "Puducherry" },
+  { numericCode: "35", alphaCode: "AN", name: "Andaman and Nicobar Islands" },
+  { numericCode: "36", alphaCode: "TG", name: "Telangana" },
+  { numericCode: "37", alphaCode: "AP", name: "Andhra Pradesh (New)" },
+  { numericCode: "38", alphaCode: "LA", name: "Ladakh" },
+];
+
+const _buildLookups = (() => {
+  const stateCodeToData: Record<string, IndianStateData> = {};
+  const alphaCodeToData: Record<string, IndianStateData> = {};
+  const nameToData: Record<string, IndianStateData> = {};
+  const nameLowerToData: Record<string, IndianStateData> = {};
+  for (const s of INDIAN_STATES_DATA) {
+    const key = s.numericCode;
+    if (!stateCodeToData[key]) stateCodeToData[key] = s;
+    if (!alphaCodeToData[s.alphaCode]) alphaCodeToData[s.alphaCode] = s;
+    nameToData[s.name] = s;
+    nameLowerToData[s.name.toLowerCase()] = s;
+  }
+  return { stateCodeToData, alphaCodeToData, nameToData, nameLowerToData };
+})();
+
+export const { stateCodeToData, alphaCodeToData, nameToData, nameLowerToData } = _buildLookups;
+
 export const COMPANY_DETAILS = {
   name: "Gamdix Private Limited",
   legalName: "Gamdix Private Limited",
@@ -191,53 +255,18 @@ export const COMPANY_DETAILS = {
   lutNumber: "ZD070426007807A",
 };
 
-export const INDIAN_STATES: Record<string, string> = {
-  "AN": "Andaman and Nicobar Islands",
-  "AP": "Andhra Pradesh",
-  "AR": "Arunachal Pradesh",
-  "AS": "Assam",
-  "BR": "Bihar",
-  "CG": "Chhattisgarh",
-  "CH": "Chandigarh",
-  "DD": "Daman and Diu",
-  "DL": "Delhi",
-  "DN": "Dadra and Nagar Haveli",
-  "GA": "Goa",
-  "GJ": "Gujarat",
-  "HP": "Himachal Pradesh",
-  "HR": "Haryana",
-  "JH": "Jharkhand",
-  "JK": "Jammu and Kashmir",
-  "KA": "Karnataka",
-  "KL": "Kerala",
-  "LA": "Ladakh",
-  "LD": "Lakshadweep",
-  "MH": "Maharashtra",
-  "ML": "Meghalaya",
-  "MN": "Manipur",
-  "MP": "Madhya Pradesh",
-  "MZ": "Mizoram",
-  "NL": "Nagaland",
-  "OD": "Odisha",
-  "PB": "Punjab",
-  "PY": "Puducherry",
-  "RJ": "Rajasthan",
-  "SK": "Sikkim",
-  "TG": "Telangana",
-  "TN": "Tamil Nadu",
-  "TR": "Tripura",
-  "UP": "Uttar Pradesh",
-  "UK": "Uttarakhand",
-  "WB": "West Bengal",
-};
-
-export function getStateFromGstin(gstin: string): string | null {
+export function getStateFromGstin(gstin: string): { name: string; stateCode: string } | null {
   if (!gstin || gstin.length < 2) return null;
-  const stateCode = gstin.substring(0, 2);
-  for (const [code, name] of Object.entries(INDIAN_STATES)) {
-    if (code === stateCode) return name;
-  }
+  const numericPrefix = gstin.substring(0, 2);
+  const state = stateCodeToData[numericPrefix];
+  if (state) return { name: state.name, stateCode: state.numericCode };
   return null;
+}
+
+export function getStateCodeFromName(stateName: string | null | undefined): string | null {
+  if (!stateName) return null;
+  const state = nameLowerToData[stateName.trim().toLowerCase()];
+  return state ? state.numericCode : null;
 }
 
 export function determineInvoiceType(country: string): "IND" | "EXP" {
@@ -247,7 +276,8 @@ export function determineInvoiceType(country: string): "IND" | "EXP" {
 export function calculateTax(
   amountInPaise: number,
   invoiceType: "IND" | "EXP",
-  customerState: string | null | undefined
+  customerState: string | null | undefined,
+  customerStateCode?: string | null | undefined
 ): { taxRate: number; cgstAmount: number; sgstAmount: number; igstAmount: number; placeOfSupply: string; supplyType: string } {
   if (invoiceType === "EXP") {
     return {
@@ -260,10 +290,11 @@ export function calculateTax(
     };
   }
 
-  const normalizedState = (customerState || "").trim().toLowerCase();
-  const isDelhi = normalizedState === "delhi" || normalizedState === "dl" || normalizedState === "07";
+  const effectiveCode = customerStateCode || getStateCodeFromName(customerState) || null;
 
-  if (isDelhi) {
+  const isIntraState = effectiveCode === COMPANY_DETAILS.stateCode;
+
+  if (isIntraState) {
     const cgst = Math.round(amountInPaise * 0.09);
     const sgst = Math.round(amountInPaise * 0.09);
     return {
@@ -271,7 +302,7 @@ export function calculateTax(
       cgstAmount: cgst,
       sgstAmount: sgst,
       igstAmount: 0,
-      placeOfSupply: "Delhi",
+      placeOfSupply: customerState || "Delhi",
       supplyType: "Supply of Services",
     };
   }

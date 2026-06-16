@@ -21,6 +21,8 @@ import {
   determineInvoiceType,
   amountToWords,
   formatPeriod,
+  getStateCodeFromName,
+  getStateFromGstin,
   COMPANY_DETAILS,
 } from "@/utils/invoice.utils";
 
@@ -81,6 +83,7 @@ export const upsertBillingInfo = async (req: Request, res: Response) => {
     const userId = req?.userId;
     const { payload } = req.body;
     const { name, email, address, city, state, zipCode, country, gstin } = payload;
+    let { stateCode } = payload;
 
     if (!userId) {
       return sendError(res, 401, "Unauthorized");
@@ -90,10 +93,21 @@ export const upsertBillingInfo = async (req: Request, res: Response) => {
       return sendError(res, 400, "Missing required fields");
     }
 
+    if (!stateCode && gstin && country === "India") {
+      const gstinResult = getStateFromGstin(gstin);
+      if (gstinResult) {
+        stateCode = gstinResult.stateCode;
+      }
+    }
+
+    if (!stateCode && state && country === "India") {
+      stateCode = getStateCodeFromName(state);
+    }
+
     const billingInfo = await prismaClient.billingInfo.upsert({
       where: { userId },
-      update: { name, email, address, city, state, zipCode, country, gstin },
-      create: { userId, name, email, address, city, state, zipCode, country, gstin },
+      update: { name, email, address, city, state, stateCode, zipCode, country, gstin },
+      create: { userId, name, email, address, city, state, stateCode, zipCode, country, gstin },
     });
 
     return sendSuccess(res, billingInfo, "Billing info updated successfully");
@@ -546,6 +560,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
         // Determine invoice type and tax
         const customerCountry = billingInfo?.country || "India";
         const customerState = billingInfo?.state || null;
+        const customerStateCode = billingInfo?.stateCode || (customerCountry === "India" ? getStateCodeFromName(customerState) : null);
         const invoiceType = determineInvoiceType(customerCountry);
         const invoiceNumber = await getNextInvoiceNumber(invoiceType, tx, transactionDate);
 
@@ -558,11 +573,11 @@ export const verifyPayment = async (req: Request, res: Response) => {
 
       // Back-calculate base price (pre-GST) from the total the customer paid
       const quantity = order.packageCount || order.plan?.package || 1;
-      const taxPreview = calculateTax(totalPaid, invoiceType, customerState);
+      const taxPreview = calculateTax(totalPaid, invoiceType, customerState, customerStateCode);
       const divisor = (100 + taxPreview.taxRate) / 100;
       const baseAmount = invoiceType === "EXP" ? totalPaid : Math.round(totalPaid / divisor);
 
-      let taxInfo = calculateTax(baseAmount, invoiceType, customerState);
+      let taxInfo = calculateTax(baseAmount, invoiceType, customerState, customerStateCode);
 
       // Rounding adjustment: make base + tax match the exact amount collected
       const computedTotal = baseAmount + taxInfo.cgstAmount + taxInfo.sgstAmount + taxInfo.igstAmount;
@@ -636,6 +651,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
           cgst_amount: taxInfo.cgstAmount,
           sgst_amount: taxInfo.sgstAmount,
           igst_amount: taxInfo.igstAmount,
+          state_code: customerStateCode,
           due_date: dueDate,
           place_of_supply: taxInfo.placeOfSupply,
           supply_type: taxInfo.supplyType,
@@ -943,6 +959,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
               // Determine invoice type and tax
               const customerCountry = billingInfo?.country || "India";
               const customerState = billingInfo?.state || null;
+              const customerStateCode = billingInfo?.stateCode || (customerCountry === "India" ? getStateCodeFromName(customerState) : null);
               const invoiceType = determineInvoiceType(customerCountry);
               const invoiceNumber = await getNextInvoiceNumber(invoiceType, tx, transactionDate);
             const totalPaid = paymentData.amount;
@@ -951,11 +968,11 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
             // Back-calculate base price (pre-GST) from the total the customer paid
             const quantity = order.packageCount || order.plan?.package || 1;
-            const taxPreview = calculateTax(totalPaid, invoiceType, customerState);
+            const taxPreview = calculateTax(totalPaid, invoiceType, customerState, customerStateCode);
             const divisor = (100 + taxPreview.taxRate) / 100;
             const baseAmount = invoiceType === "EXP" ? totalPaid : Math.round(totalPaid / divisor);
 
-            let taxInfo = calculateTax(baseAmount, invoiceType, customerState);
+            let taxInfo = calculateTax(baseAmount, invoiceType, customerState, customerStateCode);
 
             // Rounding adjustment: make base + tax match the exact amount collected
             const computedTotal = baseAmount + taxInfo.cgstAmount + taxInfo.sgstAmount + taxInfo.igstAmount;
@@ -1018,6 +1035,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
                 cgst_amount: taxInfo.cgstAmount,
                 sgst_amount: taxInfo.sgstAmount,
                 igst_amount: taxInfo.igstAmount,
+                state_code: customerStateCode,
                 due_date: dueDate,
                 place_of_supply: taxInfo.placeOfSupply,
                 supply_type: taxInfo.supplyType,

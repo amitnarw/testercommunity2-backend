@@ -826,6 +826,7 @@ model Invoice {
   cgst_amount     Int        @default(0)
   sgst_amount     Int        @default(0)
   igst_amount     Int        @default(0)
+  state_code      String?
   due_date        DateTime?
   place_of_supply String?
   supply_type     String?
@@ -1404,6 +1405,7 @@ model BillingInfo {
   address   String
   city      String?
   state     String?
+  stateCode String?
   zipCode   String?
   country   String
   gstin     String?
