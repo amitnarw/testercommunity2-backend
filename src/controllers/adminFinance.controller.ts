@@ -8,6 +8,7 @@ import {
   calculateTax,
   determineInvoiceType,
   formatPeriod,
+  getStateCodeFromName,
   COMPANY_DETAILS,
 } from "@/utils/invoice.utils";
 
@@ -379,6 +380,7 @@ export const getUserInvoices = async (req: Request, res: Response) => {
         cgst_amount: inv.cgst_amount,
         sgst_amount: inv.sgst_amount,
         igst_amount: inv.igst_amount,
+        state_code: inv.state_code,
         due_date: inv.due_date?.toISOString() || null,
         place_of_supply: inv.place_of_supply,
         supply_type: inv.supply_type,
@@ -416,7 +418,7 @@ export const updateInvoice = async (req: Request, res: Response) => {
     const allowedFields = [
       "invoice_number", "service_name", "period", "quantity", "unit_price",
       "tax_rate", "cgst_amount", "sgst_amount", "igst_amount",
-      "due_date", "place_of_supply", "supply_type",
+      "state_code", "due_date", "place_of_supply", "supply_type",
       "amount_in_words", "lut_number", "sac_code",
     ];
 
@@ -492,7 +494,8 @@ export const getInvoicePreview = async (req: Request, res: Response) => {
     const invoiceNumber = await getNextInvoiceNumber(invoiceType);
 
     const state = user.billingInfo?.state || user.userDetail?.country || "";
-    const taxPreview = calculateTax(0, invoiceType, state);
+    const stateCode = user.billingInfo?.stateCode || getStateCodeFromName(state);
+    const taxPreview = calculateTax(0, invoiceType, state, stateCode);
 
     const now = new Date();
     const dueDate = new Date(now);
@@ -675,12 +678,13 @@ export const createInvoice = async (req: Request, res: Response) => {
       const baseAmount = unitPrice * quantity;
 
       const state = user.billingInfo?.state || user.userDetail?.country || "";
+      const stateCode = user.billingInfo?.stateCode || getStateCodeFromName(state);
       const invoiceType: "IND" | "EXP" =
         payload.invoice_type === "IND" || payload.invoice_type === "EXP"
           ? payload.invoice_type
           : determineInvoiceType(user.billingInfo?.country || "India");
 
-      const taxInfo = calculateTax(baseAmount, invoiceType, state);
+      const taxInfo = calculateTax(baseAmount, invoiceType, state, stateCode);
 
       if (isDemoPayment) {
         await tx.payment.update({
@@ -722,6 +726,7 @@ export const createInvoice = async (req: Request, res: Response) => {
         cgst_amount: cgst,
         sgst_amount: sgst,
         igst_amount: igst,
+        state_code: stateCode,
         place_of_supply: payload.place_of_supply || taxInfo.placeOfSupply,
         supply_type: payload.supply_type || taxInfo.supplyType,
         amount_in_words: amountInWords,

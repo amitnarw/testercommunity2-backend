@@ -454,7 +454,14 @@ export const getDashboardApps = async (req: Request, res: Response) => {
         },
       },
       include: {
-        androidApp: true,
+        androidApp: {
+          include: {
+            ratings: {
+              where: { ratingType: "APP" },
+              select: { rating: true },
+            },
+          },
+        },
         appOwner: true,
       },
       orderBy: {
@@ -462,18 +469,24 @@ export const getDashboardApps = async (req: Request, res: Response) => {
       },
     });
 
-    // Determine the user's role/plan to show status details properly if needed
-    // But for getDashboardApps, usually just mapping the DB object is enough.
-    // The statusDetails JSON field might need parsing.
+    const formattedApps = apps.map((app: any) => {
+      const ratings = app.androidApp?.ratings || [];
+      const averageRating =
+        ratings.length > 0
+          ? ratings.reduce((sum: number, r: any) => sum + r.rating, 0) /
+            ratings.length
+          : 0;
 
-    const formattedApps = apps.map((app: any) => ({
-      ...app,
-      statusDetails: app.statusDetails
-        ? JSON.parse(JSON.stringify(app.statusDetails))
-        : null,
-      updatedAt: app.updatedAt.toString(),
-      createdAt: app.createdAt.toString(),
-    }));
+      return {
+        ...app,
+        statusDetails: app.statusDetails
+          ? JSON.parse(JSON.stringify(app.statusDetails))
+          : null,
+        updatedAt: app.updatedAt.toString(),
+        createdAt: app.createdAt.toString(),
+        averageRating,
+      };
+    });
 
     return sendSuccess(res, formattedApps, "ok");
   } catch (error) {

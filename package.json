@@ -11,7 +11,8 @@
     "db:validate": "prisma validate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "seed": "prisma db seed"
+    "seed": "prisma db seed",
+    "backfill:statecodes": "tsx scripts/backfill-statecodes.ts"
   },
   "keywords": [],
   "author": "",

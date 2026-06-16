@@ -501,6 +501,22 @@ export const getDashboardStats = async (req: Request, res: Response) => {
       },
     });
 
+    // Get completed apps by type
+    const completedPaidApps = await prismaClient.dashboardAndHub.count({
+      where: { appType: "PAID", status: "COMPLETED" },
+    });
+    const completedFreeApps = await prismaClient.dashboardAndHub.count({
+      where: { appType: "FREE", status: "COMPLETED" },
+    });
+
+    // Get paid testers (unique testers with a relation to a PAID app)
+    const paidTestersData = await prismaClient.testerRelation.groupBy({
+      by: ["testerId"],
+      where: {
+        dashboardAndHub: { appType: "PAID" },
+      },
+    });
+
     // Get recent submissions (last 5)
     const recentSubmissions = await prismaClient.dashboardAndHub.findMany({
       take: 5,
@@ -616,6 +632,9 @@ export const getDashboardStats = async (req: Request, res: Response) => {
       totalSupportRequests,
       pendingSupportRequests,
       activeTestersToday,
+      completedPaidApps,
+      completedFreeApps,
+      paidTesters: paidTestersData.length,
       submissionsByStatus: submissionsByStatus.reduce(
         (acc, item) => {
           acc[item.status] = item._count._all;
