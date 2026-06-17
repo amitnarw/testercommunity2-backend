@@ -11,6 +11,8 @@ import { seedBlogs } from "./seedBlogs";
 import { seedTestimonials } from "./seedTestimonials";
 import { seedPricing } from "./seedPricing";
 import { seedAuthors } from "./seedAuthors";
+import { seedFaq } from "./seedFaq";
+import { seedGuides } from "./seedGuides";
 
 const prisma = prismaClient;
 
@@ -45,6 +47,10 @@ async function main() {
     await seedPricing();
 
     await seedAuthors();
+
+    await seedFaq();
+
+    await seedGuides();
 
     logger.info("🏁 All seeds completed successfully!");
   } catch (e) {

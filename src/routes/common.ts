@@ -12,6 +12,8 @@ import reviewRouter from "./review.route";
 import supportRouter from "./support.route";
 import adminFinanceRouter from "./adminFinance.route";
 import declarationRouter from "./declaration.route";
+import faqRouter from "./faq.route";
+import guideRouter from "./guide.route";
 
 const router = Router();
 
@@ -28,5 +30,7 @@ router.use("/review", reviewRouter);
 router.use("/support", supportRouter);
 router.use("/admin/finance", adminFinanceRouter);
 router.use("/declaration", declarationRouter);
+router.use("/faq", faqRouter);
+router.use("/blog", guideRouter);
 
 export default router;

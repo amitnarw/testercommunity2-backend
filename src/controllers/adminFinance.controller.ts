@@ -561,7 +561,7 @@ export const generateDemoPayment = async (req: Request, res: Response) => {
 
     const user = await prismaClient.user.findUnique({
       where: { id: userId },
-      select: { id: true, name: true, email: true, userDetail: { select: { phone: true } } },
+      select: { id: true, name: true, email: true, billingInfo: { select: { phone: true } }, userDetail: { select: { phone: true } } },
     });
     if (!user) return sendError(res, 404, "User not found");
 
@@ -598,7 +598,7 @@ export const generateDemoPayment = async (req: Request, res: Response) => {
           razorpayOrderId: demoOrderId,
           customer_name: user.name || null,
           customer_email: user.email || null,
-          contact: user.userDetail?.phone || null,
+          contact: user.billingInfo?.phone || user.userDetail?.phone || null,
           fee: 0,
           tax: 0,
           amountRefunded: 0,

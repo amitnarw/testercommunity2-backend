@@ -36,6 +36,8 @@ async function seedRolesModulesPermissions() {
     "tester_applications",
     "promo_codes",
     "blogs",
+    "guides",
+    "guide_categories",
     "testimonial",
     "authors",
     "review",
@@ -43,6 +45,7 @@ async function seedRolesModulesPermissions() {
     "logs",
     "support",
     "permissions",
+    "faqs",
   ];
   for (const moduleName of modules) {
     await prisma.module.upsert({
@@ -111,7 +114,7 @@ async function seedRolesModulesPermissions() {
   };
 
   // Moderator gets full CRUD only on blogs and authors
-  const moderatorFullAccessModules = ["blogs", "authors"];
+  const moderatorFullAccessModules = ["blogs", "authors", "guides", "guide_categories"];
 
   for (const role of allRoles) {
     const basePerms = permissionMatrix[role.name] || permissionMatrix.user;

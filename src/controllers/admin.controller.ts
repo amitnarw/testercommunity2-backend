@@ -3087,6 +3087,281 @@ export const deleteBlog = async (req: Request, res: Response) => {
   }
 };
 
+// ==================== GUIDE MANAGEMENT ====================
+
+export const getAllGuides = async (req: Request, res: Response) => {
+  try {
+    const guides = await prismaClient.guide.findMany({
+      include: { category: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return sendSuccess(res, guides, "Guides fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const getGuideById = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const guide = await prismaClient.guide.findUnique({
+      where: { id: parseInt(id as string) },
+      include: { category: true },
+    });
+    if (!guide) return sendError(res, 404, "Guide not found");
+    return sendSuccess(res, guide, "Guide fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const createGuide = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const {
+      title,
+      slug,
+      description,
+      content,
+      readTime,
+      publishedAt,
+      isActive,
+      categoryId,
+    } = payload;
+
+    if (!title || !slug || !description || !content || !categoryId) {
+      return sendError(
+        res,
+        400,
+        "Title, slug, description, content, and category are required",
+      );
+    }
+
+    const finalSlug = slug || title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "");
+
+    const newGuide = await prismaClient.guide.create({
+      data: {
+        title,
+        slug: finalSlug,
+        description,
+        content,
+        readTime: readTime || "5 min read",
+        publishedAt: publishedAt ? new Date(publishedAt) : new Date(),
+        isActive: isActive !== undefined ? isActive : true,
+        categoryId: parseInt(categoryId),
+      },
+      include: { category: true },
+    });
+
+    return sendSuccess(res, newGuide, "Guide created successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const updateGuide = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const {
+      id,
+      title,
+      slug,
+      description,
+      content,
+      readTime,
+      views,
+      publishedAt,
+      isActive,
+      categoryId,
+    } = payload;
+
+    if (!id) return sendError(res, 400, "Guide ID is required");
+
+    const updateData: any = {
+      ...(title !== undefined && { title }),
+      ...(slug !== undefined && { slug }),
+      ...(description !== undefined && { description }),
+      ...(content !== undefined && { content }),
+      ...(readTime !== undefined && { readTime }),
+      ...(views !== undefined && { views }),
+      ...(publishedAt !== undefined && { publishedAt: new Date(publishedAt) }),
+      ...(isActive !== undefined && { isActive }),
+      ...(categoryId !== undefined && { categoryId: parseInt(categoryId) }),
+    };
+
+    const updatedGuide = await prismaClient.guide.update({
+      where: { id: parseInt(id) },
+      data: updateData,
+      include: { category: true },
+    });
+
+    return sendSuccess(res, updatedGuide, "Guide updated successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const deleteGuide = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await prismaClient.guide.delete({ where: { id: parseInt(id as string) } });
+    return sendSuccess(res, null, "Guide deleted successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+// ==================== GUIDE CATEGORY MANAGEMENT ====================
+
+export const getAllGuideCategories = async (req: Request, res: Response) => {
+  try {
+    const categories = await prismaClient.guideCategory.findMany({
+      orderBy: { sortOrder: "asc" },
+    });
+    return sendSuccess(res, categories, "Categories fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const getGuideCategoryById = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const category = await prismaClient.guideCategory.findUnique({
+      where: { id: parseInt(id as string) },
+    });
+    if (!category) return sendError(res, 404, "Category not found");
+    return sendSuccess(res, category, "Category fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const createGuideCategory = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { slug, title, description, iconName, colorKey, bgColorKey, sortOrder, isActive } = payload;
+
+    if (!slug || !title) {
+      return sendError(res, 400, "Slug and title are required");
+    }
+
+    const newCategory = await prismaClient.guideCategory.create({
+      data: {
+        slug,
+        title,
+        description: description || "",
+        iconName: iconName || "FileText",
+        colorKey: colorKey || "text-blue-500",
+        bgColorKey: bgColorKey || "bg-blue-500/10",
+        sortOrder: sortOrder || 0,
+        isActive: isActive !== undefined ? isActive : true,
+      },
+    });
+
+    return sendSuccess(res, newCategory, "Category created successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const updateGuideCategory = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id, slug, title, description, iconName, colorKey, bgColorKey, sortOrder, isActive } = payload;
+
+    if (!id) return sendError(res, 400, "Category ID is required");
+
+    const updateData: any = {
+      ...(slug !== undefined && { slug }),
+      ...(title !== undefined && { title }),
+      ...(description !== undefined && { description }),
+      ...(iconName !== undefined && { iconName }),
+      ...(colorKey !== undefined && { colorKey }),
+      ...(bgColorKey !== undefined && { bgColorKey }),
+      ...(sortOrder !== undefined && { sortOrder }),
+      ...(isActive !== undefined && { isActive }),
+    };
+
+    const updatedCategory = await prismaClient.guideCategory.update({
+      where: { id: parseInt(id) },
+      data: updateData,
+    });
+
+    return sendSuccess(res, updatedCategory, "Category updated successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const deleteGuideCategory = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const guideCount = await prismaClient.guide.count({
+      where: { categoryId: parseInt(id as string) },
+    });
+
+    if (guideCount > 0) {
+      return sendError(
+        res,
+        400,
+        "Cannot delete category with existing guides. Remove guides first.",
+      );
+    }
+
+    await prismaClient.guideCategory.delete({
+      where: { id: parseInt(id as string) },
+    });
+    return sendSuccess(res, null, "Category deleted successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
 // ==================== TESTIMONIAL MANAGEMENT ====================
 
 export const getAllTestimonials = async (req: Request, res: Response) => {
@@ -3654,6 +3929,112 @@ export const convertUserAuthType = async (req: Request, res: Response) => {
       res,
       500,
       "Failed to convert auth type. Please try again.",
+    );
+  }
+};
+
+// ==================== FAQ MANAGEMENT ====================
+
+export const getAllFaqs = async (req: Request, res: Response) => {
+  try {
+    const faqs = await prismaClient.faq.findMany({
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+    });
+    return sendSuccess(res, faqs, "FAQs fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const getFaqById = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const faq = await prismaClient.faq.findUnique({
+      where: { id: parseInt(id as string) },
+    });
+    if (!faq) return sendError(res, 404, "FAQ not found");
+    return sendSuccess(res, faq, "FAQ fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const createFaq = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { title, description, category, isActive, sortOrder } = payload;
+
+    if (!title || !description || !category) {
+      return sendError(res, 400, "Title, description, and category are required");
+    }
+
+    const newFaq = await prismaClient.faq.create({
+      data: {
+        title,
+        description,
+        category,
+        isActive: isActive !== undefined ? isActive : true,
+        sortOrder: sortOrder !== undefined ? sortOrder : 0,
+      },
+    });
+
+    return sendSuccess(res, newFaq, "FAQ created successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const updateFaq = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id, title, description, category, isActive, sortOrder } = payload;
+
+    if (!id) return sendError(res, 400, "FAQ ID is required");
+
+    const updateData: any = {};
+    if (title !== undefined) updateData.title = title;
+    if (description !== undefined) updateData.description = description;
+    if (category !== undefined) updateData.category = category;
+    if (isActive !== undefined) updateData.isActive = isActive;
+    if (sortOrder !== undefined) updateData.sortOrder = sortOrder;
+
+    const updatedFaq = await prismaClient.faq.update({
+      where: { id: parseInt(id) },
+      data: updateData,
+    });
+
+    return sendSuccess(res, updatedFaq, "FAQ updated successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const deleteFaq = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await prismaClient.faq.delete({ where: { id: parseInt(id as string) } });
+    return sendSuccess(res, null, "FAQ deleted successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
     );
   }
 };

@@ -65,6 +65,18 @@ import {
   updateBlog,
   deleteBlog,
   getPromoCodeApps,
+  // Guide
+  getAllGuides,
+  getGuideById,
+  createGuide,
+  updateGuide,
+  deleteGuide,
+  // Guide Categories
+  getAllGuideCategories,
+  getGuideCategoryById,
+  createGuideCategory,
+  updateGuideCategory,
+  deleteGuideCategory,
   // Testimonials
   getAllTestimonials,
   getTestimonialById,
@@ -84,6 +96,12 @@ import {
   updatePermission,
   // Self profile
   updateMyProfile,
+  // Faq
+  getAllFaqs,
+  getFaqById,
+  createFaq,
+  updateFaq,
+  deleteFaq,
 } from "@/controllers/admin.controller";
 import {
   getAllReviews,
@@ -209,6 +227,20 @@ router.post("/blogs", checkAuthorization({ module: "blogs", action: "canCreate" 
 router.post("/blogs/update", checkAuthorization({ module: "blogs", action: "canUpdate" }), decryptPayload, updateBlog);
 router.delete("/blogs/:id", checkAuthorization({ module: "blogs", action: "canDelete" }), deleteBlog);
 
+// Guides
+router.get("/guides", checkAuthorization({ module: "guides", action: "canReadList" }), getAllGuides);
+router.get("/guides/:id", checkAuthorization({ module: "guides", action: "canReadSingle" }), getGuideById);
+router.post("/guides", checkAuthorization({ module: "guides", action: "canCreate" }), decryptPayload, createGuide);
+router.post("/guides/update", checkAuthorization({ module: "guides", action: "canUpdate" }), decryptPayload, updateGuide);
+router.delete("/guides/:id", checkAuthorization({ module: "guides", action: "canDelete" }), deleteGuide);
+
+// Guide Categories
+router.get("/guide-categories", checkAuthorization({ module: "guide_categories", action: "canReadList" }), getAllGuideCategories);
+router.get("/guide-categories/:id", checkAuthorization({ module: "guide_categories", action: "canReadSingle" }), getGuideCategoryById);
+router.post("/guide-categories", checkAuthorization({ module: "guide_categories", action: "canCreate" }), decryptPayload, createGuideCategory);
+router.post("/guide-categories/update", checkAuthorization({ module: "guide_categories", action: "canUpdate" }), decryptPayload, updateGuideCategory);
+router.delete("/guide-categories/:id", checkAuthorization({ module: "guide_categories", action: "canDelete" }), deleteGuideCategory);
+
 // Testimonials
 router.get("/testimonials", checkAuthorization({ module: "testimonial", action: "canReadList" }), getAllTestimonials);
 router.get("/testimonials/:id", checkAuthorization({ module: "testimonial", action: "canReadSingle" }), getTestimonialById);
@@ -222,6 +254,13 @@ router.get("/authors/:id", checkAuthorization({ module: "authors", action: "canR
 router.post("/authors", checkAuthorization({ module: "authors", action: "canCreate" }), decryptPayload, createAuthor);
 router.post("/authors/update", checkAuthorization({ module: "authors", action: "canUpdate" }), decryptPayload, updateAuthor);
 router.delete("/authors/:id", checkAuthorization({ module: "authors", action: "canDelete" }), deleteAuthor);
+
+// FAQs
+router.get("/faqs", checkAuthorization({ module: "faqs", action: "canReadList" }), getAllFaqs);
+router.get("/faqs/:id", checkAuthorization({ module: "faqs", action: "canReadSingle" }), getFaqById);
+router.post("/faqs", checkAuthorization({ module: "faqs", action: "canCreate" }), decryptPayload, createFaq);
+router.post("/faqs/update", checkAuthorization({ module: "faqs", action: "canUpdate" }), decryptPayload, updateFaq);
+router.delete("/faqs/:id", checkAuthorization({ module: "faqs", action: "canDelete" }), deleteFaq);
 
 // User Reviews (admin management)
 router.get("/user-reviews", checkAuthorization({ module: "review", action: "canReadList" }), getAllReviews);
