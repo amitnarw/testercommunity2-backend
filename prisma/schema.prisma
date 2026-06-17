@@ -222,6 +222,8 @@ model Faq {
   title       String
   description String
   category    FaqCategory
+  isActive    Boolean     @default(true)
+  sortOrder   Int         @default(0)
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
@@ -875,6 +877,41 @@ model WebhookEventLog {
   @@map("webhook_event_log")
 }
 
+model GuideCategory {
+  id          Int      @id @default(autoincrement())
+  slug        String   @unique
+  title       String
+  description String
+  iconName    String   @default("FileText")
+  colorKey    String   @default("text-blue-500")
+  bgColorKey  String   @default("bg-blue-500/10")
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  guides      Guide[]
+
+  @@map("guide_category")
+}
+
+model Guide {
+  id          Int           @id @default(autoincrement())
+  slug        String        @unique
+  title       String
+  description String
+  content     String
+  readTime    String        @default("5 min read")
+  views       Int           @default(0)
+  publishedAt DateTime      @default(now())
+  isActive    Boolean       @default(true)
+  categoryId  Int
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  category    GuideCategory @relation(fields: [categoryId], references: [id])
+
+  @@map("guide")
+}
+
 model PlayStoreDeclaration {
   id                Int       @id @default(autoincrement())
   dashboardAndHubId Int      @unique
@@ -1116,6 +1153,9 @@ enum FaqCategory {
   community
   professional
   homepage
+  pricing
+  google_play_guide
+  billing
 }
 
 enum DashboardAndHubAppType {
@@ -1402,6 +1442,7 @@ model BillingInfo {
   userId    String   @unique
   name      String
   email     String
+  phone     String?
   address   String
   city      String?
   state     String?

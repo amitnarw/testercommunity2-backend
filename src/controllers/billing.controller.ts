@@ -82,14 +82,14 @@ export const upsertBillingInfo = async (req: Request, res: Response) => {
   try {
     const userId = req?.userId;
     const { payload } = req.body;
-    const { name, email, address, city, state, zipCode, country, gstin } = payload;
+    const { name, email, phone, address, city, state, zipCode, country, gstin } = payload;
     let { stateCode } = payload;
 
     if (!userId) {
       return sendError(res, 401, "Unauthorized");
     }
 
-    if (!name || !email || !address || !country) {
+    if (!name || !email || !phone || !address || !country) {
       return sendError(res, 400, "Missing required fields");
     }
 
@@ -106,8 +106,8 @@ export const upsertBillingInfo = async (req: Request, res: Response) => {
 
     const billingInfo = await prismaClient.billingInfo.upsert({
       where: { userId },
-      update: { name, email, address, city, state, stateCode, zipCode, country, gstin },
-      create: { userId, name, email, address, city, state, stateCode, zipCode, country, gstin },
+      update: { name, email, phone, address, city, state, stateCode, zipCode, country, gstin },
+      create: { userId, name, email, phone, address, city, state, stateCode, zipCode, country, gstin },
     });
 
     return sendSuccess(res, billingInfo, "Billing info updated successfully");
@@ -330,7 +330,7 @@ export const createOrder = async (req: Request, res: Response) => {
       where: { userId },
     });
 
-    if (!billingInfo) {
+    if (!billingInfo || !billingInfo.phone) {
       return sendError(
         res,
         403,
@@ -611,6 +611,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
           amount_inr: amountInr,
           customer_name: billingInfo?.name || null,
           customer_email: billingInfo?.email || paymentDetails.email || null,
+          contact: billingInfo?.phone || (paymentDetails.contact as string) || null,
           status:
             paymentDetails.status === "captured" ? "CAPTURED" : "AUTHORIZED",
           method: paymentDetails.method as string,
@@ -618,7 +619,6 @@ export const verifyPayment = async (req: Request, res: Response) => {
           wallet: paymentDetails.wallet as string,
           vpa: paymentDetails.vpa as string,
           email: paymentDetails.email as string,
-          contact: paymentDetails.contact as string,
           fee:
             typeof paymentDetails.fee === "string"
               ? parseInt(paymentDetails.fee)
@@ -998,6 +998,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
                 amount_inr: amountInr,
                 customer_name: billingInfo?.name || null,
                 customer_email: billingInfo?.email || paymentData.email || null,
+                contact: billingInfo?.phone || paymentData.contact || null,
               },
               create: {
                 orderId: order.id,
@@ -1009,10 +1010,10 @@ export const handleWebhook = async (req: Request, res: Response) => {
                 amount_inr: amountInr,
                 customer_name: billingInfo?.name || null,
                 customer_email: billingInfo?.email || paymentData.email || null,
+                contact: billingInfo?.phone || paymentData.contact || null,
                 status: "CAPTURED",
                 method: paymentData.method,
                 email: paymentData.email,
-                contact: paymentData.contact,
                 captured: true,
               },
             });
