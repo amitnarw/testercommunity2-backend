@@ -8,6 +8,7 @@ import { auth, type SessionWithRole } from "@/lib/auth";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { normalizeR2Url } from "@/utils/helperFunctions";
+import { createAdminTestCompletedNotification } from "@/utils/adminNotifications";
 import { hashPassword, generateRandomString } from "better-auth/crypto"; // MUST use better-auth/crypto (scrypt), not @/utils/passwordUtils (bcrypt), because signIn.email verifies with scrypt
 import { type Request, type Response } from "express";
 
@@ -343,6 +344,7 @@ export const updateProjectStatus = async (req: Request, res: Response) => {
 
     const app = await prismaClient.dashboardAndHub.findUnique({
       where: { id: parseInt(id) },
+      include: { androidApp: true },
     });
 
     if (!app) {
@@ -366,6 +368,18 @@ export const updateProjectStatus = async (req: Request, res: Response) => {
       where: { id: parseInt(id) },
       data: updateData,
     });
+
+    if (status === "COMPLETED" && app.status !== "COMPLETED") {
+      try {
+        await createAdminTestCompletedNotification(
+          app.id,
+          app.androidApp?.appName || "Unknown App",
+          app.appType as "FREE" | "PAID",
+        );
+      } catch (err) {
+        logger.error("Failed to create admin completion notification:", err);
+      }
+    }
 
     return sendSuccess(
       res,
@@ -2903,6 +2917,16 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
 
       return app;
     });
+
+    try {
+      await createAdminTestCompletedNotification(
+        hubId,
+        existingApp.androidApp?.appName || "Unknown App",
+        existingApp.appType as "FREE" | "PAID",
+      );
+    } catch (err) {
+      logger.error("Failed to create admin completion notification:", err);
+    }
 
     return sendSuccess(
       res,

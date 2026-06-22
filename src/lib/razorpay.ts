@@ -34,36 +34,6 @@ export const getRazorpayInstance = (): Razorpay => {
 };
 
 /**
- * Verify the Razorpay payment signature
- * This is critical for security - ensures payment is authentic
- *
- * @param orderId - Razorpay order ID
- * @param paymentId - Razorpay payment ID
- * @param signature - Signature received from checkout
- * @returns boolean indicating if signature is valid
- */
-export const verifyPaymentSignature = (
-  orderId: string,
-  paymentId: string,
-  signature: string,
-): boolean => {
-  if (!RAZORPAY_KEY_SECRET) {
-    throw new Error("Razorpay key secret not configured");
-  }
-
-  const body = `${orderId}|${paymentId}`;
-  const expectedSignature = crypto
-    .createHmac("sha256", RAZORPAY_KEY_SECRET)
-    .update(body)
-    .digest("hex");
-
-  return crypto.timingSafeEqual(
-    Buffer.from(expectedSignature),
-    Buffer.from(signature),
-  );
-};
-
-/**
  * Verify Razorpay webhook signature
  * Ensures webhook payloads are from Razorpay
  *
@@ -107,7 +77,11 @@ export const getRazorpayKeyId = (): string => {
  * Check if Razorpay is properly configured
  */
 export const isRazorpayConfigured = (): boolean => {
-  return !!(RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET);
+  return !!(
+    RAZORPAY_KEY_ID &&
+    RAZORPAY_KEY_SECRET &&
+    process.env.RAZORPAY_WEBHOOK_SECRET
+  );
 };
 
 /**
@@ -170,13 +144,6 @@ export interface RazorpayOrder {
   attempts: number;
   notes: Record<string, string>;
   created_at: number;
-}
-
-// Payment verification data interface
-export interface PaymentVerificationData {
-  razorpay_order_id: string;
-  razorpay_payment_id: string;
-  razorpay_signature: string;
 }
 
 // Webhook event interface
