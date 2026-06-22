@@ -4,7 +4,7 @@ import {
   getBillingHistory,
   getPaymentConfig,
   getPendingOrders,
-  verifyPayment,
+  getOrderStatus,
   handleWebhook,
   initiateRefund,
   getActivePromoCodes,
@@ -34,12 +34,7 @@ router.get("/invoice/:invoiceNumber", checkAuthentication, getInvoice);
 router.post("/info", checkAuthentication, decryptPayload, upsertBillingInfo);
 
 router.post("/create-order", checkAuthentication, decryptPayload, createOrder);
-router.post(
-  "/verify-payment",
-  checkAuthentication,
-  decryptPayload,
-  verifyPayment,
-);
+router.get("/order-status/:orderId", checkAuthentication, getOrderStatus);
 router.post("/refund", checkAuthentication, decryptPayload, initiateRefund);
 
 export default router;

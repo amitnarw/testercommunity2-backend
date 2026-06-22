@@ -52,51 +52,51 @@ model User {
 }
 
 model UserDetail {
-  id                      Int                          @id @default(autoincrement())
-  userId                  String                       @unique
-  first_name              String
-  last_name               String
-  phone                   String?                      @unique
-  auth_type               UserAuthType
-  roleId                  Int
-  banned                  Boolean?                     @default(false)
-  ban_reason              String?
-  country                 String?
-  profile_type            UserProfileType?
-  job_role                UserJobRole?
-  company_name            String?
-  company_size            UserCompanySize?
-  position_in_company     UserCompanyPosition?
-  company_website         String?
-  experience_level        UserExperienceLevel?
-  total_published_apps    UserTotalPublishedApps?
-  platform_development    UserDevelopmentPlatform?
-  publish_frequency       UserPublishFrequency?
-  service_usage           UserTestingServiceReason?
-  communication_methods   UserCommunicationMethod[]    @default([])
-  notification_preference UserNotificationPreference[] @default([])
-  device_company          String?
-  device_model            String?
-  ram                     String?
-  os                      String?
-  screen_resolution       String?
-  language                String?
-  network                 String?
-  bio                     String?
-  years_of_experience     String?
-  testing_types           String[]                     @default([])
-  tester_devices          String[]                     @default([])
-  tester_os_versions      String[]                     @default([])
-  areas_of_expertise      String[]                     @default([])
-  initial                 Boolean                      @default(true)
-  application_status      String?
-  discovery_source        String?
-  discovery_source_answered Boolean                  @default(false)
-  createdAt               DateTime                     @default(now())
-  updatedAt               DateTime                     @updatedAt
-  availability            TesterAvailability?          @default(AVAILABLE)
-  role                    Role                         @relation("UserRole", fields: [roleId], references: [id])
-  user                    User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                        Int                          @id @default(autoincrement())
+  userId                    String                       @unique
+  first_name                String
+  last_name                 String
+  phone                     String?                      @unique
+  auth_type                 UserAuthType
+  roleId                    Int
+  banned                    Boolean?                     @default(false)
+  ban_reason                String?
+  country                   String?
+  profile_type              UserProfileType?
+  job_role                  UserJobRole?
+  company_name              String?
+  company_size              UserCompanySize?
+  position_in_company       UserCompanyPosition?
+  company_website           String?
+  experience_level          UserExperienceLevel?
+  total_published_apps      UserTotalPublishedApps?
+  platform_development      UserDevelopmentPlatform?
+  publish_frequency         UserPublishFrequency?
+  service_usage             UserTestingServiceReason?
+  communication_methods     UserCommunicationMethod[]    @default([])
+  notification_preference   UserNotificationPreference[] @default([])
+  device_company            String?
+  device_model              String?
+  ram                       String?
+  os                        String?
+  screen_resolution         String?
+  language                  String?
+  network                   String?
+  bio                       String?
+  years_of_experience       String?
+  testing_types             String[]                     @default([])
+  tester_devices            String[]                     @default([])
+  tester_os_versions        String[]                     @default([])
+  areas_of_expertise        String[]                     @default([])
+  initial                   Boolean                      @default(true)
+  application_status        String?
+  discovery_source          String?
+  discovery_source_answered Boolean                      @default(false)
+  createdAt                 DateTime                     @default(now())
+  updatedAt                 DateTime                     @updatedAt
+  availability              TesterAvailability?          @default(AVAILABLE)
+  role                      Role                         @relation("UserRole", fields: [roleId], references: [id])
+  user                      User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_detail")
 }
@@ -183,9 +183,9 @@ model UserPlan {
 }
 
 model Blog {
-  id               Int      @id @default(autoincrement())
+  id               Int          @id @default(autoincrement())
   title            String
-  slug             String   @unique
+  slug             String       @unique
   excerpt          String
   content          String
   authorName       String
@@ -195,11 +195,11 @@ model Blog {
   dataAiHint       String?
   tags             String[]
   category         BlogCategory @default(GENERAL)
-  isActive         Boolean  @default(true)
-  viewCount        Int      @default(0)
-  date             DateTime @default(now())
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  isActive         Boolean      @default(true)
+  viewCount        Int          @default(0)
+  date             DateTime     @default(now())
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
   media            Media[]
 
   @@map("blog")
@@ -325,10 +325,10 @@ model Media {
   blog                       Blog?                       @relation(fields: [blogId], references: [id], onDelete: Cascade)
   feedback                   Feedback?                   @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
   notification               Notification?               @relation(fields: [notificationId], references: [id], onDelete: Cascade)
-  conversation              Conversation?              @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  message                   Message?                   @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  supportMessage            SupportMessage?            @relation(fields: [supportMessageId], references: [id], onDelete: Cascade)
-  supportRequest            SupportRequest?            @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+  conversation               Conversation?               @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message                    Message?                    @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  supportMessage             SupportMessage?             @relation(fields: [supportMessageId], references: [id], onDelete: Cascade)
+  supportRequest             SupportRequest?             @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
   websiteFeedbackSuggestions WebsiteFeedbackSuggestion[] @relation("MediaToWebsiteFeedbackSuggestion")
 
   @@map("media")
@@ -373,6 +373,7 @@ model Notification {
   url         String?
   userId      String?
   isActive    Boolean
+  isAdminOnly Boolean          @default(false)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   media       Media[]
@@ -438,31 +439,31 @@ model WebsiteFeedbackSuggestion {
 /// Unified conversation model: replaces SupportRequest.
 /// type separates: AI_CHAT, LIVE_CHAT, TICKET — all stored in one table.
 model Conversation {
-  id                Int                  @id @default(autoincrement())
-  type              ConversationType     @default(AI_CHAT)
-  status            ConversationStatus   @default(OPEN)
-  priority          ConversationPriority @default(MEDIUM)
-  category          ConversationCategory @default(GENERAL)
+  id       Int                  @id @default(autoincrement())
+  type     ConversationType     @default(AI_CHAT)
+  status   ConversationStatus   @default(OPEN)
+  priority ConversationPriority @default(MEDIUM)
+  category ConversationCategory @default(GENERAL)
 
-  subject           String?
-  description       String?
+  subject     String?
+  description String?
 
-  userId            String?
-  assignedTo        String?
-  isEscalated       Boolean              @default(false)
-  assignedAt        DateTime?
-  firstResponseAt   DateTime?
-  resolvedAt        DateTime?
-  lastMessageAt     DateTime?
+  userId          String?
+  assignedTo      String?
+  isEscalated     Boolean   @default(false)
+  assignedAt      DateTime?
+  firstResponseAt DateTime?
+  resolvedAt      DateTime?
+  lastMessageAt   DateTime?
 
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  user              User?                @relation("UserConversations", fields: [userId], references: [id])
-  assignedAgent     User?                @relation("AssignedConversations", fields: [assignedTo], references: [id])
-  messages          Message[]
-  media             Media[]
+  user          User?     @relation("UserConversations", fields: [userId], references: [id])
+  assignedAgent User?     @relation("AssignedConversations", fields: [assignedTo], references: [id])
+  messages      Message[]
+  media         Media[]
 
   @@index([userId])
   @@index([assignedTo])
@@ -474,21 +475,21 @@ model Conversation {
 
 /// Replaces SupportMessage. Supports system messages for status transitions.
 model Message {
-  id              Int              @id @default(autoincrement())
-  conversationId  Int
-  senderId        String?
-  senderType      MessageSenderType
-  messageType     MessageType      @default(TEXT)
-  content         String
-  metadata        Json?
-  isAi            Boolean          @default(false)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id             Int               @id @default(autoincrement())
+  conversationId Int
+  senderId       String?
+  senderType     MessageSenderType
+  messageType    MessageType       @default(TEXT)
+  content        String
+  metadata       Json?
+  isAi           Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
   // Relations
-  conversation    Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  senderUser      User?            @relation("UserMessages", fields: [senderId], references: [id])
-  media           Media[]
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderUser   User?        @relation("UserMessages", fields: [senderId], references: [id])
+  media        Media[]
 
   @@index([conversationId])
   @@index([createdAt])
@@ -497,12 +498,12 @@ model Message {
 
 /// Persisted agent status (survives reconnections).
 model AgentStatus {
-  id              Int             @id @default(autoincrement())
-  userId          String          @unique
-  status          AgentOnlineStatus @default(OFFLINE)
-  currentChats    Int             @default(0)
-  lastSeenAt      DateTime        @default(now())
-  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           Int               @id @default(autoincrement())
+  userId       String            @unique
+  status       AgentOnlineStatus @default(OFFLINE)
+  currentChats Int               @default(0)
+  lastSeenAt   DateTime          @default(now())
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("agent_status")
 }
@@ -529,7 +530,7 @@ model ControlRoom {
 // --- Legacy models (kept for data migration, no longer used in new code) ---
 
 model SupportRequest {
-  id             Int                      @id @default(autoincrement())
+  id             Int                @id @default(autoincrement())
   userId         String?
   supportAgentId Int?
   assignedTo     String?
@@ -537,18 +538,18 @@ model SupportRequest {
   email          String?
   subject        String
   description    String
-  status         SupportStatus            @default(PENDING)
-  category       SupportCategory          @default(GENERAL)
-  type           SupportRequestType       @default(TICKET)
-  isEscalated    Boolean                  @default(false)
+  status         SupportStatus      @default(PENDING)
+  category       SupportCategory    @default(GENERAL)
+  type           SupportRequestType @default(TICKET)
+  isEscalated    Boolean            @default(false)
   assignedAt     DateTime?
-  createdAt      DateTime                 @default(now())
-  updatedAt      DateTime                 @updatedAt
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
   media          Media[]
   messages       SupportMessage[]
-  supportAgent   SupportAgent?            @relation(fields: [supportAgentId], references: [id])
-  user           User?                    @relation(fields: [userId], references: [id])
-  assignedUser   User?                    @relation("AssignedSupportChat", fields: [assignedTo], references: [id])
+  supportAgent   SupportAgent?      @relation(fields: [supportAgentId], references: [id])
+  user           User?              @relation(fields: [userId], references: [id])
+  assignedUser   User?              @relation("AssignedSupportChat", fields: [assignedTo], references: [id])
 
   @@map("support_request")
 }
@@ -609,7 +610,6 @@ model UserTransaction {
   dashboardAndHub   DashboardAndHub?      @relation(fields: [dashboardAndHubId], references: [id])
   user              User                  @relation(fields: [userId], references: [id])
   userWallet        UserWallet?           @relation(fields: [userWalletId], references: [id])
-  
 
   @@map("user_transactions")
 }
@@ -822,21 +822,21 @@ model Invoice {
   service_name    String
   sac_code        String    @default("998313")
   period          String?
-  quantity        Int        @default(1)
+  quantity        Int       @default(1)
   unit_price      Int?
-  tax_rate        Float      @default(0)
-  cgst_amount     Int        @default(0)
-  sgst_amount     Int        @default(0)
-  igst_amount     Int        @default(0)
+  tax_rate        Float     @default(0)
+  cgst_amount     Int       @default(0)
+  sgst_amount     Int       @default(0)
+  igst_amount     Int       @default(0)
   state_code      String?
   due_date        DateTime?
   place_of_supply String?
   supply_type     String?
   amount_in_words String?
   lut_number      String?
-  createdAt       DateTime   @default(now())
-  payment         Payment    @relation(fields: [paymentId], references: [id])
-  user            User       @relation(fields: [userId], references: [id])
+  createdAt       DateTime  @default(now())
+  payment         Payment   @relation(fields: [paymentId], references: [id])
+  user            User      @relation(fields: [userId], references: [id])
 
   @@map("invoice")
 }
@@ -913,18 +913,18 @@ model Guide {
 }
 
 model PlayStoreDeclaration {
-  id                Int       @id @default(autoincrement())
-  dashboardAndHubId Int      @unique
-  appOwnerId        String
-  answers           Json      @default("{}")
-  autoGeneratedData Json      @default("{}")
-  status            String    @default("DRAFT")
-  adminAnswers      Json?
-  adminDeclarationStatus String @default("DRAFT")
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  dashboardAndHub   DashboardAndHub @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
-  appOwner          User            @relation(fields: [appOwnerId], references: [id])
+  id                     Int             @id @default(autoincrement())
+  dashboardAndHubId      Int             @unique
+  appOwnerId             String
+  answers                Json            @default("{}")
+  autoGeneratedData      Json            @default("{}")
+  status                 String          @default("DRAFT")
+  adminAnswers           Json?
+  adminDeclarationStatus String          @default("DRAFT")
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+  dashboardAndHub        DashboardAndHub @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
+  appOwner               User            @relation(fields: [appOwnerId], references: [id])
 
   @@map("play_store_declaration")
 }
@@ -1406,6 +1406,7 @@ enum OrderStatus {
   CREATED
   ATTEMPTED
   PAID
+  FAILED
   EXPIRED
   CANCELLED
 }

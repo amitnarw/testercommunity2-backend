@@ -3,6 +3,8 @@ import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient, Prisma } from "@/lib/prisma";
 import { normalizeR2Url } from "@/utils/helperFunctions";
+import { createAdminTestCompletedNotification } from "@/utils/adminNotifications";
+import logger from "../utils/logger";
 import type { DashboardAndHubStatus } from "@prisma/client";
 import { deleteFunction } from "./r2.controller";
 import { extractPackageName } from "@/services/common";
@@ -2008,6 +2010,16 @@ export const completeHostedApp = async (req: Request, res: Response) => {
         },
       });
     });
+
+    try {
+      await createAdminTestCompletedNotification(
+        app.id,
+        app.androidApp?.appName || "Unknown App",
+        app.appType as "FREE" | "PAID",
+      );
+    } catch (err) {
+      logger.error("Failed to create admin completion notification:", err);
+    }
 
     return sendSuccess(res, null, "App marked as completed successfully");
   } catch (error) {

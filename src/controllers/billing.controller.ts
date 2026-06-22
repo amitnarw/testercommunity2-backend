@@ -7,7 +7,6 @@ import {
   getRazorpayInstance,
   getRazorpayKeyId,
   isRazorpayConfigured,
-  verifyPaymentSignature,
   verifyWebhookSignature,
   refundPayment,
   type RazorpayWebhookEvent,
@@ -452,346 +451,7 @@ export const createOrder = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * Verify payment after Razorpay checkout
- */
-export const verifyPayment = async (req: Request, res: Response) => {
-  try {
-    const userId = req?.userId;
-    if (!userId) {
-      return sendError(res, 401, "Unauthorized");
-    }
 
-    const { payload } = await req.body;
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
-      payload;
-
-    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-      return sendError(res, 400, "Missing payment verification data");
-    }
-
-    // Verify signature
-    const isValidSignature = verifyPaymentSignature(
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-    );
-
-    if (!isValidSignature) {
-      return sendError(
-        res,
-        400,
-        "Payment verification failed - invalid signature",
-      );
-    }
-
-    // Find the order
-    const order = await prismaClient?.order?.findFirst({
-      where: {
-        razorpayOrderId: razorpay_order_id,
-        userId,
-      },
-      include: {
-        plan: true,
-      },
-    });
-
-    if (!order) {
-      return sendError(res, 404, "Order not found");
-    }
-
-    if (order.status === "PAID") {
-      const existingPayment = await prismaClient?.payment.findFirst({
-        where: { razorpayOrderId: razorpay_order_id },
-        orderBy: { createdAt: "desc" },
-        include: { invoice: true },
-      });
-      return sendSuccess(
-        res,
-        {
-          success: true,
-          orderId: order.id,
-          paymentId: existingPayment?.id || null,
-          invoiceId: existingPayment?.invoice?.invoice_number || null,
-          packagesAwarded: 0,
-          totalPackages: 0,
-          alreadyProcessed: true,
-        },
-        "Payment already processed",
-      );
-    }
-
-    // Fetch payment details from Razorpay
-    const razorpay = getRazorpayInstance();
-    const paymentDetails = await razorpay.payments.fetch(razorpay_payment_id);
-
-    // Start transaction to update order, create payment record, and update wallet
-    const transactionDate = new Date();
-    const result = await withRetry(() =>
-      prismaClient.$transaction(async (tx) => {
-        // 🔒 Serialise concurrent requests for this order
-        await tx.$executeRaw`SELECT id FROM "order" WHERE id = ${order.id} FOR UPDATE`;
-
-        // Idempotency check: if a payment record already exists, return early
-        const existingPayment = await tx.payment.findUnique({
-          where: { razorpayPaymentId: razorpay_payment_id },
-        });
-        if (existingPayment) {
-          const existingInvoice = await tx.invoice.findUnique({
-            where: { paymentId: existingPayment.id },
-          });
-          const existingWallet = await tx.userWallet.findUnique({
-            where: { userId },
-          });
-          return {
-            alreadyProcessed: true,
-            payment: existingPayment,
-            invoiceId: existingInvoice?.invoice_number || null,
-            packagesAwarded: 0,
-            wallet: existingWallet || { totalPackages: 0 },
-          };
-        }
-
-        // Get user billing info for payment record
-        const billingInfo = await tx.billingInfo.findUnique({
-          where: { userId },
-        });
-
-        // Determine invoice type and tax
-        const customerCountry = billingInfo?.country || "India";
-        const customerState = billingInfo?.state || null;
-        const customerStateCode = billingInfo?.stateCode || (customerCountry === "India" ? getStateCodeFromName(customerState) : null);
-        const invoiceType = determineInvoiceType(customerCountry);
-        const invoiceNumber = await getNextInvoiceNumber(invoiceType, tx, transactionDate);
-
-      // Calculate amount in INR (simplistic for now)
-      const totalPaid = typeof paymentDetails.amount === "string"
-        ? parseInt(paymentDetails.amount)
-        : (paymentDetails.amount as number);
-      const currency = paymentDetails.currency;
-      let amountInr = currency === "INR" ? totalPaid : null;
-
-      // Back-calculate base price (pre-GST) from the total the customer paid
-      const quantity = order.packageCount || order.plan?.package || 1;
-      const taxPreview = calculateTax(totalPaid, invoiceType, customerState, customerStateCode);
-      const divisor = (100 + taxPreview.taxRate) / 100;
-      const baseAmount = invoiceType === "EXP" ? totalPaid : Math.round(totalPaid / divisor);
-
-      let taxInfo = calculateTax(baseAmount, invoiceType, customerState, customerStateCode);
-
-      // Rounding adjustment: make base + tax match the exact amount collected
-      const computedTotal = baseAmount + taxInfo.cgstAmount + taxInfo.sgstAmount + taxInfo.igstAmount;
-      const roundingDiff = totalPaid - computedTotal;
-      if (roundingDiff !== 0) {
-        if (taxInfo.igstAmount > 0) {
-          taxInfo.igstAmount += roundingDiff;
-        } else {
-          taxInfo.sgstAmount += roundingDiff;
-        }
-      }
-
-      const unitPrice = Math.round(baseAmount / quantity);
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 30);
-
-      // Create payment record (upsert for safety)
-      const payment = await tx.payment.upsert({
-        where: { razorpayPaymentId: razorpay_payment_id },
-        update: {
-          status: paymentDetails.status === "captured" ? "CAPTURED" : "AUTHORIZED",
-        },
-        create: {
-          orderId: order.id,
-          userId: userId,
-          razorpayPaymentId: razorpay_payment_id,
-          razorpayOrderId: razorpay_order_id,
-          razorpaySignature: razorpay_signature,
-          amount: totalPaid,
-          currency: currency,
-          amount_inr: amountInr,
-          customer_name: billingInfo?.name || null,
-          customer_email: billingInfo?.email || paymentDetails.email || null,
-          contact: billingInfo?.phone || (paymentDetails.contact as string) || null,
-          status:
-            paymentDetails.status === "captured" ? "CAPTURED" : "AUTHORIZED",
-          method: paymentDetails.method as string,
-          bank: paymentDetails.bank as string,
-          wallet: paymentDetails.wallet as string,
-          vpa: paymentDetails.vpa as string,
-          email: paymentDetails.email as string,
-          fee:
-            typeof paymentDetails.fee === "string"
-              ? parseInt(paymentDetails.fee)
-              : (paymentDetails.fee as number),
-          tax:
-            typeof paymentDetails.tax === "string"
-              ? parseInt(paymentDetails.tax)
-              : (paymentDetails.tax as number),
-          captured: paymentDetails.captured as boolean,
-          international: paymentDetails.international as boolean,
-          notes: paymentDetails.notes as any,
-        },
-      });
-
-      // Create Invoice record (upsert for safety)
-      await tx.invoice.upsert({
-        where: { paymentId: payment.id },
-        update: {},
-        create: {
-          paymentId: payment.id,
-          userId: userId,
-          invoice_number: invoiceNumber,
-          invoice_type: invoiceType,
-          service_name: order.plan?.name || "Android App Testing Package",
-          sac_code: COMPANY_DETAILS.sacCode,
-           period: formatPeriod(transactionDate),
-          quantity: quantity,
-          unit_price: unitPrice,
-          tax_rate: taxInfo.taxRate,
-          cgst_amount: taxInfo.cgstAmount,
-          sgst_amount: taxInfo.sgstAmount,
-          igst_amount: taxInfo.igstAmount,
-          state_code: customerStateCode,
-          due_date: dueDate,
-          place_of_supply: taxInfo.placeOfSupply,
-          supply_type: taxInfo.supplyType,
-          amount_in_words: amountToWords(totalPaid, currency),
-          lut_number: COMPANY_DETAILS.lutNumber || null,
-        },
-      });
-
-      // Update order status and invoice ID (using the new invoiceNumber)
-      await tx.order.update({
-        where: { id: order.id },
-        data: {
-          status: "PAID",
-          attempts: { increment: 1 },
-          invoiceId: invoiceNumber,
-        },
-      });
-
-      // Calculate packages to award
-      const packagesToAward = order.packageCount || order.plan?.package || 0;
-
-      // Update user wallet
-      const wallet = await tx.userWallet.upsert({
-        where: { userId },
-        create: {
-          userId,
-          totalPoints: 0,
-          totalPackages: packagesToAward,
-        },
-        update: {
-          totalPackages: { increment: packagesToAward },
-        },
-      });
-
-      // Create transaction record
-      const transaction = await tx.userTransaction.create({
-        data: {
-          userId,
-          userWalletId: wallet.id,
-          action: null,
-          package: packagesToAward,
-          transactionType: "PURCHASE",
-          status: "CREDIT",
-          // Packages are being credited to the wallet via real-money payment
-          paymentMethod: "PACKAGE",
-        },
-      });
-
-      return {
-        payment,
-        wallet,
-        transaction,
-        packagesAwarded: packagesToAward,
-        invoiceId: invoiceNumber,
-        alreadyProcessed: false,
-      };
-    })
-  );
-
-    // If another request already processed this payment, fetch current state
-    if (result.alreadyProcessed) {
-      const userWallet = await prismaClient?.userWallet.findUnique({
-        where: { userId },
-      });
-      return sendSuccess(
-        res,
-        {
-          success: true,
-          orderId: order.id,
-          paymentId: result.payment.id,
-          invoiceId: result.invoiceId,
-          packagesAwarded: result.packagesAwarded,
-          totalPackages: userWallet?.totalPackages || 0,
-          alreadyProcessed: true,
-        },
-        "Payment already processed",
-      );
-    }
-
-    // Send receipt email
-    const userEmail = paymentDetails.email || "";
-    if (userEmail && process.env.RESEND_API_KEY) {
-      const orderDate = order.createdAt.toISOString();
-      const invoiceId = result.invoiceId;
-
-      await sendEmail({
-        from: "inTesters <noreply@intesters.com>",
-        to: userEmail,
-        subject: `Payment Receipt - ${invoiceId}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #7c3aed;">Payment Successful!</h2>
-            <p>Thank you for your purchase on inTesters.</p>
-            <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-              <p><strong>Invoice ID:</strong> ${invoiceId}</p>
-              <p><strong>Date:</strong> ${orderDate}</p>
-              <p><strong>Amount:</strong> ₹${(order.amount / 100).toLocaleString("en-IN")}</p>
-              <p><strong>Packages Awarded:</strong> ${result.packagesAwarded}</p>
-              <p><strong>Total Packages:</strong> ${result.wallet.totalPackages}</p>
-            </div>
-            <p>You can view your packages and transaction history in your wallet.</p>
-            <p>Thank you for choosing inTesters!</p>
-          </div>
-        `,
-      });
-    }
-
-    return sendSuccess(
-      res,
-      {
-        success: true,
-        orderId: order.id,
-        paymentId: result.payment.id,
-        invoiceId: result.invoiceId,
-        packagesAwarded: result.packagesAwarded,
-        totalPackages: result.wallet.totalPackages,
-      },
-      "Payment verified and packages credited successfully",
-    );
-  } catch (error) {
-    logger.error("Verify payment error:", error);
-    const auditLogPayloadFail: AuditLogPayload = {
-      actorId: req?.userId || "",
-      actorRole: req?.role as string,
-      module: "billing",
-      action: "verifyPayment",
-      targetId: req?.userId || "",
-      result: "fail",
-      reason: error instanceof Error ? error.message : "Unknown error",
-      ip: req?.userIpAddress || "",
-      ua: req?.userAgent || "",
-    };
-    return sendError(
-      res,
-      400,
-      error instanceof Error ? error.message : "Payment verification failed",
-      auditLogPayloadFail,
-    );
-  }
-};
 
 /**
  * Get Razorpay configuration for frontend
@@ -882,6 +542,59 @@ export const getPendingOrders = async (req: Request, res: Response) => {
 };
 
 /**
+ * Get order status for polling
+ */
+export const getOrderStatus = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    if (!userId) {
+      return sendError(res, 401, "Unauthorized");
+    }
+
+    const orderId = req.params.orderId as string;
+    if (!orderId) {
+      return sendError(res, 400, "Order ID is required");
+    }
+
+    const order = await prismaClient.order.findFirst({
+      where: {
+        razorpayOrderId: orderId,
+        userId,
+      },
+    });
+
+    if (!order) {
+      return sendError(res, 404, "Order not found");
+    }
+
+    const payment = await prismaClient.payment.findFirst({
+      where: {
+        orderId: order.id,
+        ...(order.status === "PAID" ? { status: "CAPTURED" } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return sendSuccess(res, {
+      status: order.status,
+      invoiceId: order.invoiceId,
+      packagesAwarded: order.status === "PAID" ? order.packageCount : 0,
+      paymentId: payment?.id || null,
+      amount: order.amount,
+      currency: order.currency,
+      errorReason: payment?.errorReason || null,
+    });
+  } catch (error) {
+    logger.error("Get order status error:", error);
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+/**
  * Handle Razorpay webhooks
  */
 export const handleWebhook = async (req: Request, res: Response) => {
@@ -890,6 +603,10 @@ export const handleWebhook = async (req: Request, res: Response) => {
       ? (req as any).rawBody.toString()
       : JSON.stringify(req.body);
     const signature = req.headers["x-razorpay-signature"] as string;
+
+    if (!RAZORPAY_WEBHOOK_SECRET) {
+      return res.status(500).json({ error: "Webhook secret not configured" });
+    }
 
     if (!signature) {
       return res.status(400).json({ error: "Missing signature" });
@@ -1080,11 +797,124 @@ export const handleWebhook = async (req: Request, res: Response) => {
             });
           })
         );
-      }
-    }
-  }
 
-  return res.status(200).json({ status: "processed" });
+          // Non-blocking receipt email after transaction is committed
+          const userEmail = paymentData.email || "";
+          if (userEmail && process.env.RESEND_API_KEY) {
+            sendEmail({
+              from: "inTesters <noreply@intesters.com>",
+              to: userEmail,
+              subject: `Payment Successful - Invoice`,
+              html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                  <h2 style="color: #7c3aed;">Payment Successful!</h2>
+                  <p>Thank you for your purchase on inTesters.</p>
+                  <p>Your payment has been processed successfully. You can view your packages and transaction history in your wallet.</p>
+                  <p>Thank you for choosing inTesters!</p>
+                </div>
+              `,
+            }).catch((err) => {
+              logger.error("Failed to send receipt email:", err);
+            });
+          }
+        }
+      }
+
+      // Mark processed if the transaction didn't (order not found or already PAID)
+      prismaClient.webhookEventLog.update({
+        where: { eventId },
+        data: { processed: true, processedAt: new Date() },
+      }).catch(() => {});
+
+      return res.status(200).json({ status: "processed" });
+    }
+
+    if (event.event === "payment.failed") {
+      const paymentData = event.payload.payment?.entity;
+      if (paymentData) {
+        const order = await prismaClient.order.findFirst({
+          where: { razorpayOrderId: paymentData.order_id },
+          include: { plan: true },
+        });
+
+        if (order) {
+          const transactionDate = new Date();
+          await withRetry(() =>
+            prismaClient.$transaction(async (tx) => {
+              await tx.$executeRaw`SELECT id FROM "order" WHERE id = ${order.id} FOR UPDATE`;
+
+              const currentOrder = await tx.order.findUnique({
+                where: { id: order.id },
+                select: { id: true, status: true },
+              });
+              if (!currentOrder || currentOrder.status === "PAID" || currentOrder.status === "FAILED") {
+                await tx.webhookEventLog.update({
+                  where: { eventId },
+                  data: { processed: true, processedAt: new Date() },
+                });
+                return;
+              }
+
+              await tx.order.update({
+                where: { id: order.id },
+                data: { status: "FAILED" },
+              });
+
+              await tx.payment.upsert({
+                where: { razorpayPaymentId: paymentData.id },
+                create: {
+                  razorpayPaymentId: paymentData.id,
+                  razorpayOrderId: paymentData.order_id,
+                  amount: paymentData.amount,
+                  currency: paymentData.currency || "INR",
+                  status: "FAILED",
+                  method: paymentData.method,
+                  email: paymentData.email,
+                  contact: paymentData.contact,
+                  bank: paymentData.bank,
+                  wallet: paymentData.wallet,
+                  vpa: paymentData.vpa,
+                  fee: paymentData.fee,
+                  tax: paymentData.tax,
+                  errorCode: paymentData.error_code,
+                  errorDescription: paymentData.error_description,
+                  errorReason: paymentData.error_reason,
+                  captured: paymentData.captured,
+                  international: paymentData.international,
+                  webhookVerified: true,
+                  webhookPayload: paymentData as any,
+                  userId: order.userId,
+                  orderId: order.id,
+                },
+                update: {
+                  status: "FAILED",
+                  errorCode: paymentData.error_code,
+                  errorDescription: paymentData.error_description,
+                  errorReason: paymentData.error_reason,
+                  webhookVerified: true,
+                  webhookPayload: paymentData as any,
+                },
+              });
+
+              await tx.webhookEventLog.update({
+                where: { eventId },
+                data: { processed: true, processedAt: new Date() },
+              });
+            })
+          );
+        }
+      }
+
+      // Mark processed if order was not found
+      prismaClient.webhookEventLog.update({
+        where: { eventId },
+        data: { processed: true, processedAt: new Date() },
+      }).catch(() => {});
+
+      return res.status(200).json({ status: "processed" });
+    }
+
+    return res.status(200).json({ status: "processed" });
   } catch (error) {
     logger.error("Webhook error:", error);
     return res.status(500).json({ error: "Internal server error" });

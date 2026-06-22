@@ -388,27 +388,31 @@ export const getNotifications = async (req: Request, res: Response) => {
       return sendError(res, 404, "User not found");
     }
 
+    const role = req.role;
+    const isAdmin = role === "admin" || role === "super_admin";
+
+    const where: any = {
+      OR: [
+        { userId: req?.userId },
+      ],
+      isActive: true,
+    };
+
+    if (isAdmin) {
+      where.OR.push({ userId: null });
+    } else {
+      where.OR.push({ userId: null, isAdminOnly: false });
+    }
+
     const result = await prismaClient?.notification?.findMany({
-      where: {
-        OR: [
-          { userId: req?.userId },
-          { userId: null },
-        ],
-        isActive: true,
-      },
+      where,
       orderBy: {
         createdAt: "desc",
       },
     });
 
     const totalNotifications = await prismaClient?.notification?.count({
-      where: {
-        OR: [
-          { userId: req?.userId },
-          { userId: null },
-        ],
-        isActive: true,
-      },
+      where,
     });
 
     return sendSuccess(
