@@ -1108,7 +1108,7 @@ export const initiateRefund = async (req: Request, res: Response) => {
     });
     const isAdmin = userDetail?.role?.name === "admin" || userDetail?.role?.name === "super_admin";
 
-    const { paymentId, amount, reason } = req.body;
+    const { paymentId, amount, reason } = req.body.payload || req.body;
 
     const payment = await prismaClient.payment.findUnique({
       where: { razorpayPaymentId: paymentId },
@@ -1128,73 +1128,94 @@ export const initiateRefund = async (req: Request, res: Response) => {
       return sendError(res, 400, "Payment is not eligible for refund");
     }
 
-    // Check if already refunded
-    if (payment.refundStatus === "FULL" || payment.amountRefunded > 0) {
-      return sendError(res, 400, "Payment has already been refunded");
+    // Check if already fully refunded
+    if (payment.refundStatus === "FULL" || payment.amountRefunded >= payment.amount) {
+      return sendError(res, 400, "Payment has already been fully refunded");
+    }
+
+    // Calculate refund amount
+    const amountInPaise = amount ? Math.round(amount * 100) : undefined;
+    const currentRefundAmount = amountInPaise !== undefined ? amountInPaise : (payment.amount - payment.amountRefunded);
+    const newAmountRefunded = payment.amountRefunded + currentRefundAmount;
+
+    if (currentRefundAmount <= 0) {
+      return sendError(res, 400, "Refund amount must be greater than zero");
+    }
+
+    if (newAmountRefunded > payment.amount) {
+      return sendError(res, 400, "Refund amount exceeds the remaining payment amount");
     }
 
     // Call Razorpay refund API
-    const amountInPaise = amount ? Math.round(amount * 100) : undefined;
-    const refundResult = await refundPayment(paymentId, amountInPaise, {
+    const refundResult = await refundPayment(paymentId, currentRefundAmount, {
       reason: reason || "Customer requested refund",
     });
 
-    // Create refund record in database
-    const refund = await prismaClient.refund.create({
-      data: {
-        paymentId: payment.id,
-        razorpayRefundId: refundResult.razorpayRefundId,
-        razorpayPaymentId: paymentId,
-        amount: refundResult.amount,
-        currency: payment.currency,
-        status: refundResult.status === "processed" ? "PROCESSED" : "PENDING",
-        reason,
-        speed: "normal",
-        processedAt: refundResult.status === "processed" ? new Date() : null,
-      },
-    });
+    const isFullRefund = newAmountRefunded >= payment.amount;
 
-    // Update payment record with refund info
-    await prismaClient.payment.update({
-      where: { id: payment.id },
-      data: {
-        amountRefunded: refundResult.amount,
-        refundStatus:
-          refundResult.status === "processed" ? "FULL" : "PARTIAL",
-      },
+    // Calculate proportional packages to deduct
+    let packagesToDeduct = 0;
+    const order = await prismaClient.order.findUnique({
+      where: { id: payment.orderId },
+      include: { plan: true },
     });
+    if (order) {
+      const totalOrderPackages = order.packageCount || order.plan?.package || 0;
+      packagesToDeduct = payment.amount > 0
+        ? Math.round((currentRefundAmount / payment.amount) * totalOrderPackages)
+        : 0;
+    }
 
-    // If full refund, deduct packages from wallet
-    if (refundResult.status === "processed") {
-      const order = await prismaClient.order.findUnique({
-        where: { id: payment.orderId },
+    // Process all DB changes inside a prisma transaction
+    const refund = await prismaClient.$transaction(async (tx) => {
+      // 1. Create refund record in database
+      const refundRecord = await tx.refund.create({
+        data: {
+          paymentId: payment.id,
+          razorpayRefundId: refundResult.razorpayRefundId,
+          razorpayPaymentId: paymentId,
+          amount: refundResult.amount,
+          currency: payment.currency,
+          status: refundResult.status === "processed" ? "PROCESSED" : "PENDING",
+          reason,
+          speed: "normal",
+          processedAt: refundResult.status === "processed" ? new Date() : null,
+        },
       });
 
-      if (order) {
-        const packagesToDeduct = order.packageCount || 0;
+      // 2. Update payment record with refund info
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: {
+          amountRefunded: newAmountRefunded,
+          refundStatus: isFullRefund ? "FULL" : "PARTIAL",
+        },
+      });
 
-        // Update user wallet
-        await prismaClient.userWallet.update({
-          where: { userId },
+      // 3. Deduct packages from wallet proportionally
+      if (packagesToDeduct > 0) {
+        await tx.userWallet.update({
+          where: { userId: payment.order.userId },
           data: {
             totalPackages: { decrement: packagesToDeduct },
           },
         });
 
         // Create transaction record
-        await prismaClient.userTransaction.create({
+        await tx.userTransaction.create({
           data: {
-            userId,
+            userId: payment.order.userId,
             action: null,
             package: packagesToDeduct,
             transactionType: "REFUND",
             status: "DEBIT",
-            // Refund deducts packages
             paymentMethod: "PACKAGE",
           },
         });
       }
-    }
+
+      return refundRecord;
+    });
 
     return sendSuccess(
       res,
@@ -1206,8 +1227,9 @@ export const initiateRefund = async (req: Request, res: Response) => {
       },
       "Refund processed successfully",
     );
-  } catch (error) {
-    return sendError(res, 500, "Refund failed");
+  } catch (error: any) {
+    console.error("Refund processing error:", error);
+    return sendError(res, 500, error?.message || "Refund failed");
   }
 };
 

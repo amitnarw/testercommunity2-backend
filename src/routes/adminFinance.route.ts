@@ -18,6 +18,7 @@ import {
   getFinancePlans,
   getFinancePaymentMethods,
 } from "@/controllers/adminFinance.controller";
+import { initiateRefund } from "@/controllers/billing.controller";
 import { checkAuthentication } from "@/middlewares/checkAuthentication";
 import { checkAuthorization } from "@/middlewares/checkAuthorization";
 import { decryptPayload } from "@/middlewares/decyptPayload";
@@ -37,6 +38,7 @@ router.get("/invoices/preview/:userId", checkAuthorization({ module: "finance", 
 router.post("/invoices/demo-payment", checkAuthorization({ module: "finance", action: "canUpdate" }), decryptPayload, generateDemoPayment);
 router.post("/invoices/create", checkAuthorization({ module: "finance", action: "canUpdate" }), decryptPayload, createInvoice);
 router.get("/refunds", checkAuthorization({ module: "finance", action: "canReadList" }), getFinanceRefunds);
+router.post("/refunds/create", checkAuthorization({ module: "finance", action: "canUpdate" }), decryptPayload, initiateRefund);
 router.get("/withdrawals", checkAuthorization({ module: "finance", action: "canReadList" }), getFinanceWithdrawals);
 router.post("/withdrawals/:id/approve", checkAuthorization({ module: "finance", action: "canUpdate" }), approveWithdrawal);
 router.post("/withdrawals/:id/reject", checkAuthorization({ module: "finance", action: "canUpdate" }), decryptPayload, rejectWithdrawal);

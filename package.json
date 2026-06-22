@@ -12,7 +12,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "seed": "prisma db seed",
-    "backfill:statecodes": "tsx scripts/backfill-statecodes.ts"
+    "backfill:statecodes": "tsx scripts/backfill-statecodes.ts",
+    "backfill:outside-india": "tsx scripts/update-place-of-supply.ts"
   },
   "keywords": [],
   "author": "",

@@ -285,7 +285,7 @@ export function calculateTax(
       cgstAmount: 0,
       sgstAmount: 0,
       igstAmount: 0,
-      placeOfSupply: "Outside India",
+      placeOfSupply: "Foreign Country (96)",
       supplyType: "Export of Services",
     };
   }
