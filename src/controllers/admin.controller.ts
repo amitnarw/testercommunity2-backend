@@ -8,7 +8,6 @@ import { auth, type SessionWithRole } from "@/lib/auth";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { normalizeR2Url } from "@/utils/helperFunctions";
-import { createAdminTestCompletedNotification } from "@/utils/adminNotifications";
 import { hashPassword, generateRandomString } from "better-auth/crypto"; // MUST use better-auth/crypto (scrypt), not @/utils/passwordUtils (bcrypt), because signIn.email verifies with scrypt
 import { type Request, type Response } from "express";
 
@@ -89,6 +88,7 @@ export const getAllPermissions = async (req: Request, res: Response) => {
     const matrix = roles.map((role) => ({
       roleId: role.id,
       roleName: role.name,
+      isAdmin: role.isAdmin,
       permissions: modules.map((mod) => {
         const perm = role.permissions.find(
           (p) => p.module.name === mod.name,
@@ -369,18 +369,6 @@ export const updateProjectStatus = async (req: Request, res: Response) => {
       data: updateData,
     });
 
-    if (status === "COMPLETED" && app.status !== "COMPLETED") {
-      try {
-        await createAdminTestCompletedNotification(
-          app.id,
-          app.androidApp?.appName || "Unknown App",
-          app.appType as "FREE" | "PAID",
-        );
-      } catch (err) {
-        logger.error("Failed to create admin completion notification:", err);
-      }
-    }
-
     return sendSuccess(
       res,
       updatedApp as any,
@@ -634,6 +622,37 @@ export const getDashboardStats = async (req: Request, res: Response) => {
       });
     const activeTestersToday = activeTestersTodayData.length;
 
+    // Get testing cycle completed apps (testingEndDate has passed but not yet marked COMPLETED)
+    const testingCycleCompletedCount = await prismaClient.dashboardAndHub.count({
+      where: {
+        status: { not: "COMPLETED" },
+        testingEndDate: { lte: new Date(), not: null },
+      },
+    });
+
+    const testingCycleCompletedApps = await prismaClient.dashboardAndHub.findMany({
+      where: {
+        status: { not: "COMPLETED" },
+        testingEndDate: { lte: new Date(), not: null },
+      },
+      take: 5,
+      orderBy: { testingEndDate: "asc" },
+      include: {
+        androidApp: {
+          select: {
+            appName: true,
+            appLogoUrl: true,
+          },
+        },
+        appOwner: {
+          select: {
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
     const stats = {
       totalUsers,
       totalSubmissions,
@@ -646,6 +665,15 @@ export const getDashboardStats = async (req: Request, res: Response) => {
       totalSupportRequests,
       pendingSupportRequests,
       activeTestersToday,
+      testingCycleCompletedCount,
+      testingCycleCompletedApps: testingCycleCompletedApps.map((sub) => ({
+        id: sub.id,
+        appName: sub.androidApp?.appName ?? "",
+        appType: sub.appType,
+        status: sub.status,
+        ownerName: sub.appOwner?.name ?? "",
+        testingEndDate: sub.testingEndDate?.toISOString() ?? "",
+      })),
       completedPaidApps,
       completedFreeApps,
       paidTesters: paidTestersData.length,
@@ -2918,16 +2946,6 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
       return app;
     });
 
-    try {
-      await createAdminTestCompletedNotification(
-        hubId,
-        existingApp.androidApp?.appName || "Unknown App",
-        existingApp.appType as "FREE" | "PAID",
-      );
-    } catch (err) {
-      logger.error("Failed to create admin completion notification:", err);
-    }
-
     return sendSuccess(
       res,
       updatedApp as any,
@@ -3952,8 +3970,327 @@ export const convertUserAuthType = async (req: Request, res: Response) => {
     return sendError(
       res,
       500,
-      "Failed to convert auth type. Please try again.",
+      error instanceof Error ? error.message : "Internal Server Error",
     );
+  }
+};
+
+// ==================== IMMEDIATE ATTENTION REQUIRED (IAR) ====================
+
+function isValidUrl(str: string): boolean {
+  if (!str) return false;
+  try {
+    const url = new URL(str);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+
+    const hostname = url.hostname.toLowerCase();
+
+    const isPrivate =
+      hostname === "localhost" ||
+      hostname === "::1" ||
+      hostname === "0.0.0.0" ||
+      hostname.endsWith(".local") ||
+      /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^[fF][cCdD][0-9a-fA-F]{2}:/.test(hostname);
+
+    return !isPrivate;
+  } catch {
+    return false;
+  }
+}
+
+function isValidHexColor(color: string): boolean {
+  return /^#[0-9A-Fa-f]{6}$/.test(color);
+}
+
+function formatIARItem(item: {
+  id: number;
+  userId: string;
+  title: string;
+  description: string;
+  url: string | null;
+  color: string;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    ...item,
+    createdAt: item.createdAt.toISOString(),
+    updatedAt: item.updatedAt.toISOString(),
+  };
+}
+
+export const getUserImmediateAttention = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const items = await prismaClient.immediateAttention.findMany({
+      where: { userId: String(id) },
+      orderBy: { sortOrder: "asc" },
+    });
+
+    const formatted = items.map(formatIARItem);
+    return sendSuccess(res, formatted, "ok");
+  } catch (error) {
+    return sendError(res, 500, error instanceof Error ? error.message : "Internal Server Error");
+  }
+};
+
+export const createImmediateAttention = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { userId, title, description, url, color } = payload;
+
+    if (!userId || !title || !description) {
+      return sendError(res, 400, "userId, title and description are required");
+    }
+
+    const trimmedTitle = title.trim();
+    const trimmedDescription = description.trim();
+    if (!trimmedTitle || !trimmedDescription) {
+      return sendError(res, 400, "title and description cannot be empty");
+    }
+
+    const userExists = await prismaClient.userDetail.findUnique({ where: { userId } });
+    if (!userExists) {
+      return sendError(res, 404, "User not found");
+    }
+
+    if (url && !isValidUrl(url)) {
+      return sendError(res, 400, "URL must be a valid public http or https URL");
+    }
+
+    if (color && !isValidHexColor(color)) {
+      return sendError(res, 400, "Color must be a valid hex color (e.g. #ef4444)");
+    }
+
+    const maxSort = await prismaClient.immediateAttention.aggregate({
+      where: { userId },
+      _max: { sortOrder: true },
+    });
+
+    const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
+
+    const item = await prismaClient.immediateAttention.create({
+      data: {
+        userId,
+        title: trimmedTitle,
+        description: trimmedDescription,
+        url: url || null,
+        color: color || "#ef4444",
+        sortOrder,
+        isActive: true,
+      },
+    });
+
+    const auditLogPayload: AuditLogPayload = {
+      actorId: req.userId || "",
+      actorRole: req.role as string,
+      module: "iar",
+      action: "createImmediateAttention",
+      targetId: userId,
+      result: "SUCCESS",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+
+    return sendSuccess(res, formatIARItem(item) as any, "IAR item created successfully", auditLogPayload);
+  } catch (error) {
+    const { userMessage, technicalMessage } = parsePrismaError(error);
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "iar",
+      action: "createImmediateAttention",
+      targetId: req?.body?.payload?.userId || "",
+      result: "FAIL",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+    return sendError(res, 500, userMessage, auditLogPayloadFail, technicalMessage);
+  }
+};
+
+export const updateImmediateAttention = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id, title, description, url, color, isActive } = payload;
+
+    if (!id) {
+      return sendError(res, 400, "IAR item ID is required");
+    }
+
+    const existing = await prismaClient.immediateAttention.findUnique({ where: { id: parseInt(id) } });
+    if (!existing) {
+      return sendError(res, 404, "IAR item not found");
+    }
+
+    if (url !== undefined && url !== null && !isValidUrl(url)) {
+      return sendError(res, 400, "URL must be a valid public http or https URL");
+    }
+
+    if (color !== undefined && !isValidHexColor(color)) {
+      return sendError(res, 400, "Color must be a valid hex color (e.g. #ef4444)");
+    }
+
+    if (title !== undefined && !title.trim()) {
+      return sendError(res, 400, "Title cannot be empty");
+    }
+
+    if (description !== undefined && !description.trim()) {
+      return sendError(res, 400, "Description cannot be empty");
+    }
+
+    const updated = await prismaClient.immediateAttention.update({
+      where: { id: parseInt(id) },
+      data: {
+        ...(title !== undefined ? { title: title.trim() } : {}),
+        ...(description !== undefined ? { description: description.trim() } : {}),
+        ...(url !== undefined ? { url: url || null } : {}),
+        ...(color !== undefined ? { color } : {}),
+        ...(isActive !== undefined ? { isActive } : {}),
+      },
+    });
+
+    const auditLogPayload: AuditLogPayload = {
+      actorId: req.userId || "",
+      actorRole: req.role as string,
+      module: "iar",
+      action: "updateImmediateAttention",
+      targetId: existing.userId,
+      result: "SUCCESS",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+
+    return sendSuccess(res, formatIARItem(updated) as any, "IAR item updated successfully", auditLogPayload);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return sendError(res, 404, "IAR item not found");
+    }
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "iar",
+      action: "updateImmediateAttention",
+      targetId: "",
+      result: "FAIL",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+    return sendError(res, 500, error instanceof Error ? error.message : "Internal Server Error", auditLogPayloadFail);
+  }
+};
+
+export const reorderImmediateAttention = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { items } = payload;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return sendError(res, 400, "Items array is required");
+    }
+
+    const ids = items.map((item: { id: number }) => item.id);
+    const existingItems = await prismaClient.immediateAttention.findMany({
+      where: { id: { in: ids } },
+    });
+
+    if (existingItems.length !== ids.length) {
+      return sendError(res, 404, "One or more IAR items not found");
+    }
+
+    const userIds = new Set(existingItems.map((i) => i.userId));
+    if (userIds.size !== 1) {
+      return sendError(res, 400, "All items must belong to the same user");
+    }
+
+    const targetUserId = existingItems[0].userId;
+
+    await prismaClient.$transaction(async (tx) => {
+      for (let i = 0; i < items.length; i++) {
+        await tx.immediateAttention.update({
+          where: { id: items[i].id },
+          data: { sortOrder: i },
+        });
+      }
+    });
+
+    const auditLogPayload: AuditLogPayload = {
+      actorId: req.userId || "",
+      actorRole: req.role as string,
+      module: "iar",
+      action: "reorderImmediateAttention",
+      targetId: targetUserId,
+      result: "SUCCESS",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+
+    return sendSuccess(res, null, "Reordered successfully", auditLogPayload);
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "iar",
+      action: "reorderImmediateAttention",
+      targetId: "",
+      result: "FAIL",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+    return sendError(res, 500, error instanceof Error ? error.message : "Internal Server Error", auditLogPayloadFail);
+  }
+};
+
+export const deleteImmediateAttention = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const existing = await prismaClient.immediateAttention.findUnique({ where: { id: parseInt(id as string) } });
+    if (!existing) {
+      return sendError(res, 404, "IAR item not found");
+    }
+
+    await prismaClient.immediateAttention.delete({
+      where: { id: parseInt(id as string) },
+    });
+
+    const auditLogPayload: AuditLogPayload = {
+      actorId: req.userId || "",
+      actorRole: req.role as string,
+      module: "iar",
+      action: "deleteImmediateAttention",
+      targetId: existing.userId,
+      result: "SUCCESS",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+
+    return sendSuccess(res, null, "IAR item deleted successfully", auditLogPayload);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return sendError(res, 404, "IAR item not found");
+    }
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "iar",
+      action: "deleteImmediateAttention",
+      targetId: "",
+      result: "FAIL",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+    return sendError(res, 500, error instanceof Error ? error.message : "Internal Server Error", auditLogPayloadFail);
   }
 };
 
@@ -4055,6 +4392,254 @@ export const deleteFaq = async (req: Request, res: Response) => {
     await prismaClient.faq.delete({ where: { id: parseInt(id as string) } });
     return sendSuccess(res, null, "FAQ deleted successfully");
   } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+// ==================== ROLE CRUD (super_admin only) ====================
+
+const PROTECTED_ROLES = ["super_admin", "admin", "moderator", "support", "user", "tester"];
+
+const ROLE_NAME_RULES = [
+  "Lowercase letters (a-z), numbers (0-9), and underscores (_) only.",
+  "Must start with a letter.",
+  "No leading or trailing underscores.",
+  "No consecutive underscores.",
+  "Minimum length: 2 characters.",
+  "Maximum length: 50 characters.",
+];
+
+function validateRoleName(name: string): string | null {
+  const trimmed = name.trim();
+  if (trimmed.length < 2) return ROLE_NAME_RULES[4];
+  if (trimmed.length > 50) return ROLE_NAME_RULES[5];
+  if (!/^[a-z]/.test(trimmed)) return ROLE_NAME_RULES[1];
+  if (!/^[a-z0-9_]+$/.test(trimmed)) return ROLE_NAME_RULES[0];
+  if (trimmed.startsWith("_")) return ROLE_NAME_RULES[2];
+  if (trimmed.endsWith("_")) return ROLE_NAME_RULES[2];
+  if (trimmed.includes("__")) return ROLE_NAME_RULES[3];
+  return null;
+}
+
+export const getAllRoles = async (req: Request, res: Response) => {
+  try {
+    const roles = await prismaClient.role.findMany({
+      select: { id: true, name: true, isAdmin: true },
+    });
+
+    const PROTECTED = ["super_admin", "admin", "moderator", "support", "user", "tester"];
+    const data = roles.map((r) => ({
+      id: r.id,
+      name: r.name,
+      isAdmin: r.isAdmin,
+      isProtected: PROTECTED.includes(r.name),
+    }));
+
+    return sendSuccess(res, data, "Roles fetched successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+}
+
+function normalizeRoleName(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+export const createRole = async (req: Request, res: Response) => {
+  try {
+    if (req.role !== "super_admin") {
+      return sendError(res, 403, "Forbidden - super_admin only");
+    }
+
+    const payload = req.body.payload || req.body;
+    const { name, isAdmin } = payload;
+
+    if (!name || typeof name !== "string") {
+      return sendError(res, 400, "Role name is required");
+    }
+
+    const normalizedName = normalizeRoleName(name);
+    const validationError = validateRoleName(normalizedName);
+    if (validationError) {
+      return sendError(res, 400, validationError);
+    }
+
+    const existing = await prismaClient.role.findUnique({
+      where: { name: normalizedName },
+    });
+    if (existing) {
+      return sendError(res, 400, "A role with this name already exists");
+    }
+
+    const role = await prismaClient.$transaction(async (tx) => {
+      const newRole = await tx.role.create({
+        data: { name: normalizedName, isAdmin: isAdmin === true },
+      });
+
+      const modules = await tx.module.findMany();
+      if (modules.length > 0) {
+        await tx.permission.createMany({
+          data: modules.map((mod) => ({
+            roleId: newRole.id,
+            moduleId: mod.id,
+            canReadList: false,
+            canReadSingle: false,
+            canCreate: false,
+            canUpdate: false,
+            canDelete: false,
+          })),
+        });
+      }
+
+      return newRole;
+    });
+
+    return sendSuccess(res, role, "Role created successfully");
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return sendError(res, 409, "A role with this name already exists");
+    }
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const updateRole = async (req: Request, res: Response) => {
+  try {
+    if (req.role !== "super_admin") {
+      return sendError(res, 403, "Forbidden - super_admin only");
+    }
+
+    const roleId = parseInt(String(req.params.roleId));
+    if (isNaN(roleId)) {
+      return sendError(res, 400, "Invalid role ID");
+    }
+
+    const payload = req.body.payload || req.body;
+    const { name, isAdmin } = payload;
+
+    const existingRole = await prismaClient.role.findUnique({
+      where: { id: roleId },
+    });
+    if (!existingRole) {
+      return sendError(res, 404, "Role not found");
+    }
+    if (PROTECTED_ROLES.includes(existingRole.name)) {
+      return sendError(res, 403, "Cannot modify a built-in role");
+    }
+
+    const updateData: Record<string, any> = {};
+
+    if (name && typeof name === "string") {
+      const normalizedName = normalizeRoleName(name);
+      const validationError = validateRoleName(normalizedName);
+      if (validationError) {
+        return sendError(res, 400, validationError);
+      }
+
+      const duplicate = await prismaClient.role.findFirst({
+        where: { name: normalizedName, NOT: { id: roleId } },
+      });
+      if (duplicate) {
+        return sendError(res, 400, "A role with this name already exists");
+      }
+
+      updateData.name = normalizedName;
+    }
+
+    if (isAdmin !== undefined) {
+      updateData.isAdmin = isAdmin === true;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return sendError(res, 400, "No changes provided");
+    }
+
+    const updated = await prismaClient.role.update({
+      where: { id: roleId },
+      data: updateData,
+    });
+
+    return sendSuccess(res, updated, "Role updated successfully");
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return sendError(res, 409, "A role with this name already exists");
+    }
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const deleteRole = async (req: Request, res: Response) => {
+  try {
+    if (req.role !== "super_admin") {
+      return sendError(res, 403, "Forbidden - super_admin only");
+    }
+
+    const roleId = parseInt(String(req.params.roleId));
+    if (isNaN(roleId)) {
+      return sendError(res, 400, "Invalid role ID");
+    }
+
+    const role = await prismaClient.role.findUnique({
+      where: { id: roleId },
+    });
+    if (!role) {
+      return sendError(res, 404, "Role not found");
+    }
+    if (PROTECTED_ROLES.includes(role.name)) {
+      return sendError(res, 403, "Cannot delete a built-in role");
+    }
+
+    const userCount = await prismaClient.userDetail.count({
+      where: { roleId },
+    });
+
+    const defaultRole = await prismaClient.role.findUnique({
+      where: { name: "user" },
+    });
+    if (!defaultRole) {
+      return sendError(res, 500, "Default 'user' role not found in the system");
+    }
+
+    await prismaClient.$transaction(async (tx) => {
+      if (userCount > 0) {
+        await tx.userDetail.updateMany({
+          where: { roleId },
+          data: { roleId: defaultRole.id },
+        });
+      }
+      await tx.role.delete({ where: { id: roleId } });
+    });
+
+    return sendSuccess(
+      res,
+      { deletedRoleId: roleId, reassignedUsers: userCount },
+      "Role deleted successfully",
+    );
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return sendError(res, 409, "Conflict - the role was already deleted or updated");
+    }
     return sendError(
       res,
       500,

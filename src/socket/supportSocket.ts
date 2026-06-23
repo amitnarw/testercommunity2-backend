@@ -3,7 +3,7 @@ import { prismaClient } from "../lib/prisma";
 import { websocketAuthMiddleware } from "../middlewares/websocketAuth";
 import logger from "../utils/logger";
 
-const SUPPORT_ROLES = ["support", "admin", "super_admin"];
+
 
 interface EphemeralMessage {
   senderId: string;
@@ -34,8 +34,8 @@ export function setupSupportSocket(namespace: Namespace) {
   namespace.use(websocketAuthMiddleware);
 
   namespace.on("connection", async (socket: Socket) => {
-    const { userId, role, userName, userEmail } = socket.data;
-    const isAgent = SUPPORT_ROLES.includes(role);
+    const { userId, role, isAdmin, userName, userEmail } = socket.data;
+    const isAgent = isAdmin === true;
     logger.info(`Socket connected: ${userName} (${role})`);
 
     // -- User Events --
@@ -895,7 +895,7 @@ async function initAgentState(socket: Socket, userId: string, userName: string) 
   socket.join("agent");
 
   const agentUserDetails = await prismaClient.userDetail.findMany({
-    where: { role: { name: { in: SUPPORT_ROLES } } },
+    where: { role: { isAdmin: true } },
     select: { userId: true },
   });
   const agentUserIds = agentUserDetails.map(u => u.userId);

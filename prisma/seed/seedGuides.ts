@@ -672,7 +672,7 @@ If your application is rejected by Google for production access specifically bec
 
 ### Unused Professional Slots
 - **30-Day Window**: Any professional slot that has not been 'Activated' is eligible for a full refund within 30 days of purchase.
-- **Process**: Submit a request via the 'Billing' section of your profile or email support@intesters.com.
+- **Process**: Submit a request via the 'Billing' section of your profile or email intesters@nexmail.in.
 
 ### Active/Completed Services
 - Once a professional test cycle has commenced and labor has been allocated to our QA staff, refunds are generally not available unless the Success Guarantee is triggered.

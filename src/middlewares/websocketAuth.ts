@@ -25,6 +25,7 @@ export async function websocketAuthMiddleware(
 
     socket.data.userId = session.user.id;
     socket.data.role = session.role?.name || "user";
+    socket.data.isAdmin = session.role?.isAdmin === true;
     socket.data.userName = session.user.name || "Unknown";
     socket.data.userEmail = session.user.email || "";
 
