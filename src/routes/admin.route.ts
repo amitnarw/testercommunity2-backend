@@ -94,6 +94,17 @@ import {
   // Permissions
   getAllPermissions,
   updatePermission,
+  // Roles
+  getAllRoles,
+  createRole,
+  updateRole,
+  deleteRole,
+  // IAR
+  getUserImmediateAttention,
+  createImmediateAttention,
+  updateImmediateAttention,
+  reorderImmediateAttention,
+  deleteImmediateAttention,
   // Self profile
   updateMyProfile,
   // Faq
@@ -139,6 +150,11 @@ router.post("/act-as", checkAuthentication, decryptPayload, actAsRole);
 router.get("/permissions", checkAuthentication, getAllPermissions);
 router.put("/permissions/:roleId/:moduleId", checkAuthentication, decryptPayload, updatePermission);
 
+// Role CRUD (super_admin only — hardcoded check)
+router.post("/roles", checkAuthentication, decryptPayload, createRole);
+router.put("/roles/:roleId", checkAuthentication, decryptPayload, updateRole);
+router.delete("/roles/:roleId", checkAuthentication, deleteRole);
+
 // Authenticate all admin routes below
 router.use(checkAuthentication);
 
@@ -163,6 +179,7 @@ router.post("/feedback/update", checkAuthorization({ module: "feedback", action:
 router.delete("/feedback/:id", checkAuthorization({ module: "feedback", action: "canDelete" }), deleteFeedback);
 
 // Users
+router.get("/roles", checkAuthorization({ module: "users", action: "canUpdate" }), getAllRoles);
 router.get("/users", checkAuthorization({ module: "users", action: "canReadList" }), getAllUsers);
 router.get("/users/counts", checkAuthorization({ module: "users", action: "canReadList" }), getUserCounts);
 router.get("/users/discovery-source", checkAuthorization({ module: "users", action: "canReadList" }), getDiscoverySourceCounts);
@@ -177,6 +194,13 @@ router.post("/users/update-wallet", checkAuthentication, decryptPayload, updateU
 router.delete("/users/:id", checkAuthorization({ module: "users", action: "canDelete" }), deleteUser);
 // Self profile update (no module permission needed — any authenticated admin can update their own)
 router.post("/update-my-profile", checkAuthentication, decryptPayload, updateMyProfile);
+
+// Immediate Attention Required (IAR)
+router.get("/users/:id/immediate-attention", checkAuthorization({ module: "iar", action: "canReadSingle" }), getUserImmediateAttention);
+router.post("/users/immediate-attention", checkAuthorization({ module: "iar", action: "canCreate" }), decryptPayload, createImmediateAttention);
+router.post("/users/immediate-attention/update", checkAuthorization({ module: "iar", action: "canUpdate" }), decryptPayload, updateImmediateAttention);
+router.post("/users/immediate-attention/reorder", checkAuthorization({ module: "iar", action: "canUpdate" }), decryptPayload, reorderImmediateAttention);
+router.delete("/users/immediate-attention/:id", checkAuthorization({ module: "iar", action: "canDelete" }), deleteImmediateAttention);
 
 // Suggestions
 router.get("/suggestions", checkAuthorization({ module: "suggestions", action: "canReadList" }), getAllSuggestions);

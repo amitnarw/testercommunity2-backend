@@ -389,7 +389,7 @@ export const getNotifications = async (req: Request, res: Response) => {
     }
 
     const role = req.role;
-    const isAdmin = role === "admin" || role === "super_admin";
+    const isAdmin = req.isAdmin === true;
 
     const where: any = {
       OR: [
@@ -985,5 +985,34 @@ export const getEarnPoints = async (req: Request, res: Response) => {
       error instanceof Error ? error.message : "Unknown error",
       auditLogPayloadFail,
     );
+  }
+};
+
+// ==================== IMMEDIATE ATTENTION REQUIRED (IAR) ====================
+
+export const getUserImmediateAttention = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    if (!userId) {
+      return sendError(res, 401, "Unauthorized");
+    }
+
+    const items = await prismaClient.immediateAttention.findMany({
+      where: {
+        userId,
+        isActive: true,
+      },
+      orderBy: { sortOrder: "asc" },
+    });
+
+    const formatted = items.map((item) => ({
+      ...item,
+      createdAt: item.createdAt.toISOString(),
+      updatedAt: item.updatedAt.toISOString(),
+    }));
+
+    return sendSuccess(res, formatted, "ok");
+  } catch (error) {
+    return sendError(res, 500, error instanceof Error ? error.message : "Internal Server Error");
   }
 };

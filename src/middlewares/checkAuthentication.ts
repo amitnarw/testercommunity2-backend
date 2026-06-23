@@ -59,6 +59,7 @@ export const checkAuthentication = async (
 
     req.userId = session?.user?.id;
     req.role = session?.role?.name;
+    req.isAdmin = session?.role?.isAdmin === true;
     next();
   } catch (error) {
     return sendError(res, 401, "Unauthorized");

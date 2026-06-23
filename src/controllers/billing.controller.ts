@@ -265,7 +265,7 @@ export const getInvoice = async (req: Request, res: Response) => {
     }
 
     // Check authorization
-    if (req.userId !== invoice.userId && req.role !== "admin" && req.role !== "super_admin" && req.role !== "moderator" && req.role !== "support") {
+    if (req.userId !== invoice.userId && !req.isAdmin) {
       return sendError(res, 403, "Unauthorized to view this invoice");
     }
 
@@ -936,7 +936,7 @@ export const initiateRefund = async (req: Request, res: Response) => {
       where: { userId },
       include: { role: true },
     });
-    const isAdmin = userDetail?.role?.name === "admin" || userDetail?.role?.name === "super_admin";
+    const isAdmin = userDetail?.role?.isAdmin === true;
 
     const { paymentId, amount, reason } = req.body.payload || req.body;
 

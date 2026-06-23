@@ -22,6 +22,7 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
         role: {
           select: {
             name: true,
+            isAdmin: true,
             permissions: {
               select: {
                 moduleId: true,
@@ -84,6 +85,7 @@ async function setRoleCookie(
   ctx: any,
   role?: {
     name: string;
+    isAdmin: boolean;
     permissions: {
       moduleId: number;
       canReadList: boolean;
@@ -101,7 +103,7 @@ async function setRoleCookie(
 ) {
   if (role) {
     const secret = process.env.BETTER_AUTH_SECRET!;
-    const payload = { role: role?.name, initial, banned, ban_reason, applicationStatus };
+    const payload = { role: { name: role.name, isAdmin: role.isAdmin }, initial, banned, ban_reason, applicationStatus };
 
     const token = await new SignJWT(payload)
       .setProtectedHeader({ alg: "HS256" })

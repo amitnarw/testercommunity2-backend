@@ -302,7 +302,6 @@ export const getChatMessages = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const since = req.query.since ? new Date(req.query.since as string) : undefined;
-    const adminRoles = ["support", "admin", "super_admin"];
 
     const chat = await prismaClient.conversation.findUnique({
       where: { id: Number(id) },
@@ -312,7 +311,7 @@ export const getChatMessages = async (req: Request, res: Response) => {
       return sendError(res, 404, "Chat not found");
     }
 
-    if (chat.userId !== req.userId && !adminRoles.includes(req.role || "")) {
+    if (chat.userId !== req.userId && !req.isAdmin) {
       return sendError(res, 404, "Chat not found");
     }
 

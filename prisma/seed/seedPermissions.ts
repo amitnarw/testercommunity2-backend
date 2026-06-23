@@ -16,10 +16,11 @@ async function seedRolesModulesPermissions() {
     "tester",
   ];
   for (const roleName of roles) {
+    const isAdmin = ["super_admin", "admin", "moderator", "support"].includes(roleName);
     await prisma.role.upsert({
       where: { name: roleName },
-      update: {},
-      create: { name: roleName },
+      update: { isAdmin },
+      create: { name: roleName, isAdmin },
     });
   }
 
@@ -46,6 +47,7 @@ async function seedRolesModulesPermissions() {
     "support",
     "permissions",
     "faqs",
+    "iar",
   ];
   for (const moduleName of modules) {
     await prisma.module.upsert({

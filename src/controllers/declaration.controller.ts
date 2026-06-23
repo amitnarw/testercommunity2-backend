@@ -62,7 +62,10 @@ export async function getDeclaration(req: Request, res: Response) {
         androidApp: {
           include: {
             appCategory: true,
-            ratings: { select: { rating: true } },
+            ratings: {
+              where: { ratingType: "APP" },
+              select: { rating: true },
+            },
           },
         },
         feedback: {
@@ -265,7 +268,10 @@ export async function getAdminDeclaration(req: Request, res: Response) {
         androidApp: {
           include: {
             appCategory: true,
-            ratings: { select: { rating: true } },
+            ratings: {
+              where: { ratingType: "APP" },
+              select: { rating: true },
+            },
           },
         },
         feedback: { select: { message: true, type: true } },

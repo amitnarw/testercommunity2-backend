@@ -3,7 +3,6 @@ import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient, Prisma } from "@/lib/prisma";
 import { normalizeR2Url } from "@/utils/helperFunctions";
-import { createAdminTestCompletedNotification } from "@/utils/adminNotifications";
 import logger from "../utils/logger";
 import type { DashboardAndHubStatus } from "@prisma/client";
 import { deleteFunction } from "./r2.controller";
@@ -1016,6 +1015,14 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
           : [],
     };
 
+    const appRatings = (hubAppDetails?.androidApp?.ratings || []).filter(
+      (r) => r.ratingType === "APP",
+    );
+    result.averageRating =
+      appRatings.length > 0
+        ? appRatings.reduce((sum: number, r) => sum + r.rating, 0) / appRatings.length
+        : 0;
+
     if (result.testerRelations && result.testerRelations.length > 0) {
       result.testerRelations = result.testerRelations.map((tr: any) => {
         const rating =
@@ -2010,16 +2017,6 @@ export const completeHostedApp = async (req: Request, res: Response) => {
         },
       });
     });
-
-    try {
-      await createAdminTestCompletedNotification(
-        app.id,
-        app.androidApp?.appName || "Unknown App",
-        app.appType as "FREE" | "PAID",
-      );
-    } catch (err) {
-      logger.error("Failed to create admin completion notification:", err);
-    }
 
     return sendSuccess(res, null, "App marked as completed successfully");
   } catch (error) {

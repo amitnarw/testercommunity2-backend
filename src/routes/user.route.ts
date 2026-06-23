@@ -4,6 +4,7 @@ import {
   getEarnPoints,
   getNotifications,
   getUserData,
+  getUserImmediateAttention,
   getUserProfileData,
   getWalletData,
   getUserTransactions,
@@ -69,5 +70,6 @@ router.post("/logout-all-sessions", checkAuthentication, logOutFromAllSession);
 router.get("/get-user-wallet", checkAuthentication, getWalletData);
 router.get("/get-user-transactions", checkAuthentication, getUserTransactions);
 router.get("/get-earn-points", checkAuthentication, getEarnPoints);
+router.get("/get-immediate-attention", checkAuthentication, getUserImmediateAttention);
 
 export default router;
