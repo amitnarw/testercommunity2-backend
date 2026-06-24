@@ -4,6 +4,7 @@ declare module "better-auth" {
   interface Session {
     role?: {
       name: string;
+      isAdmin?: boolean;
       permissions: {
         moduleId: number;
         canReadList: boolean;
@@ -14,5 +15,6 @@ declare module "better-auth" {
         module: { name: string };
       }[];
     };
+    actingAsRole?: string | null;
   }
 }
