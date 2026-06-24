@@ -40,7 +40,6 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
         },
       },
     });
-    const actingAsRole = ctx.getCookie("acting_as_role") ?? null;
     await setRoleCookie(
       ctx,
       userDetail?.role,
@@ -51,7 +50,6 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
     );
     return {
       role: userDetail?.role,
-      actingAsRole,
       initial: userDetail?.initial,
       banned: userDetail?.banned,
       ban_reason: userDetail?.ban_reason,
