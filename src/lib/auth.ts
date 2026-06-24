@@ -103,7 +103,7 @@ async function setRoleCookie(
 ) {
   if (role) {
     const secret = process.env.BETTER_AUTH_SECRET!;
-    const payload = { role: { name: role.name, isAdmin: role.isAdmin, permissions: role.permissions }, initial, banned, ban_reason, applicationStatus };
+    const payload = { role: { name: role.name, isAdmin: role.isAdmin }, initial, banned, ban_reason, applicationStatus };
 
     const token = await new SignJWT(payload)
       .setProtectedHeader({ alg: "HS256" })
