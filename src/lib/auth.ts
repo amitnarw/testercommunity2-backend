@@ -40,6 +40,7 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
         },
       },
     });
+    const actingAsRole = ctx.getCookie("acting_as_role") ?? null;
     await setRoleCookie(
       ctx,
       userDetail?.role,
@@ -50,6 +51,7 @@ const rolePlugin = customSession(async ({ user, session }, ctx) => {
     );
     return {
       role: userDetail?.role,
+      actingAsRole,
       initial: userDetail?.initial,
       banned: userDetail?.banned,
       ban_reason: userDetail?.ban_reason,
@@ -75,8 +77,8 @@ const isProduction = process.env.NODE_ENV === "production";
 
 const getCookieConfig = () => ({
   httpOnly: true,
-  secure: true,
-  sameSite: (isProduction ? "lax" : "none") as "strict" | "lax" | "none",
+  secure: isProduction,
+  sameSite: "lax" as "strict" | "lax" | "none",
   path: "/",
   domain: isProduction ? process.env.COOKIE_DOMAIN || undefined : undefined,
 });
@@ -103,7 +105,7 @@ async function setRoleCookie(
 ) {
   if (role) {
     const secret = process.env.BETTER_AUTH_SECRET!;
-    const payload = { role: { name: role.name, isAdmin: role.isAdmin }, initial, banned, ban_reason, applicationStatus };
+    const payload = { role: { name: role.name, isAdmin: role.isAdmin, permissions: role.permissions }, initial, banned, ban_reason, applicationStatus };
 
     const token = await new SignJWT(payload)
       .setProtectedHeader({ alg: "HS256" })
@@ -116,6 +118,7 @@ async function setRoleCookie(
 }
 
 export const auth = betterAuth({
+  baseURL: process.env.BETTER_AUTH_URL,
   database: prismaAdapter(prismaClient, {
     provider: "postgresql",
   }),
@@ -186,10 +189,6 @@ export const auth = betterAuth({
 
   advanced: {
     cookies: {
-      role_cache: {
-        name: "role_cache",
-        attributes: getCookieConfig(),
-      },
       session: {
         name: "better-auth.session",
         attributes: getCookieConfig(),
