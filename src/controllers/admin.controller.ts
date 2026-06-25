@@ -1663,6 +1663,41 @@ export const getUserCounts = async (req: Request, res: Response) => {
   }
 };
 
+const CANONICAL_SOURCES: Record<string, string> = {
+  youtube: "YouTube",
+  google_search: "Google Search",
+  google: "Google Search",
+  search: "Google Search",
+  chatgpt: "ChatGPT",
+  chat_gpt: "ChatGPT",
+  gemini: "Gemini",
+  twitter_x: "Twitter / X",
+  twitter: "Twitter / X",
+  x: "Twitter / X",
+  reddit: "Reddit",
+  reditt: "Reddit",
+  r_reddit: "Reddit",
+  friend_colleague: "Friend or Colleague",
+  friend: "Friend or Colleague",
+  colleague: "Friend or Colleague",
+  blog_article: "Blog or Article",
+  blog: "Blog or Article",
+  article: "Blog or Article",
+  linkedin: "LinkedIn",
+  facebook_instagram: "Facebook / Instagram",
+  facebook: "Facebook / Instagram",
+  instagram: "Facebook / Instagram",
+};
+
+function normalizeSource(raw: string): string {
+  const normalized = raw.toLowerCase().trim().replace(/[\s_]+/g, "_");
+  if (CANONICAL_SOURCES[normalized]) return CANONICAL_SOURCES[normalized];
+  for (const [key, canonical] of Object.entries(CANONICAL_SOURCES)) {
+    if (normalized.includes(key)) return canonical;
+  }
+  return raw.trim();
+}
+
 export const getDiscoverySourceCounts = async (req: Request, res: Response) => {
   try {
     const sources = await prismaClient.userDetail.groupBy({
@@ -1671,12 +1706,40 @@ export const getDiscoverySourceCounts = async (req: Request, res: Response) => {
       where: { discovery_source: { not: null }, discovery_source_answered: true },
     });
 
-    const formatted = sources
+    const raw = sources
       .filter((s) => s.discovery_source)
       .map((s) => ({
-        source: s.discovery_source!.replace(/_/g, " "),
+        source: normalizeSource(s.discovery_source!.replace(/_/g, " ")),
+        rawSource: s.discovery_source!.replace(/_/g, " "),
         count: s._count._all,
       }));
+
+    const knownLabels = new Set(Object.values(CANONICAL_SOURCES));
+
+    const grouped: Record<string, { count: number; breakdown: { source: string; count: number }[] }> = {};
+
+    for (const item of raw) {
+      const isKnown = knownLabels.has(item.source);
+      if (isKnown) {
+        if (!grouped[item.source]) {
+          grouped[item.source] = { count: 0, breakdown: [] };
+        }
+        grouped[item.source].count += item.count;
+      } else {
+        if (!grouped["Other"]) {
+          grouped["Other"] = { count: 0, breakdown: [] };
+        }
+        grouped["Other"].count += item.count;
+        grouped["Other"].breakdown.push({ source: item.source, count: item.count });
+      }
+    }
+
+    const formatted = Object.entries(grouped).map(([source, { count, breakdown }]) => ({
+      source,
+      count,
+      isOther: source === "Other",
+      breakdown,
+    }));
 
     return sendSuccess(res, formatted, "Discovery source counts fetched successfully");
   } catch (error) {
