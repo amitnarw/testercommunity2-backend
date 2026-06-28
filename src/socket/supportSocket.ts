@@ -27,6 +27,9 @@ function nextEphemeralId(): number {
 const disconnectTimers = new Map<string, NodeJS.Timeout>();
 const DISCONNECT_GRACE_MS = 30_000; // 30 seconds
 
+// Grace period tracking for agent disconnects (agentUserId -> { timer, chatIds })
+const agentOfflineTimers = new Map<string, { timer: NodeJS.Timeout; chatIds: number[] }>();
+
 // Periodic cleanup interval reference (prevent accumulation on re-init)
 let cleanupInterval: NodeJS.Timeout | null = null;
 
@@ -381,6 +384,19 @@ export function setupSupportSocket(namespace: Namespace) {
         update: { status: "ONLINE", lastSeenAt: new Date() },
         create: { userId, status: "ONLINE" },
       });
+
+      // Cancel any pending offline grace timer for this agent
+      const pending = agentOfflineTimers.get(userId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        agentOfflineTimers.delete(userId);
+        logger.info(`Agent ${userName} reconnected — cancelled offline grace timer`);
+
+        for (const chatId of pending.chatIds) {
+          namespace.to(`conv:${chatId}`).emit("agent:reconnected", { chatId });
+        }
+      }
+
       await initAgentState(socket, userId, userName);
       namespace.emit("agent:status_changed", { online: true });
       socket.emit("agent:status", { online: true });
@@ -566,6 +582,63 @@ export function setupSupportSocket(namespace: Namespace) {
       const online = await hasOnlineAgents();
       namespace.emit("agent:status_changed", { online });
       socket.emit("agent:status", { online: false });
+
+      // Start grace period for IN_PROGRESS chats assigned to this agent
+      if (!agentOfflineTimers.has(userId)) {
+        const activeChats = await prismaClient.conversation.findMany({
+          where: { assignedTo: userId, status: "IN_PROGRESS" },
+          select: { id: true },
+        });
+
+        if (activeChats.length > 0) {
+          const chatIds = activeChats.map(c => c.id);
+
+          // Notify users that agent disconnected (start grace period)
+          for (const chatId of chatIds) {
+            namespace.to(`conv:${chatId}`).emit("agent:disconnected", {
+              chatId,
+              remainingSeconds: DISCONNECT_GRACE_MS / 1000,
+            });
+          }
+
+          const timer = setTimeout(async () => {
+            logger.info(`Grace period expired for agent ${userName} — closing active chats`);
+
+            if (!agentOfflineTimers.has(userId)) return;
+
+            let closedCount = 0;
+            for (const chatId of chatIds) {
+              if (!agentOfflineTimers.has(userId)) return;
+
+              const result = await prismaClient.conversation.updateMany({
+                where: { id: chatId, status: "IN_PROGRESS" },
+                data: { status: "RESOLVED", resolvedAt: new Date() },
+              });
+
+              if (result.count > 0) {
+                closedCount++;
+                namespace.to(`conv:${chatId}`).emit("chat:closed", {
+                  chatId,
+                  reason: "Agent went offline",
+                });
+                ephemeralMessages.delete(chatId);
+              }
+            }
+
+            if (closedCount > 0) {
+              await prismaClient.agentStatus.update({
+                where: { userId },
+                data: { currentChats: { decrement: closedCount } },
+              }).catch(() => {});
+            }
+
+            agentOfflineTimers.delete(userId);
+            namespace.to("agent").emit("agent:queue_updated");
+          }, DISCONNECT_GRACE_MS);
+
+          agentOfflineTimers.set(userId, { timer, chatIds });
+        }
+      }
 
       // Close all waiting chats if no agents available
       if (!online) {
@@ -772,28 +845,58 @@ export function setupSupportSocket(namespace: Namespace) {
           data: { status: "OFFLINE" },
         });
 
-        const activeChats = await prismaClient.conversation.findMany({
-          where: { assignedTo: agent.userId, status: "IN_PROGRESS" },
-        });
+        // Only start grace period if not already in progress
+        if (!agentOfflineTimers.has(agent.userId)) {
+          const activeChats = await prismaClient.conversation.findMany({
+            where: { assignedTo: agent.userId, status: "IN_PROGRESS" },
+            select: { id: true },
+          });
 
-        for (const chat of activeChats) {
-          await prismaClient.conversation.update({
-            where: { id: chat.id },
-            data: { status: "RESOLVED", resolvedAt: new Date() },
-          });
-          // Fix #6: Clean up ephemeral messages
-          ephemeralMessages.delete(chat.id);
-          namespace.to(`conv:${chat.id}`).emit("chat:closed", {
-            chatId: chat.id,
-            reason: "Agent went offline",
-          });
-        }
+          if (activeChats.length > 0) {
+            const chatIds = activeChats.map(c => c.id);
 
-        if (activeChats.length > 0) {
-          await prismaClient.agentStatus.update({
-            where: { userId: agent.userId },
-            data: { currentChats: { decrement: activeChats.length } },
-          });
+            for (const chatId of chatIds) {
+              namespace.to(`conv:${chatId}`).emit("agent:disconnected", {
+                chatId,
+                remainingSeconds: DISCONNECT_GRACE_MS / 1000,
+              });
+            }
+
+            const timer = setTimeout(async () => {
+              if (!agentOfflineTimers.has(agent.userId)) return;
+
+              let closedCount = 0;
+              for (const chatId of chatIds) {
+                if (!agentOfflineTimers.has(agent.userId)) return;
+
+                const result = await prismaClient.conversation.updateMany({
+                  where: { id: chatId, status: "IN_PROGRESS" },
+                  data: { status: "RESOLVED", resolvedAt: new Date() },
+                });
+
+                if (result.count > 0) {
+                  closedCount++;
+                  namespace.to(`conv:${chatId}`).emit("chat:closed", {
+                    chatId,
+                    reason: "Agent went offline",
+                  });
+                  ephemeralMessages.delete(chatId);
+                }
+              }
+
+              if (closedCount > 0) {
+                await prismaClient.agentStatus.update({
+                  where: { userId: agent.userId },
+                  data: { currentChats: { decrement: closedCount } },
+                }).catch(() => {});
+              }
+
+              agentOfflineTimers.delete(agent.userId);
+              namespace.to("agent").emit("agent:queue_updated");
+            }, DISCONNECT_GRACE_MS);
+
+            agentOfflineTimers.set(agent.userId, { timer, chatIds });
+          }
         }
       }
 

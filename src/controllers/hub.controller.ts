@@ -215,8 +215,13 @@ export const addHubApp = async (req: Request, res: Response) => {
     let appliedPromoCodeId: number | null = null;
 
     if (promo_code) {
+      const normalizedPromoCode = promo_code.trim().toUpperCase();
+      if (!/^[A-Z0-9]{3,20}$/.test(normalizedPromoCode)) {
+        return sendError(res, 400, "Promo code must be 3-20 alphanumeric characters");
+      }
+
       const dbPromo = await prismaClient.promoCode.findUnique({
-        where: { code: promo_code.trim().toUpperCase() },
+        where: { code: normalizedPromoCode },
       });
 
       if (!dbPromo || !dbPromo.isActive) {
@@ -2048,8 +2053,13 @@ export const validatePromoCode = async (req: Request, res: Response) => {
       return sendError(res, 400, "Promo code is required");
     }
 
+    const normalizedCode = code.trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,20}$/.test(normalizedCode)) {
+      return sendError(res, 400, "Promo code must be 3-20 alphanumeric characters");
+    }
+
     const promoCode = await prismaClient?.promoCode?.findUnique({
-      where: { code: code.trim().toUpperCase() },
+      where: { code: normalizedCode },
     });
 
     if (!promoCode || !promoCode.isActive) {
