@@ -171,7 +171,7 @@ export const updateMyProfile = async (req: Request, res: Response) => {
     }
 
     const userId = req.userId;
-    const { id, ...profileData } = payload;
+    const { id, data: rawProfileData } = payload;
 
     if (id && id !== userId) {
       return sendError(res, 403, "You can only update your own profile");
@@ -185,9 +185,36 @@ export const updateMyProfile = async (req: Request, res: Response) => {
       return sendError(res, 404, "User profile not found");
     }
 
+    const nullableStringFields = new Set([
+      'phone', 'country', 'company_name', 'company_website',
+      'device_company', 'device_model', 'ram', 'os',
+      'screen_resolution', 'language', 'network', 'bio',
+      'years_of_experience', 'application_status', 'discovery_source',
+    ]);
+
+    const nullableEnumFields = new Set([
+      'profile_type', 'job_role', 'company_size', 'position_in_company',
+      'experience_level', 'total_published_apps', 'platform_development',
+      'publish_frequency', 'service_usage', 'availability',
+    ]);
+
+    const retainedFields = ['first_name', 'last_name', 'communication_methods', 'notification_preference', 'testing_types', 'tester_devices', 'tester_os_versions', 'areas_of_expertise', 'initial', 'discovery_source_answered'];
+
+    const cleanedData: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(rawProfileData)) {
+      if (key === 'id' || key === 'userId' || key === 'roleId' || key === 'auth_type') continue;
+
+      if (nullableStringFields.has(key) || nullableEnumFields.has(key)) {
+        cleanedData[key] = value === '' ? null : value;
+      } else if (retainedFields.includes(key)) {
+        cleanedData[key] = value;
+      }
+    }
+
     const updated = await prismaClient.userDetail.update({
       where: { userId: userId },
-      data: profileData,
+      data: cleanedData as any,
     });
 
     return sendSuccess(res, updated as any, "Profile updated successfully");
@@ -1281,7 +1308,7 @@ export const updateUserRole = async (req: Request, res: Response) => {
 export const updateUserProfile = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
-    const { id, ...profileData } = payload;
+    const { id, data: rawProfileData } = payload;
 
     if (!id) {
       return sendError(res, 400, "User ID is required");
@@ -1295,9 +1322,36 @@ export const updateUserProfile = async (req: Request, res: Response) => {
       return sendError(res, 404, "User profile not found");
     }
 
+    const nullableStringFields = new Set([
+      'phone', 'country', 'company_name', 'company_website',
+      'device_company', 'device_model', 'ram', 'os',
+      'screen_resolution', 'language', 'network', 'bio',
+      'years_of_experience', 'application_status', 'discovery_source',
+    ]);
+
+    const nullableEnumFields = new Set([
+      'profile_type', 'job_role', 'company_size', 'position_in_company',
+      'experience_level', 'total_published_apps', 'platform_development',
+      'publish_frequency', 'service_usage', 'availability',
+    ]);
+
+    const retainedFields = ['first_name', 'last_name', 'communication_methods', 'notification_preference', 'testing_types', 'tester_devices', 'tester_os_versions', 'areas_of_expertise', 'initial', 'discovery_source_answered'];
+
+    const cleanedData: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(rawProfileData)) {
+      if (key === 'id' || key === 'userId' || key === 'roleId' || key === 'auth_type') continue;
+
+      if (nullableStringFields.has(key) || nullableEnumFields.has(key)) {
+        cleanedData[key] = value === '' ? null : value;
+      } else if (retainedFields.includes(key)) {
+        cleanedData[key] = value;
+      }
+    }
+
     const updated = await prismaClient.userDetail.update({
       where: { userId: id },
-      data: profileData,
+      data: cleanedData as any,
     });
 
     return sendSuccess(res, updated as any, "User profile updated successfully");
@@ -1353,6 +1407,106 @@ export const updateUserWallet = async (req: Request, res: Response) => {
     });
 
     return sendSuccess(res, result as any, "User wallet updated successfully");
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+export const giftPointsAndPackages = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id, points, packages } = payload;
+
+    if (!id) {
+      return sendError(res, 400, "User ID is required");
+    }
+
+    if ((!points || points <= 0) && (!packages || packages <= 0)) {
+      return sendError(res, 400, "At least one of points or packages must be a positive number");
+    }
+
+    const giftPoints = points ? Math.max(0, Number(points)) : 0;
+    const giftPackages = packages ? Math.max(0, Number(packages)) : 0;
+
+    if (isNaN(giftPoints) || isNaN(giftPackages)) {
+      return sendError(res, 400, "Points and packages must be valid numbers");
+    }
+
+    const result = await prismaClient.$transaction(async (tx) => {
+      const wallet = await tx.userWallet.upsert({
+        where: { userId: id },
+        create: {
+          userId: id,
+          totalPoints: giftPoints,
+          totalPackages: giftPackages,
+          balanceMoney: 0,
+        },
+        update: {
+          totalPoints: giftPoints > 0 ? { increment: giftPoints } : undefined,
+          totalPackages: giftPackages > 0 ? { increment: giftPackages } : undefined,
+        },
+      });
+
+      if (giftPoints > 0) {
+        await tx.userTransaction.create({
+          data: {
+            userId: id,
+            userWalletId: wallet.id,
+            points: giftPoints,
+            transactionType: "GIFT",
+            status: "CREDIT",
+            paymentMethod: "POINTS",
+          },
+        });
+      }
+
+      if (giftPackages > 0) {
+        await tx.userTransaction.create({
+          data: {
+            userId: id,
+            userWalletId: wallet.id,
+            package: giftPackages,
+            transactionType: "GIFT",
+            status: "CREDIT",
+            paymentMethod: "PACKAGE",
+          },
+        });
+      }
+
+      const descriptionParts: string[] = [];
+      if (giftPoints > 0) descriptionParts.push(`${giftPoints} points`);
+      if (giftPackages > 0) descriptionParts.push(`${giftPackages} packages`);
+      const giftDescription = `You have been gifted ${descriptionParts.join(" and ")}!`;
+
+      await tx.notification.create({
+        data: {
+          title: "Gift Received!",
+          description: giftDescription,
+          type: giftPoints > 0 ? "POINTS_AWARDED" : "OTHER",
+          userId: id,
+          isActive: true,
+        },
+      });
+
+      return wallet;
+    });
+
+    const auditLogPayload: AuditLogPayload = {
+      actorId: req.userId || "",
+      actorRole: req.role as string,
+      module: "users",
+      action: "giftPointsPackages",
+      targetId: id,
+      result: "SUCCESS",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+
+    return sendSuccess(res, result as any, "Points and packages gifted successfully", auditLogPayload);
   } catch (error) {
     return sendError(
       res,
@@ -1663,6 +1817,41 @@ export const getUserCounts = async (req: Request, res: Response) => {
   }
 };
 
+const CANONICAL_SOURCES: Record<string, string> = {
+  youtube: "YouTube",
+  google_search: "Google Search",
+  google: "Google Search",
+  search: "Google Search",
+  chatgpt: "ChatGPT",
+  chat_gpt: "ChatGPT",
+  gemini: "Gemini",
+  twitter_x: "Twitter / X",
+  twitter: "Twitter / X",
+  x: "Twitter / X",
+  reddit: "Reddit",
+  reditt: "Reddit",
+  r_reddit: "Reddit",
+  friend_colleague: "Friend or Colleague",
+  friend: "Friend or Colleague",
+  colleague: "Friend or Colleague",
+  blog_article: "Blog or Article",
+  blog: "Blog or Article",
+  article: "Blog or Article",
+  linkedin: "LinkedIn",
+  facebook_instagram: "Facebook / Instagram",
+  facebook: "Facebook / Instagram",
+  instagram: "Facebook / Instagram",
+};
+
+function normalizeSource(raw: string): string {
+  const normalized = raw.toLowerCase().trim().replace(/[\s_]+/g, "_");
+  if (CANONICAL_SOURCES[normalized]) return CANONICAL_SOURCES[normalized];
+  for (const [key, canonical] of Object.entries(CANONICAL_SOURCES)) {
+    if (normalized.includes(key)) return canonical;
+  }
+  return raw.trim();
+}
+
 export const getDiscoverySourceCounts = async (req: Request, res: Response) => {
   try {
     const sources = await prismaClient.userDetail.groupBy({
@@ -1671,12 +1860,40 @@ export const getDiscoverySourceCounts = async (req: Request, res: Response) => {
       where: { discovery_source: { not: null }, discovery_source_answered: true },
     });
 
-    const formatted = sources
+    const raw = sources
       .filter((s) => s.discovery_source)
       .map((s) => ({
-        source: s.discovery_source!.replace(/_/g, " "),
+        source: normalizeSource(s.discovery_source!.replace(/_/g, " ")),
+        rawSource: s.discovery_source!.replace(/_/g, " "),
         count: s._count._all,
       }));
+
+    const knownLabels = new Set(Object.values(CANONICAL_SOURCES));
+
+    const grouped: Record<string, { count: number; breakdown: { source: string; count: number }[] }> = {};
+
+    for (const item of raw) {
+      const isKnown = knownLabels.has(item.source);
+      if (isKnown) {
+        if (!grouped[item.source]) {
+          grouped[item.source] = { count: 0, breakdown: [] };
+        }
+        grouped[item.source].count += item.count;
+      } else {
+        if (!grouped["Other"]) {
+          grouped["Other"] = { count: 0, breakdown: [] };
+        }
+        grouped["Other"].count += item.count;
+        grouped["Other"].breakdown.push({ source: item.source, count: item.count });
+      }
+    }
+
+    const formatted = Object.entries(grouped).map(([source, { count, breakdown }]) => ({
+      source,
+      count,
+      isOther: source === "Other",
+      breakdown,
+    }));
 
     return sendSuccess(res, formatted, "Discovery source counts fetched successfully");
   } catch (error) {
@@ -2628,9 +2845,14 @@ export const createPromoCode = async (req: Request, res: Response) => {
 
     if (!code) return sendError(res, 400, "Code is required");
 
+    const normalizedCode = code.trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,20}$/.test(normalizedCode)) {
+      return sendError(res, 400, "Promo code must be 3-20 alphanumeric characters");
+    }
+
     // Check if promo code already exists
     const existing = await prismaClient.promoCode.findUnique({
-      where: { code: code.trim().toUpperCase() },
+      where: { code: normalizedCode },
     });
     if (existing) {
       return sendError(res, 400, "A promo code with this code already exists");
@@ -2643,7 +2865,7 @@ export const createPromoCode = async (req: Request, res: Response) => {
 
     const newPromo = await prismaClient.promoCode.create({
       data: {
-        code: code.trim().toUpperCase(),
+        code: normalizedCode,
         discountType: discountType || "FIXED",
         discountValue: finalDiscountValue,
         isActive: isActive !== undefined ? isActive : true,
@@ -2674,10 +2896,18 @@ export const updatePromoCode = async (req: Request, res: Response) => {
 
     if (!id) return sendError(res, 400, "Promo code ID is required");
 
+    let normalizedCode: string | undefined;
+    if (code) {
+      normalizedCode = code.trim().toUpperCase();
+      if (!/^[A-Z0-9]{3,20}$/.test(normalizedCode)) {
+        return sendError(res, 400, "Promo code must be 3-20 alphanumeric characters");
+      }
+    }
+
     const updatedPromo = await prismaClient.promoCode.update({
       where: { id: parseInt(id) },
       data: {
-        code: code ? code.trim().toUpperCase() : undefined,
+        code: normalizedCode,
         discountType:
           discountType !== undefined ? discountType : undefined,
         discountValue:
@@ -4378,6 +4608,287 @@ export const updateFaq = async (req: Request, res: Response) => {
 
     return sendSuccess(res, updatedFaq, "FAQ updated successfully");
   } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+// ==================== TESTER ACTIVITY ====================
+
+export const getTesterActivity = async (req: Request, res: Response) => {
+  try {
+    const testerId = req.query.testerId as string | undefined;
+    const dateStr = (req.query.date as string) || new Date().toISOString().split("T")[0];
+    const selectedDate = new Date(dateStr);
+    selectedDate.setHours(0, 0, 0, 0);
+    const nextDay = new Date(selectedDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    const getTesterRoleId = async () => {
+      const role = await prismaClient.role.findUnique({ where: { name: "tester" } });
+      return role?.id;
+    };
+
+    if (testerId) {
+      // Single tester detail
+      const user = await prismaClient.user.findUnique({
+        where: { id: testerId },
+        include: {
+          userDetail: { include: { role: true } },
+          testerRelations: {
+            include: {
+              dashboardAndHub: {
+                include: {
+                  androidApp: true,
+                },
+              },
+              dailyVerifications: {
+                where: {
+                  createdAt: { gte: selectedDate, lt: nextDay },
+                },
+              },
+            },
+          },
+          wallet: true,
+        },
+      });
+
+      if (!user) {
+        return sendError(res, 404, "Tester not found");
+      }
+
+      if (user.userDetail?.role?.name !== "tester") {
+        return sendError(res, 400, "User is not a tester");
+      }
+
+      const todayVerifications = user.testerRelations.flatMap((tr) =>
+        tr.dailyVerifications.filter((v) => v.status === "VERIFIED"),
+      );
+
+      const remainingTests = user.testerRelations.filter(
+        (tr) =>
+          tr.status === "IN_PROGRESS" &&
+          tr.daysCompleted < (tr.dashboardAndHub?.totalDay || 0),
+      ).length;
+
+      const [feedbackCount, totalEarnings, totalPointsEarned, recentActivities] =
+        await Promise.all([
+          prismaClient.feedback.count({ where: { testerId } }),
+          prismaClient.userTransaction.aggregate({
+            where: { userId: testerId, status: "CREDIT", transactionType: "EARNING", action: "TESTING" },
+            _sum: { points: true },
+          }),
+          prismaClient.userTransaction.aggregate({
+            where: { userId: testerId, status: "CREDIT", transactionType: "EARNING" },
+            _sum: { points: true },
+          }),
+          prismaClient.userActivity.findMany({
+            where: { userId: testerId },
+            orderBy: { createdAt: "desc" },
+            take: 10,
+            include: {
+              dashboardAndHub: {
+                include: { androidApp: { select: { appName: true } } },
+              },
+            },
+          }),
+        ]);
+
+      const apps = user.testerRelations.map((tr) => ({
+        id: tr.id,
+        dashboardAndHubId: tr.dashboardAndHubId,
+        appName: tr.dashboardAndHub?.androidApp?.appName || "",
+        appType: tr.dashboardAndHub?.appType || null,
+        status: tr.status,
+        totalDay: tr.dashboardAndHub?.totalDay || 0,
+        daysCompleted: tr.daysCompleted,
+        progressPercent: tr.dashboardAndHub?.totalDay
+          ? Math.round((tr.daysCompleted / tr.dashboardAndHub.totalDay) * 100)
+          : 0,
+        joinedAt: tr.joinedAt.toISOString(),
+        completedAt: tr.completedAt?.toISOString() || null,
+        lastActivityAt: tr.lastActivityAt?.toISOString() || null,
+        checkinsToday: tr.dailyVerifications.filter((v) => v.status === "VERIFIED").length,
+        verifications: tr.dailyVerifications.map((v) => ({
+          id: v.id,
+          dayNumber: v.dayNumber,
+          proofImageUrl: v.proofImageUrl,
+          status: v.status,
+          verifiedAt: v.verifiedAt?.toISOString() || null,
+          createdAt: v.createdAt.toISOString(),
+        })),
+      }));
+
+      const lastActivityAt =
+        user.testerRelations
+          .map((tr) => tr.lastActivityAt)
+          .filter(Boolean)
+          .sort((a, b) => (b?.getTime() || 0) - (a?.getTime() || 0))[0] || null;
+
+      const summary = {
+        appsJoined: user.testerRelations.length,
+        appsCompleted: user.testerRelations.filter((tr) => tr.status === "COMPLETED").length,
+        appsInProgress: user.testerRelations.filter((tr) => tr.status === "IN_PROGRESS").length,
+        appsDropped: user.testerRelations.filter((tr) => tr.status === "DROPPED" || tr.status === "REMOVED").length,
+        appsPending: user.testerRelations.filter((tr) => tr.status === "PENDING").length,
+        checkinsToday: todayVerifications.length,
+        remainingTests,
+        totalVerifications: user.testerRelations.reduce((acc, tr) => acc + tr.dailyVerifications.length, 0),
+        totalFeedback: feedbackCount,
+        totalEarnings: totalEarnings._sum?.points || 0,
+        totalPointsEarned: totalPointsEarned._sum?.points || 0,
+        lastActivityAt: lastActivityAt?.toISOString() || null,
+        availability: user.userDetail?.availability || "AVAILABLE",
+      };
+
+      const recentFeedback = await prismaClient.feedback.findMany({
+        where: { testerId },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        include: {
+          dashboardAndHub: { include: { androidApp: { select: { appName: true } } } },
+        },
+      });
+
+      const result = {
+        mode: "single",
+        tester: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          avatar: user.image,
+          availability: user.userDetail?.availability,
+          device: user.userDetail?.device_company && user.userDetail?.device_model
+            ? `${user.userDetail.device_company} ${user.userDetail.device_model}`
+            : null,
+          experience: user.userDetail?.experience_level,
+          country: user.userDetail?.country,
+          role: user.userDetail?.role?.name,
+          status: user.userDetail?.banned ? "Banned" : "Active",
+        },
+        summary,
+        apps,
+        recentVerifications: apps
+          .flatMap((a) => a.verifications)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, 10),
+        recentFeedback: recentFeedback.map((f) => ({
+          id: f.id,
+          message: f.message,
+          type: f.type,
+          priority: f.priority,
+          appName: f.dashboardAndHub?.androidApp?.appName || "",
+          createdAt: f.createdAt.toISOString(),
+        })),
+        recentActivities: recentActivities.map((a) => ({
+          id: a.id,
+          actionType: a.actionType,
+          description: a.description,
+          appName: a.dashboardAndHub?.androidApp?.appName || "",
+          context: a.context as Record<string, unknown>,
+          createdAt: a.createdAt.toISOString(),
+        })),
+      };
+
+      return sendSuccess(res, result as any, "Tester activity fetched successfully");
+    }
+
+    // Combined platform-wide stats
+    const testerRoleId = await getTesterRoleId();
+    if (!testerRoleId) {
+      return sendError(res, 500, "Tester role not found");
+    }
+
+    const [
+      totalTesters,
+      testerRelations,
+      allVerificationsToday,
+      completedRelations,
+      inProgressRelations,
+      droppedRemovedRelations,
+      feedbackCount,
+      verificationsTrend,
+    ] = await Promise.all([
+      prismaClient.userDetail.count({
+        where: { roleId: testerRoleId, application_status: "APPROVED" },
+      }),
+      prismaClient.testerRelation.findMany({
+        select: { id: true, status: true, testerId: true, daysCompleted: true, dashboardAndHub: { select: { totalDay: true } } },
+      }),
+      prismaClient.dailyTesterVerification.findMany({
+        where: { createdAt: { gte: selectedDate, lt: nextDay } },
+        select: { id: true, status: true, testerRelationId: true },
+      }),
+      prismaClient.testerRelation.count({ where: { status: "COMPLETED" } }),
+      prismaClient.testerRelation.count({
+        where: { status: { in: ["IN_PROGRESS", "PENDING"] } },
+      }),
+      prismaClient.testerRelation.count({
+        where: { status: { in: ["DROPPED", "REMOVED"] } },
+      }),
+      prismaClient.feedback.count(),
+      (async () => {
+        const trend: { date: string; count: number }[] = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          d.setHours(0, 0, 0, 0);
+          const dNext = new Date(d);
+          dNext.setDate(dNext.getDate() + 1);
+          const count = await prismaClient.dailyTesterVerification.count({
+            where: {
+              status: "VERIFIED",
+              createdAt: { gte: d, lt: dNext },
+            },
+          });
+          trend.push({ date: d.toISOString().split("T")[0], count });
+        }
+        return trend;
+      })(),
+    ]);
+
+    const verifiedToday = allVerificationsToday.filter((v) => v.status === "VERIFIED");
+    const activeTestersToday = new Set(
+      allVerificationsToday.filter((v) => v.status === "VERIFIED").map((v) => v.testerRelationId),
+    ).size;
+
+    const remainingToday = testerRelations.filter(
+      (tr) =>
+        tr.status === "IN_PROGRESS" &&
+        tr.daysCompleted < (tr.dashboardAndHub?.totalDay || 0),
+    ).length;
+
+    // Status breakdown from tester_relation across all testers
+    const statusBreakdown = testerRelations.reduce(
+      (acc, tr) => {
+        acc[tr.status] = (acc[tr.status] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+
+    const result = {
+      mode: "combined",
+      totalTesters,
+      activeTestersToday,
+      totalTestsJoined: testerRelations.length,
+      testsCompletedToday: verifiedToday.length,
+      testsRemainingToday: remainingToday,
+      totalCompletedTests: completedRelations,
+      totalInProgressTests: inProgressRelations,
+      totalDroppedRemovedTests: droppedRemovedRelations,
+      totalVerificationsToday: allVerificationsToday.length,
+      totalFeedbackByTesters: feedbackCount,
+      testerStatusBreakdown: statusBreakdown,
+      dailyCheckinsTrend: verificationsTrend,
+    };
+
+    return sendSuccess(res, result as any, "Tester activity fetched successfully");
+  } catch (error) {
+    console.error("Error in getTesterActivity:", error);
     return sendError(
       res,
       500,

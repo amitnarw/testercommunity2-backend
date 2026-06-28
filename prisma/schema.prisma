@@ -1398,6 +1398,7 @@ enum UserTransactionType {
   PURCHASE
   REFUND
   BONUS
+  GIFT
   OTHER
 }
 

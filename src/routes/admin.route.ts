@@ -1,5 +1,6 @@
 import {
   getControlRoomData,
+  getTesterActivity,
   getSubmittedApps,
   acceptApp,
   rejectApp,
@@ -19,6 +20,7 @@ import {
   updateUserRole,
   updateUserProfile,
   updateUserWallet,
+  giftPointsAndPackages,
   deleteUser,
   getUserCounts,
   getDiscoverySourceCounts,
@@ -191,6 +193,7 @@ router.post("/users/update-role", checkAuthorization({ module: "users", action: 
 router.post("/users/update-profile", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserProfile);
 router.post("/users/convert-auth-type", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, convertUserAuthType);
 router.post("/users/update-wallet", checkAuthentication, decryptPayload, updateUserWallet);
+router.post("/users/gift-points-packages", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, giftPointsAndPackages);
 router.delete("/users/:id", checkAuthorization({ module: "users", action: "canDelete" }), deleteUser);
 // Self profile update (no module permission needed — any authenticated admin can update their own)
 router.post("/update-my-profile", checkAuthentication, decryptPayload, updateMyProfile);
@@ -311,6 +314,9 @@ router.get("/logs", checkAuthorization({ module: "logs", action: "canReadList" }
 router.get("/logs/:filename", checkAuthorization({ module: "logs", action: "canReadSingle" }), getLogContent);
 router.delete("/logs/:filename", checkAuthorization({ module: "logs", action: "canDelete" }), deleteLog);
 router.post("/logs/batch-delete", checkAuthorization({ module: "logs", action: "canDelete" }), decryptPayload, deleteLogsBatch);
+
+// Tester Activity
+router.get("/tester-activity", checkAuthorization({ module: "tester_activity", action: "canReadList" }), getTesterActivity);
 
 // Support Operations
 router.post("/control-room", checkAuthentication, checkAuthorization({ module: "control_room", action: "canUpdate" }), decryptPayload, updateControlRoom);
