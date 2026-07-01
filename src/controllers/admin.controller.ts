@@ -3264,6 +3264,7 @@ async function generateUniqueSlug(baseSlug: string): Promise<string> {
 export const createBlog = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
+    console.log("[createBlog] payload:", JSON.stringify(payload));
     const {
       title,
       slug,
