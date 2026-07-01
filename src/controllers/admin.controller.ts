@@ -2896,18 +2896,19 @@ export const updatePromoCode = async (req: Request, res: Response) => {
 
     if (!id) return sendError(res, 400, "Promo code ID is required");
 
-    let normalizedCode: string | undefined;
+    let finalCode: string | undefined;
     if (code) {
-      normalizedCode = code.trim().toUpperCase();
+      const normalizedCode = code.trim().toUpperCase();
       if (!/^[A-Z0-9]{3,20}$/.test(normalizedCode)) {
         return sendError(res, 400, "Promo code must be 3-20 alphanumeric characters");
       }
+      finalCode = normalizedCode;
     }
 
     const updatedPromo = await prismaClient.promoCode.update({
       where: { id: parseInt(id) },
       data: {
-        code: normalizedCode,
+        code: finalCode,
         discountType:
           discountType !== undefined ? discountType : undefined,
         discountValue:
