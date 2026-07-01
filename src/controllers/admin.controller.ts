@@ -3226,6 +3226,41 @@ export const getBlogById = async (req: Request, res: Response) => {
   }
 };
 
+// --- Helper utilities for blog management ---
+
+function stripHtml(html: string): string {
+  return (html || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+}
+
+function makeExcerpt(content: string, maxLength = 160): string {
+  const text = stripHtml(content);
+  if (!text) return "";
+  return text.length > maxLength
+    ? text.slice(0, maxLength).trim() + "..."
+    : text;
+}
+
+async function generateUniqueSlug(baseSlug: string): Promise<string> {
+  let slug = baseSlug
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  if (!slug) slug = "untitled";
+
+  const existing = await prismaClient.blog.findMany({
+    where: { slug: { startsWith: slug } },
+    select: { slug: true },
+  });
+  const existingSlugs = new Set(existing.map((b) => b.slug));
+
+  if (!existingSlugs.has(slug)) return slug;
+
+  let i = 1;
+  while (existingSlugs.has(slug + "-" + i)) i++;
+  return slug + "-" + i;
+}
+
 export const createBlog = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
@@ -3245,39 +3280,90 @@ export const createBlog = async (req: Request, res: Response) => {
       date,
     } = payload;
 
-    if (!title || !slug || !excerpt || !authorName || !authorAvatarUrl || !imageUrl) {
+    const isDraft = isActive === false;
+
+    if (isDraft) {
+      // Draft: only require title or content
+      if (!title && !content) {
+        return sendError(
+          res,
+          400,
+          "Title or content is required to save a draft",
+        );
+      }
+
+      const finalSlug = await generateUniqueSlug(title || "untitled");
+      const finalExcerpt = excerpt || makeExcerpt(content) || "";
+
+      const newBlog = await prismaClient.blog.create({
+        data: {
+          title: title || "",
+          slug: finalSlug,
+          excerpt: finalExcerpt,
+          content: content || "",
+          authorName: authorName || "",
+          authorAvatarUrl: authorAvatarUrl || "/avatar-placeholder.svg",
+          authorDataAiHint: authorDataAiHint || null,
+          imageUrl: imageUrl || "/blog-placeholder.svg",
+          dataAiHint: dataAiHint || null,
+          tags: tags || [],
+          category: category || "GENERAL",
+          isActive: false,
+          date: date ? new Date(date) : new Date(),
+        },
+      });
+
+      return sendSuccess(res, newBlog, "Draft saved successfully");
+    }
+
+    // Publish: all required fields must be present
+    const missing: string[] = [];
+    if (!title) missing.push("title");
+    if (!slug) missing.push("slug");
+    if (!excerpt) missing.push("excerpt");
+    if (!authorName) missing.push("authorName");
+    if (!authorAvatarUrl) missing.push("authorAvatarUrl");
+    if (!imageUrl) missing.push("imageUrl");
+
+    if (missing.length > 0) {
       return sendError(
         res,
         400,
-        "Title, slug, excerpt, author name, author avatar URL, and image URL are required",
+        `Missing required fields: ${missing.join(", ")}`,
       );
     }
 
-    // Generate slug from title if not provided
-    const finalSlug = slug || title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "");
+    // Check slug uniqueness
+    const existingBlog = await prismaClient.blog.findUnique({
+      where: { slug },
+    });
+    if (existingBlog) {
+      return sendError(
+        res,
+        409,
+        "Slug already in use. Please choose a unique slug.",
+      );
+    }
 
     const newBlog = await prismaClient.blog.create({
       data: {
-        title,
-        slug: finalSlug,
-        excerpt,
+        title: title!,
+        slug: slug!,
+        excerpt: excerpt!,
         content: content || "",
-        authorName,
-        authorAvatarUrl,
+        authorName: authorName!,
+        authorAvatarUrl: authorAvatarUrl!,
         authorDataAiHint: authorDataAiHint || null,
-        imageUrl,
+        imageUrl: imageUrl!,
         dataAiHint: dataAiHint || null,
         tags: tags || [],
-        category: category || undefined,
-        isActive: isActive !== undefined ? isActive : true,
+        category: category || "GENERAL",
+        isActive: true,
         date: date ? new Date(date) : new Date(),
       },
     });
 
-    return sendSuccess(res, newBlog, "Blog created successfully");
+    return sendSuccess(res, newBlog, "Blog published successfully");
   } catch (error) {
     return sendError(
       res,
@@ -3308,6 +3394,20 @@ export const updateBlog = async (req: Request, res: Response) => {
     } = payload;
 
     if (!id) return sendError(res, 400, "Blog ID is required");
+
+    // If slug is being changed, check uniqueness
+    if (slug !== undefined) {
+      const existingWithSlug = await prismaClient.blog.findUnique({
+        where: { slug },
+      });
+      if (existingWithSlug && existingWithSlug.id !== parseInt(id)) {
+        return sendError(
+          res,
+          409,
+          "Slug already in use by another blog. Please choose a unique slug.",
+        );
+      }
+    }
 
     const updateData: any = {
       title: title !== undefined ? title : undefined,
