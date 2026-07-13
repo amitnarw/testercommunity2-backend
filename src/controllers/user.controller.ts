@@ -446,6 +446,7 @@ export const getAllPricingPlans = async (req: Request, res: Response) => {
     const plans = await prismaClient?.plans?.findMany({
       where: {
         isActive: true,
+        billingType: "ONE_TIME",
       },
     });
     const responseData = plans.map((item) => {

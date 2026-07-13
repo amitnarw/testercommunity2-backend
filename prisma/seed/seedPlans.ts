@@ -13,6 +13,13 @@ const professionalPathFeatures: string[] = [
   "Google Play Compliance Check",
 ];
 
+const handshakeFeatures: string[] = [
+  "Publish and join handshake tests",
+  "Gamified levels with more test slots",
+  "No per-tester points required",
+  "Barter-based, you test theirs, they test yours",
+];
+
 const plans = [
   {
     id: "1",
@@ -20,6 +27,15 @@ const plans = [
     price: 999,
     package: 1,
     features: professionalPathFeatures,
+    billingType: "ONE_TIME",
+  },
+  {
+    id: "handshake",
+    name: "Handshake",
+    price: 99,
+    package: 1,
+    features: handshakeFeatures,
+    billingType: "SUBSCRIPTION",
   },
 ];
 
@@ -38,6 +54,7 @@ export async function seedPlans() {
         price: planData.price,
         package: planData.package,
         features: planData.features,
+        billingType: planData.billingType,
         isActive: true,
       },
       create: {
@@ -46,6 +63,7 @@ export async function seedPlans() {
         price: planData.price,
         package: planData.package,
         features: planData.features,
+        billingType: planData.billingType,
       },
     });
     logger.info(`Created/updated plan: ${plan.name} (id: ${plan.id})`);
