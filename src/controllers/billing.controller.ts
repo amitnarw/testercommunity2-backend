@@ -11,6 +11,7 @@ import {
   refundPayment,
   type RazorpayWebhookEvent,
 } from "@/lib/razorpay";
+import { processSubscriptionWebhook } from "@/controllers/subscription.controller";
 import { sendEmail } from "@/services/resend";
 import crypto from "crypto";
 import { extractCountry } from "@/utils/helperFunctions";
@@ -911,6 +912,16 @@ export const handleWebhook = async (req: Request, res: Response) => {
         data: { processed: true, processedAt: new Date() },
       }).catch(() => {});
 
+      return res.status(200).json({ status: "processed" });
+    }
+
+    // Handle subscription events
+    if (event.event.startsWith("subscription.")) {
+      await processSubscriptionWebhook(event as any);
+      await prismaClient.webhookEventLog.update({
+        where: { eventId },
+        data: { processed: true, processedAt: new Date() },
+      });
       return res.status(200).json({ status: "processed" });
     }
 

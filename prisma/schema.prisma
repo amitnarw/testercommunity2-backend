@@ -48,6 +48,9 @@ model User {
   invoices                   Invoice[]
   playStoreDeclarations      PlayStoreDeclaration[]
   immediateAttentionItems    ImmediateAttention[]
+  handshakeSubscriptions     HandshakeSubscription[]
+  handshakeLevel             Int                         @default(1)
+  handshakeCompletedCount    Int                         @default(0)
 
   @@map("user")
 }
@@ -106,6 +109,7 @@ model TesterRelation {
   id                 Int                       @id @default(autoincrement())
   testerId           String
   dashboardAndHubId  Int?
+  offeredAppId       Int?
   isActive           Boolean                   @default(true)
   status             TesterStatus              @default(IN_PROGRESS)
   joinedAt           DateTime                  @default(now())
@@ -118,10 +122,46 @@ model TesterRelation {
   updatedAt          DateTime                  @updatedAt
   dailyVerifications DailyTesterVerification[]
   dashboardAndHub    DashboardAndHub?          @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
+  offeredApp         DashboardAndHub?          @relation("OfferedAppRelation", fields: [offeredAppId], references: [id])
   tester             User                      @relation(fields: [testerId], references: [id])
+  handshakeLinkAsA   HandshakeLink?            @relation("HandshakeRelationA")
+  handshakeLinkAsB   HandshakeLink?            @relation("HandshakeRelationB")
 
   @@unique([testerId, dashboardAndHubId])
   @@map("tester_relation")
+}
+
+model HandshakeLink {
+  id                Int                @id @default(autoincrement())
+  relationAId       Int                @unique
+  relationBId        Int                @unique
+  relationA         TesterRelation     @relation("HandshakeRelationA", fields: [relationAId], references: [id], onDelete: Cascade)
+  relationB         TesterRelation     @relation("HandshakeRelationB", fields: [relationBId], references: [id], onDelete: Cascade)
+  aBlockedUntil     DateTime?
+  bBlockedUntil     DateTime?
+  lastProcessedDay  Int                @default(0)
+  status            HandshakeLinkStatus @default(ACTIVE)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@map("handshake_link")
+}
+
+model HandshakeSubscription {
+  id                     Int                       @id @default(autoincrement())
+  userId                 String
+  razorpaySubscriptionId String                    @unique
+  razorpayPlanId         String
+  status                 HandshakeSubscriptionStatus @default(CREATED)
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  paidCount              Int                       @default(0)
+  totalCycles            Int
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+  user                   User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("handshake_subscription")
 }
 
 model DailyTesterVerification {
@@ -156,16 +196,17 @@ model Session {
 }
 
 model Plans {
-  id        String     @id @default(uuid()) @map("_id")
-  name      String
-  price     Float
-  package   Int
-  features  Json
-  isActive  Boolean    @default(true)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  orders    Order[]
-  userPlans UserPlan[]
+  id          String     @id @default(uuid()) @map("_id")
+  name        String
+  price       Float
+  package     Int
+  features    Json
+  billingType String     @default("ONE_TIME")
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  orders      Order[]
+  userPlans   UserPlan[]
 
   @@map("plans")
 }
@@ -276,6 +317,7 @@ model DashboardAndHub {
   promoCode                PromoCode?             @relation(fields: [promoCodeId], references: [id])
   feedback                 Feedback[]
   testerRelations          TesterRelation[]
+  offeredInRelations       TesterRelation[]       @relation("OfferedAppRelation")
   activities               UserActivity[]
   earningHistory           UserTransaction[]
   testers                  User[]                 @relation("DashboardAndHubTesters")
@@ -1180,6 +1222,24 @@ enum FaqCategory {
 enum DashboardAndHubAppType {
   PAID
   FREE
+  HANDSHAKE
+}
+
+enum HandshakeLinkStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum HandshakeSubscriptionStatus {
+  CREATED
+  AUTHENTICATED
+  ACTIVE
+  PENDING
+  HALTED
+  CANCELLED
+  COMPLETED
+  EXPIRED
 }
 
 enum DashboardAndHubStatus {

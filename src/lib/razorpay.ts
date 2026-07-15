@@ -163,6 +163,53 @@ export interface RazorpayWebhookEvent {
   created_at: number;
 }
 
+// Subscription webhook event interface
+export interface RazorpaySubscriptionWebhookEvent {
+  entity: string;
+  account_id: string;
+  event: string;
+  contains: string[];
+  payload: {
+    subscription?: {
+      entity: {
+        id: string;
+        entity: string;
+        plan_id: string;
+        status:
+          | "created"
+          | "authenticated"
+          | "active"
+          | "pending"
+          | "halted"
+          | "cancelled"
+          | "completed"
+          | "expired";
+        current_start?: number | null;
+        current_end?: number | null;
+        ended_at?: number | null;
+        charge_at: number;
+        start_at: number;
+        end_at: number;
+        auth_attempts: number;
+        total_count: number;
+        paid_count: number;
+        customer_notify: boolean;
+        created_at: number;
+        short_url?: string;
+        has_scheduled_changes: boolean;
+        change_scheduled_at?: number | null;
+        source: string;
+        remaining_count: string;
+        customer_id?: string | null;
+      };
+    };
+    payment?: {
+      entity: RazorpayPaymentEntity;
+    };
+  };
+  created_at: number;
+}
+
 export interface RazorpayPaymentEntity {
   id: string;
   entity: string;
