@@ -1,0 +1,10 @@
+name = "mail-ingest-intesters"
+main = "worker.js"
+compatibility_date = "2025-12-01"
+
+[vars]
+API_BASE = "https://api.intesters.com"
+MAIL_WEBHOOK_SECRET = ""
+
+[env.development]
+vars = { API_BASE = "http://localhost:5000", MAIL_WEBHOOK_SECRET = "" }

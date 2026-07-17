@@ -50,9 +50,11 @@ model User {
   immediateAttentionItems    ImmediateAttention[]
   handshakeSubscriptions     HandshakeSubscription[]
   handshakeLevel             Int                         @default(1)
-  handshakeCompletedCount    Int                         @default(0)
+   handshakeCompletedCount    Int                         @default(0)
+   assignedMails              AdminMail[]                 @relation("AssignedMailUser")
+   mailUser                   AdminMail[]                 @relation("MailUser")
 
-  @@map("user")
+   @@map("user")
 }
 
 model UserDetail {
@@ -480,7 +482,7 @@ model WebsiteFeedbackSuggestion {
 }
 
 /// Unified conversation model: replaces SupportRequest.
-/// type separates: AI_CHAT, LIVE_CHAT, TICKET — all stored in one table.
+/// type separates: AI_CHAT, LIVE_CHAT, TICKET ,  all stored in one table.
 model Conversation {
   id       Int                  @id @default(autoincrement())
   type     ConversationType     @default(AI_CHAT)
@@ -1516,6 +1518,62 @@ enum PaymentMethod {
   POINTS
   PACKAGE
   PROMO_FREE
+}
+
+enum MailStatus {
+  UNREAD
+  READ
+  REPLIED
+  ARCHIVED
+}
+
+enum MailDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model AdminMail {
+  id            Int             @id @default(autoincrement())
+  threadKey     String
+  fromEmail     String
+  fromName      String?
+  toAddress     String
+  subject       String
+  status        MailStatus      @default(UNREAD)
+  lastMessageAt DateTime        @default(now())
+  assignedTo    String?
+  userId        String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  messages      AdminMailMessage[]
+  assignedUser  User?           @relation("AssignedMailUser", fields: [assignedTo], references: [id], onDelete: SetNull)
+  user          User?           @relation("MailUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([toAddress])
+  @@index([threadKey])
+  @@index([assignedTo])
+  @@index([userId])
+  @@map("admin_mail")
+}
+
+model AdminMailMessage {
+  id          Int           @id @default(autoincrement())
+  mailId      Int
+  direction   MailDirection
+  fromEmail   String
+  toEmail     String
+  subject     String?
+  body        String
+  attachments Json?
+  messageId   String?
+  inReplyTo   String?
+  createdAt   DateTime      @default(now())
+  mail        AdminMail     @relation(fields: [mailId], references: [id], onDelete: Cascade)
+
+  @@index([mailId])
+  @@index([messageId])
+  @@map("admin_mail_message")
 }
 
 model BillingInfo {

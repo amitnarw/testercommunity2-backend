@@ -2057,7 +2057,7 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       return sendError(
         res,
         400,
-        "proofImage is required for free community testing.",
+        "proofImage is required for handshake testing.",
       );
     }
 
@@ -2295,7 +2295,7 @@ export const completeHostedApp = async (req: Request, res: Response) => {
       // Handshake testing is a barter system: no points are awarded.
       if (rewardAmount > 0 && testersToReward.length > 0) {
         for (const rel of testersToReward) {
-          // Skip admin-assigned testers — they earn nothing on-platform
+          // Skip admin-assigned testers ,  they earn nothing on-platform
           if (rel.assignmentSource === "ADMIN_ASSIGNED") continue;
           const wallet = await tx.userWallet.upsert({
             where: { userId: rel.testerId },

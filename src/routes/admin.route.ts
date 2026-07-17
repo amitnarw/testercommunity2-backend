@@ -148,11 +148,11 @@ const router = Router();
 // Act As (must be before checkAuthorization to allow SUPER_ADMIN to use it)
 router.post("/act-as", checkAuthentication, decryptPayload, actAsRole);
 
-// Permission Matrix (super_admin only — hardcoded check)
+// Permission Matrix (super_admin only ,  hardcoded check)
 router.get("/permissions", checkAuthentication, getAllPermissions);
 router.put("/permissions/:roleId/:moduleId", checkAuthentication, decryptPayload, updatePermission);
 
-// Role CRUD (super_admin only — hardcoded check)
+// Role CRUD (super_admin only ,  hardcoded check)
 router.post("/roles", checkAuthentication, decryptPayload, createRole);
 router.put("/roles/:roleId", checkAuthentication, decryptPayload, updateRole);
 router.delete("/roles/:roleId", checkAuthentication, deleteRole);
@@ -195,7 +195,7 @@ router.post("/users/convert-auth-type", checkAuthorization({ module: "users", ac
 router.post("/users/update-wallet", checkAuthentication, decryptPayload, updateUserWallet);
 router.post("/users/gift-points-packages", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, giftPointsAndPackages);
 router.delete("/users/:id", checkAuthorization({ module: "users", action: "canDelete" }), deleteUser);
-// Self profile update (no module permission needed — any authenticated admin can update their own)
+// Self profile update (no module permission needed ,  any authenticated admin can update their own)
 router.post("/update-my-profile", checkAuthentication, decryptPayload, updateMyProfile);
 
 // Immediate Attention Required (IAR)

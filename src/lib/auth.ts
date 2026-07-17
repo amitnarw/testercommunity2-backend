@@ -3,6 +3,7 @@ import { APIError, betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prismaClient } from "./prisma";
 import { sendEmail } from "@/services/resend";
+import { verificationEmailHtml, EMAIL_BRAND } from "@/services/email-templates";
 import { createAuthMiddleware, customSession } from "better-auth/plugins";
 import type { UserAuthType } from "@prisma/client";
 import { SignJWT } from "jose";
@@ -229,10 +230,10 @@ export const auth = betterAuth({
         process.env.CORS_ORIGIN?.split(",")[0]
       }/auth/verification?token=${token}`;
       await sendEmail({
-        from: "inTesters <noreply@system.intesters.com>",
+        from: EMAIL_BRAND.from,
         to: user.email,
         subject: "Verify your email address | inTesters",
-        html: `Click the link to verify your email: ${frontendUrl}`,
+        html: verificationEmailHtml(frontendUrl),
       });
     },
     async afterEmailVerification(user, request) {

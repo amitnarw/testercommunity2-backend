@@ -971,7 +971,7 @@ However, in late 2024, developer forums and Google's official documentation refl
 
 ## What Exactly Has Changed?
 
-Google's primary goal—improving the overall quality of apps on the Play Store, remains unchanged. The adjustment to 12 testers acknowledges that gathering a dedicated cohort of 20 people was often an insurmountable hurdle for solo developers without a massive social network.
+Google's primary goal, improving the overall quality of apps on the Play Store, remains unchanged. The adjustment to 12 testers acknowledges that gathering a dedicated cohort of 20 people was often an insurmountable hurdle for solo developers without a massive social network.
 
 **The New Core Policy:**
 - **Tester Count**: You need a minimum of **12 unique testers**.
@@ -1141,7 +1141,7 @@ export async function seedGuides() {
     const categoryId = categorySlug ? categorySlugToId[categorySlug] : undefined;
 
     if (!categoryId) {
-      logger.warn(`  Skipping guide "${guide.title}" — no category found for "${guide.categoryName}"`);
+      logger.warn(`  Skipping guide "${guide.title}" ,  no category found for "${guide.categoryName}"`);
       continue;
     }
 

@@ -1,6 +1,6 @@
 import { prismaClient } from "@/lib/prisma";
 
-export const MAX_HANDSHAKE_LEVEL = 20;
+export const MAX_HANDSHAKE_LEVEL = 9;
 export const BASE_HANDSHAKE_SLOTS = 12;
 
 /**

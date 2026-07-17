@@ -3109,7 +3109,7 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
 
       if (rewardAmount > 0 && testersToReward.length > 0) {
         for (const rel of testersToReward) {
-          // Skip admin-assigned testers on free apps — they earn nothing on-platform
+          // Skip admin-assigned testers on free apps ,  they earn nothing on-platform
           if (!isPaidApp && rel.assignmentSource === "ADMIN_ASSIGNED") continue;
           const createData: any = {
             userId: rel.testerId,

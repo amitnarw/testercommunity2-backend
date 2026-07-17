@@ -13,6 +13,7 @@ import {
 } from "@/lib/razorpay";
 import { processSubscriptionWebhook } from "@/controllers/subscription.controller";
 import { sendEmail } from "@/services/resend";
+import { paymentReceiptEmailHtml, EMAIL_BRAND } from "@/services/email-templates";
 import crypto from "crypto";
 import { extractCountry } from "@/utils/helperFunctions";
 import {
@@ -802,18 +803,21 @@ export const handleWebhook = async (req: Request, res: Response) => {
           // Non-blocking receipt email after transaction is committed
           const userEmail = paymentData.email || "";
           if (userEmail && process.env.RESEND_API_KEY) {
+            const currency = paymentData.currency || "INR";
+            const amountInr = currency === "INR" ? paymentData.amount / 100 : paymentData.amount / 100;
             sendEmail({
-              from: "inTesters <noreply@intesters.com>",
+              from: EMAIL_BRAND.from,
               to: userEmail,
-              subject: `Payment Successful - Invoice`,
-              html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                  <h2 style="color: #7c3aed;">Payment Successful!</h2>
-                  <p>Thank you for your purchase on inTesters.</p>
-                  <p>Your payment has been processed successfully. You can view your packages and transaction history in your wallet.</p>
-                  <p>Thank you for choosing inTesters!</p>
-                </div>
-              `,
+              subject: `Payment Successful | inTesters`,
+              html: paymentReceiptEmailHtml({
+                amount: amountInr.toLocaleString("en-IN", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                }),
+                currency,
+                paymentId: paymentData.id,
+                description: order?.plan?.name || "inTesters purchase",
+              }),
             }).catch((err) => {
               logger.error("Failed to send receipt email:", err);
             });
