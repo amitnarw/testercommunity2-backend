@@ -208,11 +208,13 @@ export const getFinancePayments = async (req: Request, res: Response) => {
     const skip = (page - 1) * limit;
     const status = qs(req.query.status);
     const method = qs(req.query.method);
+    const paymentType = qs(req.query.paymentType);
     const search = qs(req.query.search);
 
     const where: any = {};
     if (status) where.status = status;
     if (method) where.method = method;
+    if (paymentType) where.paymentType = paymentType;
     if (search) {
       where.OR = [
         { razorpayPaymentId: { contains: search, mode: "insensitive" } },
@@ -234,6 +236,9 @@ export const getFinancePayments = async (req: Request, res: Response) => {
           user: { select: { id: true, name: true, email: true, image: true } },
           refunds: { select: { id: true, amount: true, status: true, reason: true } },
           invoice: { select: { id: true, invoice_number: true } },
+          handshakeSubscription: {
+            select: { id: true, status: true, razorpaySubscriptionId: true },
+          },
         },
         orderBy: { createdAt: "desc" },
         skip,
@@ -258,12 +263,14 @@ export const getFinancePayments = async (req: Request, res: Response) => {
         amountRefunded: p.amountRefunded,
         refundStatus: p.refundStatus,
         captured: p.captured,
+        paymentType: p.paymentType,
         customer_name: p.customer_name,
         customer_email: p.customer_email,
         order: p.order,
         user: p.user,
         refunds: p.refunds,
         invoice: p.invoice,
+        handshakeSubscription: p.handshakeSubscription,
         createdAt: p.createdAt.toISOString(),
       })),
       pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
@@ -695,8 +702,9 @@ export const createInvoice = async (req: Request, res: Response) => {
             currency: payment.currency,
           },
         });
+        if (!payment.order) throw new Error("Order not found for this payment");
         await tx.order.update({
-          where: { id: payment.orderId },
+          where: { id: payment.order.id },
           data: {
             amount: baseAmount,
             packageCount: quantity,
@@ -739,10 +747,12 @@ export const createInvoice = async (req: Request, res: Response) => {
 
       const invoice = await tx.invoice.create({ data: invoiceData });
 
-      await tx.order.update({
-        where: { id: payment.orderId },
-        data: { invoiceId: invoiceNumber },
-      });
+      if (payment.order) {
+        await tx.order.update({
+          where: { id: payment.order.id },
+          data: { invoiceId: invoiceNumber },
+        });
+      }
 
       return invoice;
     });

@@ -7,6 +7,7 @@ import {
   getHandshakePlan,
   listHandshakeSubscriptionsAdmin,
   cancelHandshakeSubscriptionAdmin,
+  syncSubscriptionPayments,
 } from "@/controllers/subscription.controller";
 import { checkAuthentication } from "@/middlewares/checkAuthentication";
 import { decryptPayload } from "@/middlewares/decyptPayload";
@@ -28,6 +29,13 @@ router.post(
   cancelHandshakeSubscription,
 );
 router.get("/status/:id", checkAuthentication, getSubscriptionStatus);
+
+router.post(
+  "/sync-payments",
+  checkAuthentication,
+  decryptPayload,
+  syncSubscriptionPayments,
+);
 
 router.get("/admin/list", checkAuthentication, listHandshakeSubscriptionsAdmin);
 router.post(

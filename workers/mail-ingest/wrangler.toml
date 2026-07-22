@@ -2,9 +2,12 @@ name = "mail-ingest-intesters"
 main = "worker.js"
 compatibility_date = "2025-12-01"
 
+routes = [{ pattern = "mail.intesters.com/*", zone_id = "c404d51904116459b9d09efbfd282d1d" }]
+
 [vars]
 API_BASE = "https://api.intesters.com"
-MAIL_WEBHOOK_SECRET = ""
+MAIL_WEBHOOK_SECRET = "czLYwE7BnFyPbqDkfIulK938Ri1sTXU4"
 
 [env.development]
+routes = []
 vars = { API_BASE = "http://localhost:5000", MAIL_WEBHOOK_SECRET = "" }

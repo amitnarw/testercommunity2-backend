@@ -162,6 +162,7 @@ model HandshakeSubscription {
   createdAt              DateTime                  @default(now())
   updatedAt              DateTime                  @updatedAt
   user                   User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments               Payment[]
 
   @@map("handshake_subscription")
 }
@@ -652,10 +653,12 @@ model UserTransaction {
   status            UserTransactionStatus
   createdAt         DateTime              @default(now())
   paymentMethod     PaymentMethod?
+  razorpayPaymentId String?
   dashboardAndHub   DashboardAndHub?      @relation(fields: [dashboardAndHubId], references: [id])
   user              User                  @relation(fields: [userId], references: [id])
   userWallet        UserWallet?           @relation(fields: [userWalletId], references: [id])
 
+  @@index([razorpayPaymentId])
   @@map("user_transactions")
 }
 
@@ -801,48 +804,52 @@ model Order {
 }
 
 model Payment {
-  id                Int           @id @default(autoincrement())
-  orderId           Int
-  razorpayPaymentId String        @unique
-  razorpayOrderId   String
-  razorpaySignature String?
-  amount            Int
-  currency          String        @default("INR")
-  status            PaymentStatus @default(PENDING)
-  method            String?
-  bank              String?
-  wallet            String?
-  vpa               String?
-  email             String?
-  contact           String?
-  fee               Int?          @default(0)
-  tax               Int?          @default(0)
-  errorCode         String?
-  errorDescription  String?
-  errorReason       String?
-  amountRefunded    Int           @default(0)
-  refundStatus      RefundStatus?
-  notes             Json?
-  captured          Boolean       @default(false)
-  international     Boolean       @default(false)
-  webhookVerified   Boolean       @default(false)
-  webhookPayload    Json?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  userId            String?
-  customer_name     String?
-  customer_email    String?
-  amount_inr        Int?
-  user              User?         @relation(fields: [userId], references: [id])
-  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  refunds           Refund[]
-  invoice           Invoice?
+  id                     Int                     @id @default(autoincrement())
+  orderId                Int?
+  razorpayPaymentId      String                  @unique
+  razorpayOrderId        String
+  razorpaySignature      String?
+  amount                 Int
+  currency               String                  @default("INR")
+  status                 PaymentStatus           @default(PENDING)
+  method                 String?
+  bank                   String?
+  wallet                 String?
+  vpa                    String?
+  email                  String?
+  contact                String?
+  fee                    Int?                    @default(0)
+  tax                    Int?                    @default(0)
+  errorCode              String?
+  errorDescription       String?
+  errorReason            String?
+  amountRefunded         Int                     @default(0)
+  refundStatus           RefundStatus?
+  notes                  Json?
+  captured               Boolean                 @default(false)
+  international          Boolean                 @default(false)
+  webhookVerified        Boolean                 @default(false)
+  webhookPayload         Json?
+  paymentType            String                  @default("ONE_TIME")
+  handshakeSubscriptionId Int?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  userId                 String?
+  customer_name          String?
+  customer_email         String?
+  amount_inr             Int?
+  user                   User?                   @relation(fields: [userId], references: [id])
+  order                  Order?                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  handshakeSubscription  HandshakeSubscription?  @relation(fields: [handshakeSubscriptionId], references: [id])
+  refunds                Refund[]
+  invoice                Invoice?
 
   @@index([orderId])
   @@index([razorpayPaymentId])
   @@index([razorpayOrderId])
   @@index([status])
   @@index([userId])
+  @@index([handshakeSubscriptionId])
   @@map("payment")
 }
 

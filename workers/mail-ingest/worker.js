@@ -1,6 +1,10 @@
 export default {
+  async fetch(request, env, ctx) {
+    return new Response("OK", { status: 200 });
+  },
+
   async email(message, env, ctx) {
-    const { from, to, subject, headers, raw } = message;
+    const { from, to, subject, headers } = message;
 
     const fromEmail = from;
     const fromName = headers.get("from")?.split("<")[0]?.trim() || null;
