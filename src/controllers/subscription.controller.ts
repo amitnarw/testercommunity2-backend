@@ -785,6 +785,15 @@ export const listHandshakeSubscriptionsAdmin = async (
         where,
         include: {
           user: { select: { id: true, name: true, email: true } },
+          payments: {
+            select: {
+              id: true,
+              amountRefunded: true,
+              invoice: {
+                select: { id: true, invoice_number: true },
+              },
+            },
+          },
         },
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
