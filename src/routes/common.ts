@@ -21,6 +21,7 @@ const router = Router();
 
 router.use("/auth", authRouter);
 router.use("/user", userRouter);
+router.use("/admin/mail", mailRouter);
 router.use("/admin", adminRouter);
 router.use("/dashboard", dashboardRouter);
 router.use("/hub", hubRouter);
@@ -35,6 +36,5 @@ router.use("/declaration", declarationRouter);
 router.use("/faq", faqRouter);
 router.use("/blog", guideRouter);
 router.use("/subscription", subscriptionRouter);
-router.use("/admin/mail", mailRouter);
 
 export default router;
