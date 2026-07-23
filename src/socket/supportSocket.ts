@@ -390,7 +390,7 @@ export function setupSupportSocket(namespace: Namespace) {
       if (pending) {
         clearTimeout(pending.timer);
         agentOfflineTimers.delete(userId);
-        logger.info(`Agent ${userName} reconnected — cancelled offline grace timer`);
+        logger.info(`Agent ${userName} reconnected ,  cancelled offline grace timer`);
 
         for (const chatId of pending.chatIds) {
           namespace.to(`conv:${chatId}`).emit("agent:reconnected", { chatId });
@@ -602,7 +602,7 @@ export function setupSupportSocket(namespace: Namespace) {
           }
 
           const timer = setTimeout(async () => {
-            logger.info(`Grace period expired for agent ${userName} — closing active chats`);
+            logger.info(`Grace period expired for agent ${userName} ,  closing active chats`);
 
             if (!agentOfflineTimers.has(userId)) return;
 
@@ -682,7 +682,7 @@ export function setupSupportSocket(namespace: Namespace) {
       if (pendingTimer) {
         clearTimeout(pendingTimer);
         disconnectTimers.delete(userId);
-        logger.info(`User ${userName} reconnected within grace period — cancelled disconnect timer`);
+        logger.info(`User ${userName} reconnected within grace period ,  cancelled disconnect timer`);
 
         // Notify agents that the user is back
         const activeChats = await prismaClient.conversation.findMany({
@@ -700,7 +700,7 @@ export function setupSupportSocket(namespace: Namespace) {
         await initAgentState(socket, userId, userName);
       }
       // Non-agents: initUserChatState is called via user:rejoin (frontend emits on connect)
-      // Do NOT call it here — it would run twice and duplicate messages
+      // Do NOT call it here ,  it would run twice and duplicate messages
     } catch (error) {
       logger.error("Error auto-initializing chat state:", error);
     }
@@ -719,7 +719,7 @@ export function setupSupportSocket(namespace: Namespace) {
       logger.info(`Socket disconnected: ${userName}`);
 
       if (isAgent) {
-        // Don't set OFFLINE immediately — let the heartbeat/cleanup handle it.
+        // Don't set OFFLINE immediately ,  let the heartbeat/cleanup handle it.
         // This handles: network blips, multi-tab, page refresh gracefully.
         logger.info(`Agent socket disconnected: ${userName} (cleanup will handle status)`);
       } else {
@@ -732,7 +732,7 @@ export function setupSupportSocket(namespace: Namespace) {
           select: { id: true, status: true, assignedTo: true },
         }).catch(() => []);
 
-        // Close WAITING_AGENT chats immediately — no grace period needed
+        // Close WAITING_AGENT chats immediately ,  no grace period needed
         // (user is just in queue, no active conversation to protect)
         let hasWaitingAgent = false;
         for (const chat of activeChats) {
@@ -754,7 +754,7 @@ export function setupSupportSocket(namespace: Namespace) {
         const inProgressChats = activeChats.filter((c) => c.status === "IN_PROGRESS");
 
         if (inProgressChats.length > 0) {
-          logger.info(`User ${userName} disconnected — starting ${DISCONNECT_GRACE_MS / 1000}s grace period for ${inProgressChats.length} active chat(s)`);
+          logger.info(`User ${userName} disconnected ,  starting ${DISCONNECT_GRACE_MS / 1000}s grace period for ${inProgressChats.length} active chat(s)`);
 
           // Notify agent that user disconnected (show indicator)
           for (const chat of inProgressChats) {
@@ -767,7 +767,7 @@ export function setupSupportSocket(namespace: Namespace) {
 
           // Set a new 30-second timer for IN_PROGRESS chats only
           const timer = setTimeout(async () => {
-            logger.info(`Grace period expired for user ${userName} — closing active chats`);
+            logger.info(`Grace period expired for user ${userName} ,  closing active chats`);
 
             // Check if user reconnected while timer was pending
             if (!disconnectTimers.has(userId)) return;
@@ -780,11 +780,11 @@ export function setupSupportSocket(namespace: Namespace) {
               },
             }).catch(() => []);
 
-            // Check again after async DB query — user may have reconnected
+            // Check again after async DB query ,  user may have reconnected
             if (!disconnectTimers.has(userId)) return;
 
             for (const chat of chats) {
-              // Check before each DB operation — user may have reconnected
+              // Check before each DB operation ,  user may have reconnected
               if (!disconnectTimers.has(userId)) return;
 
               await prismaClient.conversation.update({
@@ -1104,7 +1104,7 @@ async function closeWaitingChatsAndNotify(
 
   let closedCount = 0;
   for (const chat of waitingChats) {
-    // Conditional update — only succeeds if still WAITING_AGENT
+    // Conditional update ,  only succeeds if still WAITING_AGENT
     const result = await prismaClient.conversation.updateMany({
       where: { id: chat.id, status: "WAITING_AGENT" },
       data: { status: "CLOSED", resolvedAt: new Date() },

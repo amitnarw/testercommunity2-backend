@@ -337,6 +337,10 @@ export const acceptApp = async (req: Request, res: Response) => {
         // Persist rewardMoney as the actual money payout per tester
         dataToUpdate.rewardMoney = parseFloat(rewardPoints);
         dataToUpdate.rewardPoints = 0; // reset points for paid apps
+      } else if (existingApp.appType === "HANDSHAKE") {
+        // Handshake testing has no payout - points are always zero
+        dataToUpdate.rewardPoints = 0;
+        dataToUpdate.rewardMoney = 0;
       } else {
         dataToUpdate.rewardPoints = parseFloat(rewardPoints);
         dataToUpdate.rewardMoney = 0;
@@ -3096,13 +3100,16 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
       });
 
       const isPaidApp = app.appType === "PAID";
-      const rewardAmount = isPaidApp
-        ? app.rewardMoney || 0
-        : app.rewardPoints || 0;
+      const rewardAmount =
+        app.appType === "HANDSHAKE"
+          ? 0
+          : isPaidApp
+            ? app.rewardMoney || 0
+            : app.rewardPoints || 0;
 
       if (rewardAmount > 0 && testersToReward.length > 0) {
         for (const rel of testersToReward) {
-          // Skip admin-assigned testers on free apps — they earn nothing on-platform
+          // Skip admin-assigned testers on free apps ,  they earn nothing on-platform
           if (!isPaidApp && rel.assignmentSource === "ADMIN_ASSIGNED") continue;
           const createData: any = {
             userId: rel.testerId,

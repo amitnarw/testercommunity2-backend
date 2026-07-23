@@ -446,6 +446,7 @@ export const getAllPricingPlans = async (req: Request, res: Response) => {
     const plans = await prismaClient?.plans?.findMany({
       where: {
         isActive: true,
+        billingType: "ONE_TIME",
       },
     });
     const responseData = plans.map((item) => {
@@ -760,6 +761,28 @@ export const getUserTransactions = async (req: Request, res: Response) => {
       skip: parseInt(offset as string, 10),
     });
 
+    // Pre-fetch Refund records for REFUND transactions to show rupee amounts
+    const refundPaymentIds = (transactions || [])
+      .filter((t) => t.transactionType === "REFUND" && t.razorpayPaymentId)
+      .map((t) => t.razorpayPaymentId!);
+    const refundLookup = new Map<string, { amount: number; count: number }>();
+    if (refundPaymentIds.length > 0) {
+      const refunds = await prismaClient.refund.findMany({
+        where: { razorpayPaymentId: { in: refundPaymentIds }, status: "PROCESSED" },
+        select: { razorpayPaymentId: true, amount: true },
+      });
+      for (const r of refunds) {
+        const key = r.razorpayPaymentId;
+        const prev = refundLookup.get(key);
+        if (prev) {
+          prev.amount += r.amount;
+          prev.count += 1;
+        } else {
+          refundLookup.set(key, { amount: r.amount, count: 1 });
+        }
+      }
+    }
+
     // Format the response
     const formattedTransactions = transactions?.map((txn) => {
       // Determine description based on transaction type and action
@@ -817,9 +840,17 @@ export const getUserTransactions = async (req: Request, res: Response) => {
           change = `-${txn.points || 0} Points`;
           break;
         case "REFUND":
-          description = "Refund";
-          amount = `+${txn.package || 0} Packages`;
-          change = `+${txn.package || 0} Packages`;
+          if (txn.razorpayPaymentId && refundLookup.has(txn.razorpayPaymentId)) {
+            const refundInfo = refundLookup.get(txn.razorpayPaymentId)!;
+            const refundedInr = refundInfo.amount / 100;
+            description = `Refund — ₹${refundedInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} returned to your original payment method`;
+            amount = `₹${refundedInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            change = `-${txn.package || 0} Packages`;
+          } else {
+            description = "Refund";
+            amount = `+${txn.package || 0} Packages`;
+            change = `+${txn.package || 0} Packages`;
+          }
           break;
         default:
           description = "Transaction";

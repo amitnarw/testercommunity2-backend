@@ -18,30 +18,39 @@ export const getHubStats = async (req: Request, res: Response) => {
       where: { id: userId },
       select: {
         wallet: { select: { totalPoints: true } },
+        handshakeLevel: true,
+        handshakeCompletedCount: true,
       },
     });
 
+    const { getAvailableSlots, getActiveHandshakeCount } = await import(
+      "@/lib/handshake"
+    );
+    const level = response?.handshakeLevel || 1;
+    const slots = getAvailableSlots(level);
+    const activeHandshakes = await getActiveHandshakeCount(userId);
+
     const appsSubmitted = await prismaClient.dashboardAndHub.count({
-      where: { appOwnerId: userId, appType: "FREE" },
+      where: { appOwnerId: userId, appType: "HANDSHAKE" },
     });
 
     const testersEngaged = await prismaClient.testerRelation.count({
       where: {
-        dashboardAndHub: { appOwnerId: userId, appType: "FREE" },
+        dashboardAndHub: { appOwnerId: userId, appType: "HANDSHAKE" },
         status: { in: ["IN_PROGRESS", "COMPLETED"] },
       },
     });
 
     const testsCompleted = await prismaClient.testerRelation.count({
       where: {
-        dashboardAndHub: { appOwnerId: userId, appType: "FREE" },
+        dashboardAndHub: { appOwnerId: userId, appType: "HANDSHAKE" },
         status: "COMPLETED",
       },
     });
 
     const statusCounts = await prismaClient.dashboardAndHub.groupBy({
       by: ["status"],
-      where: { appOwnerId: userId, appType: "FREE" },
+      where: { appOwnerId: userId, appType: "HANDSHAKE" },
       _count: { _all: true },
     });
 
@@ -49,7 +58,7 @@ export const getHubStats = async (req: Request, res: Response) => {
       where: {
         status: "AVAILABLE",
         appOwnerId: { not: userId },
-        appType: "FREE",
+        appType: "HANDSHAKE",
         testerRelations: {
           none: {
             testerId: userId,
@@ -73,6 +82,10 @@ export const getHubStats = async (req: Request, res: Response) => {
       testsCompleted,
       availableApps: availableApps?.length || 0,
       statusCounts,
+      handshakeLevel: level,
+      handshakeCompletedCount: response?.handshakeCompletedCount || 0,
+      availableSlots: slots,
+      activeHandshakes,
     };
     return sendSuccess(res, finalResponse, "ok");
   } catch (error) {
@@ -142,7 +155,11 @@ export const addHubApp = async (req: Request, res: Response) => {
       total_days,
       points_cost,
       promo_code,
+      appType,
     } = payload;
+
+    const isHandshake = appType === "HANDSHAKE";
+
     if (
       !app_name ||
       !app_url ||
@@ -157,13 +174,12 @@ export const addHubApp = async (req: Request, res: Response) => {
       total_tester === null ||
       total_days === undefined ||
       total_days === null ||
-      points_cost === undefined ||
-      points_cost === null
+      (!isHandshake && (points_cost === undefined || points_cost === null))
     ) {
       return sendError(
         res,
         400,
-        "app_url, app_name, app_logo_url, app_screenshot_url_1, app_screenshot_url_2, category_id, app_description, minimum_android_version, total_tester, total_days and points_cost are required",
+        "app_url, app_name, app_logo_url, app_screenshot_url_1, app_screenshot_url_2, category_id, app_description, minimum_android_version, total_tester, total_days are required",
       );
     }
 
@@ -197,74 +213,94 @@ export const addHubApp = async (req: Request, res: Response) => {
 
     const package_name = extractPackageName(app_url);
 
+    // Handshake testing is gated behind an active subscription (no points cost)
+    if (isHandshake) {
+      const { hasActiveHandshakeSubscription } = await import(
+        "@/controllers/subscription.controller"
+      );
+      const active = await hasActiveHandshakeSubscription(req.userId!);
+      if (!active) {
+        return sendError(
+          res,
+          403,
+          "An active handshake testing subscription is required to publish an app",
+          undefined,
+          undefined,
+          { subscriptionRequired: true },
+        );
+      }
+    }
+
     // Transparency Validation: Calculate cost on server to prevent tampering
     const baseTesterRate = 80;
     const baseDayRate = 10;
     const expectedCost =
       total_tester * baseTesterRate + total_days * baseDayRate;
 
-    if (points_cost < expectedCost && !promo_code) {
-      return sendError(
-        res,
-        400,
-        `Invalid points cost. Expected at least ${expectedCost} points.`,
-      );
-    }
-
-    let final_points_cost = points_cost;
+    let final_points_cost = isHandshake ? 0 : points_cost;
     let appliedPromoCodeId: number | null = null;
 
-    if (promo_code) {
-      const normalizedPromoCode = promo_code.trim().toUpperCase();
-      if (!/^[A-Z0-9]{3,20}$/.test(normalizedPromoCode)) {
-        return sendError(res, 400, "Promo code must be 3-20 alphanumeric characters");
+    if (!isHandshake) {
+      if (points_cost < expectedCost && !promo_code) {
+        return sendError(
+          res,
+          400,
+          `Invalid points cost. Expected at least ${expectedCost} points.`,
+        );
       }
 
-      const dbPromo = await prismaClient.promoCode.findUnique({
-        where: { code: normalizedPromoCode },
-      });
+      if (promo_code) {
+        const normalizedPromoCode = promo_code.trim().toUpperCase();
+        if (!/^[A-Z0-9]{3,20}$/.test(normalizedPromoCode)) {
+          return sendError(res, 400, "Promo code must be 3-20 alphanumeric characters");
+        }
 
-      if (!dbPromo || !dbPromo.isActive) {
-        return sendError(res, 400, "Invalid or inactive promo code.");
-      }
-
-      if (dbPromo.maxUses && dbPromo.usedCount >= dbPromo.maxUses) {
-        return sendError(res, 400, "Promo code usage limit reached.");
-      }
-
-      if (dbPromo.maxPerUser) {
-        const usage = await prismaClient.userPromoUsage.findUnique({
-          where: {
-            userId_promoCodeId: {
-              userId: req.userId!,
-              promoCodeId: dbPromo.id,
-            },
-          },
+        const dbPromo = await prismaClient.promoCode.findUnique({
+          where: { code: normalizedPromoCode },
         });
 
-        if (usage && usage.usedCount >= dbPromo.maxPerUser) {
-          return sendError(
-            res,
-            400,
-            `You have already used this promo code ${dbPromo.maxPerUser} times.`,
-          );
+        if (!dbPromo || !dbPromo.isActive) {
+          return sendError(res, 400, "Invalid or inactive promo code.");
         }
+
+        if (dbPromo.maxUses && dbPromo.usedCount >= dbPromo.maxUses) {
+          return sendError(res, 400, "Promo code usage limit reached.");
+        }
+
+        if (dbPromo.maxPerUser) {
+          const usage = await prismaClient.userPromoUsage.findUnique({
+            where: {
+              userId_promoCodeId: {
+                userId: req.userId!,
+                promoCodeId: dbPromo.id,
+              },
+            },
+          });
+
+          if (usage && usage.usedCount >= dbPromo.maxPerUser) {
+            return sendError(
+              res,
+              400,
+              `You have already used this promo code ${dbPromo.maxPerUser} times.`,
+            );
+          }
+        }
+
+        if (dbPromo.discountType === "PERCENTAGE") {
+          final_points_cost = Math.max(0, expectedCost * (1 - dbPromo.discountValue / 100));
+        } else {
+          final_points_cost = dbPromo.discountValue;
+        }
+        appliedPromoCodeId = dbPromo.id;
       }
 
-      if (dbPromo.discountType === "PERCENTAGE") {
-        final_points_cost = Math.max(0, expectedCost * (1 - dbPromo.discountValue / 100));
-      } else {
-        final_points_cost = dbPromo.discountValue;
+      const userWallet = await prismaClient.userWallet.findUnique({
+        where: { userId: req.userId! },
+      });
+
+      if (final_points_cost > 0 && (!userWallet || userWallet.totalPoints < final_points_cost)) {
+        return sendError(res, 400, "Insufficient points balance.");
       }
-      appliedPromoCodeId = dbPromo.id;
-    }
-
-    const userWallet = await prismaClient.userWallet.findUnique({
-      where: { userId: req.userId! },
-    });
-
-    if (final_points_cost > 0 && (!userWallet || userWallet.totalPoints < final_points_cost)) {
-      return sendError(res, 400, "Insufficient points balance.");
     }
 
     const { androidAppData, dashboardAndHub } = await prismaClient.$transaction(
@@ -285,23 +321,23 @@ export const addHubApp = async (req: Request, res: Response) => {
           data: {
             appId: androidAppData?.id,
             appOwnerId: req?.userId || "",
-            appType: "FREE",
+            appType: "HANDSHAKE",
             currentTester: 0,
             totalTester: total_tester,
             currentDay: 0,
             totalDay: total_days,
             instructionsForTester: instruction_for_tester,
-            costPoints: final_points_cost,
-            // rewardPoints will be set by admin later
+            costPoints: isHandshake ? 0 : final_points_cost,
+            rewardPoints: 0,
             // averageTimeTesting
             minimumAndroidVersion: minimum_android_version,
             status: "IN_REVIEW",
-            promoCodeId: appliedPromoCodeId,
+            promoCodeId: isHandshake ? null : appliedPromoCodeId,
           },
         });
 
         let walletData = null;
-        if (userWallet) {
+        if (!isHandshake) {
           walletData = await tx?.userWallet?.update({
             where: {
               userId: req?.userId,
@@ -338,19 +374,21 @@ export const addHubApp = async (req: Request, res: Response) => {
           });
         }
 
-        await tx?.userTransaction?.create({
-          data: {
-            userId: req.userId || "",
-            userWalletId: walletData?.id,
-            dashboardAndHubId: dashboardAndHub?.id,
-            action: "TESTING",
-            points: final_points_cost,
-            transactionType: "PURCHASE",
-            status: "DEBIT",
-            // PROMO_FREE when a promo made cost exactly 0; otherwise the user paid with POINTS
-            paymentMethod: (appliedPromoCodeId && final_points_cost === 0) ? "PROMO_FREE" : "POINTS",
-          },
-        });
+        if (!isHandshake) {
+          await tx?.userTransaction?.create({
+            data: {
+              userId: req.userId || "",
+              userWalletId: walletData?.id,
+              dashboardAndHubId: dashboardAndHub?.id,
+              action: "TESTING",
+              points: final_points_cost,
+              transactionType: "PURCHASE",
+              status: "DEBIT",
+              // PROMO_FREE when a promo made cost exactly 0; otherwise the user paid with POINTS
+              paymentMethod: (appliedPromoCodeId && final_points_cost === 0) ? "PROMO_FREE" : "POINTS",
+            },
+          });
+        }
 
         await tx?.userActivity?.create({
           data: {
@@ -358,9 +396,11 @@ export const addHubApp = async (req: Request, res: Response) => {
             dashboardAndHubId: dashboardAndHub?.id,
             androidAppId: androidAppData?.id,
             actionType: "SUBMIT_APP",
-            description: appliedPromoCodeId
-              ? `${app_description} (Promo: ${promo_code})`
-              : app_description,
+            description: isHandshake
+              ? `${app_description} (Handshake)`
+              : appliedPromoCodeId
+                ? `${app_description} (Promo: ${promo_code})`
+                : app_description,
             ipAddress: req?.userIpAddress,
             userAgent: req?.userAgent,
             status: "SUCCESS",
@@ -410,7 +450,7 @@ export const getHubSubmittedApp = async (req: Request, res: Response) => {
       where: {
         appOwnerId: req?.userId,
         status: type as DashboardAndHubStatus,
-        appType: "FREE",
+        appType: "HANDSHAKE",
       },
       include: {
         androidApp: {
@@ -581,7 +621,7 @@ export const getSubmittedAppsCount = async (req: Request, res: Response) => {
       by: ["status"],
       where: {
         appOwnerId: req?.userId,
-        appType: "FREE",
+        appType: "HANDSHAKE",
       },
       _count: {
         _all: true,
@@ -645,7 +685,7 @@ export const getHubApps = async (req: Request, res: Response) => {
       appOwnerId: {
         not: req?.userId,
       },
-      appType: "FREE",
+      appType: "HANDSHAKE",
     };
 
     if (type === "AVAILABLE") {
@@ -793,7 +833,7 @@ export const getAppsCount = async (req: Request, res: Response) => {
         appOwnerId: {
           not: req.userId,
         },
-        appType: "FREE",
+        appType: "HANDSHAKE",
         testerRelations: {
           none: {
             testerId: req.userId,
@@ -806,7 +846,7 @@ export const getAppsCount = async (req: Request, res: Response) => {
       where: {
         testerId: req.userId,
         dashboardAndHub: {
-          appType: "FREE",
+          appType: "HANDSHAKE",
         },
         // isActive: true, // Assuming we want active relations
       },
@@ -940,14 +980,21 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
         testerRelations: {
           where: testerRelationsCondition,
           select: {
+            id: true,
             testerId: true,
             isActive: true,
             status: true,
             statusDetails: true,
             assignmentSource: true,
+            offeredAppId: true,
             dailyVerifications: true,
             daysCompleted: true,
             lastActivityAt: true,
+            offeredApp: {
+              include: {
+                androidApp: true,
+              },
+            },
             tester: {
               select: {
                 name: true,
@@ -1105,6 +1152,63 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
       }
     }
 
+    // Handshake enrichment: attach partner + block status for the viewing tester
+    if (hubAppDetails?.appType === "HANDSHAKE") {
+      const myRelation = (result.testerRelations || []).find(
+        (tr: any) => tr.testerId === req.userId,
+      );
+      if (myRelation) {
+        const link = await prismaClient.handshakeLink.findFirst({
+          where: {
+            status: "ACTIVE",
+            OR: [
+              { relationAId: myRelation.id },
+              { relationBId: myRelation.id },
+            ],
+          },
+          include: {
+            relationA: {
+              include: {
+                dashboardAndHub: {
+                  include: { androidApp: true, appOwner: true },
+                },
+              },
+            },
+            relationB: {
+              include: {
+                dashboardAndHub: {
+                  include: { androidApp: true, appOwner: true },
+                },
+              },
+            },
+          },
+        });
+        if (link) {
+          const { processSkipPenalty, getBlockStatus } = await import(
+            "@/lib/handshake"
+          );
+          await processSkipPenalty(link.id);
+          const refreshed = await prismaClient.handshakeLink.findUnique({
+            where: { id: link.id },
+          });
+          if (refreshed) {
+            const isA = link.relationAId === myRelation.id;
+            const block = await getBlockStatus(refreshed, isA ? "A" : "B");
+            const partnerRelation = isA
+              ? link.relationB
+              : link.relationA;
+            result.handshake = {
+              linkId: link.id,
+              isBlocked: block.isBlocked,
+              blockedUntil: block.blockedUntil,
+              partnerApp: partnerRelation.dashboardAndHub?.androidApp,
+              partnerOwner: partnerRelation.dashboardAndHub?.appOwner,
+            };
+          }
+        }
+      }
+    }
+
     return sendSuccess(res, result, "ok");
   } catch (error) {
     const auditLogPayloadFail: AuditLogPayload = {
@@ -1134,7 +1238,7 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
       return sendError(res, 400, "Payload is required");
     }
 
-    const { hub_id } = payload;
+    const { hub_id, offered_app_id } = payload;
     if (!hub_id) {
       return sendError(res, 400, "hub_id is required");
     }
@@ -1143,6 +1247,7 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
       where: {
         id: Number(hub_id),
         status: "AVAILABLE",
+        appOwnerId: { not: req?.userId },
         testerRelations: {
           none: {
             testerId: req?.userId,
@@ -1169,11 +1274,84 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
       );
     }
 
+    const isHandshake = checkTester.appType === "HANDSHAKE";
+
+    // Handshake-specific validation
+    if (isHandshake) {
+      if (!offered_app_id) {
+        return sendError(
+          res,
+          400,
+          "offered_app_id (the app you offer in return) is required for handshake testing",
+        );
+      }
+
+      const offeredApp = await prismaClient?.dashboardAndHub?.findFirst({
+        where: {
+          id: Number(offered_app_id),
+          appOwnerId: req.userId,
+          status: "AVAILABLE",
+          appType: "HANDSHAKE",
+        },
+      });
+
+      if (!offeredApp) {
+        return sendError(
+          res,
+          400,
+          "You can only offer one of your own published (available) handshake apps",
+        );
+      }
+
+      // Prevent duplicate active handshake between the same pair of apps
+      const existingRelation = await prismaClient.testerRelation.findFirst({
+        where: {
+          testerId: req.userId!,
+          dashboardAndHubId: Number(hub_id),
+          OR: [
+            { handshakeLinkAsA: { is: { status: "ACTIVE" } } },
+            { handshakeLinkAsB: { is: { status: "ACTIVE" } } },
+          ],
+        },
+      });
+
+      if (existingRelation) {
+        return sendError(
+          res,
+          409,
+          "You already have an active handshake with this app",
+        );
+      }
+
+      // Slot availability check
+      const { getAvailableSlots, getActiveHandshakeCount } = await import(
+        "@/lib/handshake"
+      );
+      const user = await prismaClient.user.findUnique({
+        where: { id: req.userId! },
+        select: { handshakeLevel: true },
+      });
+      const level = user?.handshakeLevel || 1;
+      const slots = getAvailableSlots(level);
+      const activeCount = await getActiveHandshakeCount(req.userId!);
+      if (activeCount >= slots) {
+        return sendError(
+          res,
+          409,
+          `You have reached your handshake limit (${slots} slots at level ${level}). Level up to unlock more.`,
+          undefined,
+          undefined,
+          { slotsExhausted: true },
+        );
+      }
+    }
+
     await prismaClient.$transaction(async (tx) => {
       await tx?.testerRelation?.create({
         data: {
           testerId: req?.userId || "",
           dashboardAndHubId: Number(hub_id),
+          offeredAppId: isHandshake ? Number(offered_app_id) : null,
           isActive: true,
           status: "PENDING",
           daysCompleted: 0,
@@ -1186,7 +1364,9 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
           dashboardAndHubId: Number(hub_id),
           androidAppId: checkTester?.androidApp?.id,
           actionType: "JOIN_TEST_REQUEST",
-          description: `Your request to join testing for ${checkTester?.androidApp?.appName} has been sent successfully.`,
+          description: isHandshake
+            ? `Your handshake request for ${checkTester?.androidApp?.appName} has been sent successfully.`
+            : `Your request to join testing for ${checkTester?.androidApp?.appName} has been sent successfully.`,
           ipAddress: req?.userIpAddress,
           userAgent: req?.userAgent,
           status: "SUCCESS",
@@ -1196,7 +1376,9 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
       await tx?.notification?.create({
         data: {
           title: "New Tester Join Request!",
-          description: `A new tester requested to join your ${checkTester?.androidApp?.appName} testing program.`,
+          description: isHandshake
+            ? `A tester requested a handshake for your ${checkTester?.androidApp?.appName} testing program.`
+            : `A new tester requested to join your ${checkTester?.androidApp?.appName} testing program.`,
           type: "NEW_JOIN_REQUEST",
           userId: checkTester?.appOwnerId,
           isActive: true,
@@ -1274,6 +1456,59 @@ export const acceptSubmittedHubAppTestingRequest = async (
       return sendError(res, 409, "Tester request not found");
     }
 
+    const isHandshake = checkTester.appType === "HANDSHAKE";
+
+    // For handshake, the requester must have offered one of their apps in return.
+    let offeredApp: any = null;
+    if (isHandshake) {
+      if (!testerRequest.offeredAppId) {
+        return sendError(
+          res,
+          400,
+          "This handshake request is missing the offered app",
+        );
+      }
+      offeredApp = await prismaClient?.dashboardAndHub?.findFirst({
+        where: {
+          id: testerRequest.offeredAppId,
+          appOwnerId: tester_id,
+          status: "AVAILABLE",
+          appType: "HANDSHAKE",
+        },
+      });
+      if (!offeredApp) {
+        return sendError(
+          res,
+          400,
+          "The offered app is no longer available for handshake",
+        );
+      }
+
+      // The app owner will also become a tester of the offered app, so enforce
+      // their slot limit too. This prevents an owner from being pushed past
+      // their level cap just by accepting requests.
+      const { getAvailableSlots, getActiveHandshakeCount } = await import(
+        "@/lib/handshake"
+      );
+      const ownerUser = await prismaClient.user.findUnique({
+        where: { id: checkTester.appOwnerId },
+        select: { handshakeLevel: true },
+      });
+      const ownerLevel = ownerUser?.handshakeLevel || 1;
+      const ownerSlots = getAvailableSlots(ownerLevel);
+      const ownerActive = await getActiveHandshakeCount(checkTester.appOwnerId);
+      if (ownerActive >= ownerSlots) {
+        return sendError(
+          res,
+          409,
+          `The app owner has reached their handshake limit (${ownerSlots} slots at level ${ownerLevel}). Complete an existing handshake or level up to accept more.`,
+          undefined,
+          undefined,
+          { slotsExhausted: true },
+        );
+      }
+    }
+
     await prismaClient.$transaction(async (tx) => {
       await tx?.testerRelation?.update({
         where: {
@@ -1283,6 +1518,36 @@ export const acceptSubmittedHubAppTestingRequest = async (
           status: "IN_PROGRESS",
         },
       });
+
+      let reciprocalRelationId: number | null = null;
+      if (isHandshake && offeredApp) {
+        // App owner (checkTester.appOwnerId) becomes a tester of the requester's offered app.
+        const reciprocal = await tx?.testerRelation?.create({
+          data: {
+            testerId: checkTester.appOwnerId,
+            dashboardAndHubId: offeredApp.id,
+            isActive: true,
+            status: "IN_PROGRESS",
+            daysCompleted: 0,
+          },
+        });
+        reciprocalRelationId = reciprocal?.id ?? null;
+
+        // Increment tester count on the offered app too.
+        const offeredDataValues: any = { currentTester: { increment: 1 } };
+        if (offeredApp.currentTester + 1 === offeredApp.totalTester) {
+          offeredDataValues.status = "IN_TESTING";
+          const now = new Date();
+          offeredDataValues.testingStartDate = now;
+          offeredDataValues.testingEndDate = new Date(
+            now.getTime() + (offeredApp.totalDay || 14) * 24 * 60 * 60 * 1000
+          );
+        }
+        await tx?.dashboardAndHub?.update({
+          where: { id: offeredApp.id },
+          data: offeredDataValues,
+        });
+      }
 
       const dataValues: any = { currentTester: { increment: 1 } };
       if (checkTester.currentTester + 1 === checkTester.totalTester) {
@@ -1300,6 +1565,17 @@ export const acceptSubmittedHubAppTestingRequest = async (
         },
         data: dataValues,
       });
+
+      // Create the handshake link tying the two relations together
+      if (isHandshake && reciprocalRelationId) {
+        await tx?.handshakeLink?.create({
+          data: {
+            relationAId: testerRequest.id,
+            relationBId: reciprocalRelationId,
+            status: "ACTIVE",
+          },
+        });
+      }
 
       await tx?.userActivity?.create({
         data: {
@@ -1781,7 +2057,7 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       return sendError(
         res,
         400,
-        "proofImage is required for free community testing.",
+        "proofImage is required for handshake testing.",
       );
     }
 
@@ -1793,9 +2069,51 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       );
     }
 
+    // Handshake: enforce the accumulative skip penalty before allowing submission
+    if (relation.dashboardAndHub?.appType === "HANDSHAKE") {
+      const link = await prismaClient.handshakeLink.findFirst({
+        where: {
+          status: "ACTIVE",
+          OR: [{ relationAId: relation.id }, { relationBId: relation.id }],
+        },
+      });
+
+      if (link) {
+        const { processSkipPenalty } = await import("@/lib/handshake");
+        await processSkipPenalty(link.id);
+
+        const refreshed = await prismaClient.handshakeLink.findUnique({
+          where: { id: link.id },
+        });
+        if (refreshed) {
+          const now = new Date();
+          const isRelationA = refreshed.relationAId === relation.id;
+          const blockedUntil = isRelationA
+            ? refreshed.aBlockedUntil
+            : refreshed.bBlockedUntil;
+          if (blockedUntil && blockedUntil > now) {
+            return sendError(
+              res,
+              423,
+              "Your testing partner didn't test your app, so you are temporarily blocked from testing theirs.",
+              undefined,
+              undefined,
+              {
+                blocked: true,
+                blockedUntil,
+                reason:
+                  "Your partner skipped testing. You are paused from testing their app until the penalty is served.",
+              },
+            );
+          }
+        }
+      }
+    }
+
     // 2. Determine Day Number
     const nextDay = relation.daysCompleted + 1;
     const totalDaysRequired = relation.dashboardAndHub?.totalDay || 14;
+    const completedNow = nextDay >= totalDaysRequired;
 
     if (nextDay > totalDaysRequired) {
       return sendError(
@@ -1882,6 +2200,23 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       });
     });
 
+    // After a successful submission, finalize the handshake if both sides completed
+    if (
+      completedNow &&
+      relation.dashboardAndHub?.appType === "HANDSHAKE"
+    ) {
+      const link = await prismaClient.handshakeLink.findFirst({
+        where: {
+          status: "ACTIVE",
+          OR: [{ relationAId: relation.id }, { relationBId: relation.id }],
+        },
+      });
+      if (link) {
+        const { checkAndFinalizeHandshake } = await import("@/lib/handshake");
+        await checkAndFinalizeHandshake(link.id);
+      }
+    }
+
     return sendSuccess(
       res,
       { day: nextDay, status: "VERIFIED" },
@@ -1936,6 +2271,8 @@ export const completeHostedApp = async (req: Request, res: Response) => {
       return sendSuccess(res, null, "App is already completed");
     }
 
+    const isHandshake = app.appType === "HANDSHAKE";
+
     await prismaClient.$transaction(async (tx) => {
       // Update App Status to COMPLETED
       const updatedApp = await tx.dashboardAndHub.update({
@@ -1955,9 +2292,10 @@ export const completeHostedApp = async (req: Request, res: Response) => {
 
       const rewardAmount = app.rewardPoints || 0;
 
+      // Handshake testing is a barter system: no points are awarded.
       if (rewardAmount > 0 && testersToReward.length > 0) {
         for (const rel of testersToReward) {
-          // Skip admin-assigned testers — they earn nothing on-platform
+          // Skip admin-assigned testers ,  they earn nothing on-platform
           if (rel.assignmentSource === "ADMIN_ASSIGNED") continue;
           const wallet = await tx.userWallet.upsert({
             where: { userId: rel.testerId },
@@ -2022,6 +2360,23 @@ export const completeHostedApp = async (req: Request, res: Response) => {
         },
       });
     });
+
+    // For handshake apps, finalize any links where both sides just completed
+    if (isHandshake) {
+      const links = await prismaClient.handshakeLink.findMany({
+        where: {
+          status: "ACTIVE",
+          OR: [
+            { relationA: { dashboardAndHubId: app.id } },
+            { relationB: { dashboardAndHubId: app.id } },
+          ],
+        },
+      });
+      const { checkAndFinalizeHandshake } = await import("@/lib/handshake");
+      for (const link of links) {
+        await checkAndFinalizeHandshake(link.id);
+      }
+    }
 
     return sendSuccess(res, null, "App marked as completed successfully");
   } catch (error) {

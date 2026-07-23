@@ -49,6 +49,7 @@ async function seedRolesModulesPermissions() {
     "faqs",
     "iar",
     "tester_activity",
+    "mail",
   ];
   for (const moduleName of modules) {
     await prisma.module.upsert({
@@ -58,7 +59,7 @@ async function seedRolesModulesPermissions() {
     });
   }
 
-  // 3️⃣ Permissions — granular per-role matrix
+  // 3️⃣ Permissions ,  granular per-role matrix
   const allRoles = await prisma.role.findMany();
   const allModules = await prisma.module.findMany();
 
@@ -162,6 +163,17 @@ async function seedRolesModulesPermissions() {
 
       // Support role needs update access on the support module for chat
       if (role.name === "support" && module.name === "support") {
+        perms = {
+          canReadList: true,
+          canReadSingle: true,
+          canCreate: false,
+          canUpdate: true,
+          canDelete: false,
+        };
+      }
+
+      // Support role needs read + update access on the mail module
+      if (role.name === "support" && module.name === "mail") {
         perms = {
           canReadList: true,
           canReadSingle: true,

@@ -11,7 +11,9 @@ import {
   refundPayment,
   type RazorpayWebhookEvent,
 } from "@/lib/razorpay";
+import { processSubscriptionWebhook } from "@/controllers/subscription.controller";
 import { sendEmail } from "@/services/resend";
+import { paymentReceiptEmailHtml, EMAIL_BRAND } from "@/services/email-templates";
 import crypto from "crypto";
 import { extractCountry } from "@/utils/helperFunctions";
 import {
@@ -186,22 +188,62 @@ export const getBillingHistory = async (req: Request, res: Response) => {
       orderBy: {
         createdAt: "desc",
       },
-      take: 50, // Limit to last 50 transactions
+      take: 50,
     });
 
-    const billingHistory = orders.map((order) => ({
+    // Get subscription payments
+    const subscriptionPayments = await prismaClient?.payment?.findMany({
+      where: {
+        userId,
+        paymentType: "SUBSCRIPTION",
+        status: "CAPTURED",
+      },
+      include: {
+        handshakeSubscription: {
+          select: { id: true, status: true, razorpayPlanId: true },
+        },
+        invoice: {
+          select: { id: true, invoice_number: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+
+    const orderHistory = orders.map((order) => ({
       id: order.id.toString(),
+      type: "ONE_TIME",
       invoiceId: order.invoiceId,
       orderId: order.id,
       razorpayOrderId: order.razorpayOrderId,
       date: order.createdAt.toISOString(),
-      amount: order.amount / 100, // Convert smallest unit to major unit
+      amount: order.amount / 100,
       currency: order.currency,
-      status: order.status === "PAID" ? "Paid" : order.status,
+      status: "Paid",
       plan: order.plan?.name || "Unknown Plan",
       packages: order.plan?.package || order.packageCount || 0,
       paymentMethod: order.payments[0]?.method || null,
     }));
+
+    const subHistory = subscriptionPayments.map((p) => ({
+      id: p.id.toString(),
+      type: "SUBSCRIPTION",
+      invoiceId: p.invoice?.invoice_number || null,
+      razorpayPaymentId: p.razorpayPaymentId,
+      date: p.createdAt.toISOString(),
+      amount: p.amount / 100,
+      currency: p.currency,
+      status: "Paid",
+      plan: "Handshake Testing Subscription",
+      paymentMethod: p.method || null,
+      subscriptionId: p.handshakeSubscription?.id || null,
+      subscriptionStatus: p.handshakeSubscription?.status || null,
+    }));
+
+    // Merge and sort by date descending
+    const billingHistory = [...orderHistory, ...subHistory]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 50);
 
     return sendSuccess(
       res,
@@ -249,6 +291,10 @@ export const getInvoice = async (req: Request, res: Response) => {
                 plan: true,
               },
             },
+            refunds: {
+              where: { status: "PROCESSED" },
+              orderBy: { createdAt: "asc" },
+            },
           },
         },
         user: {
@@ -295,6 +341,12 @@ export const getMyInvoices = async (req: Request, res: Response) => {
             currency: true,
             status: true,
             createdAt: true,
+            amountRefunded: true,
+            refundStatus: true,
+            refunds: {
+              where: { status: "PROCESSED" },
+              select: { id: true, amount: true, status: true, reason: true, razorpayRefundId: true, createdAt: true },
+            },
           },
         },
       },
@@ -801,18 +853,21 @@ export const handleWebhook = async (req: Request, res: Response) => {
           // Non-blocking receipt email after transaction is committed
           const userEmail = paymentData.email || "";
           if (userEmail && process.env.RESEND_API_KEY) {
+            const currency = paymentData.currency || "INR";
+            const amountInr = currency === "INR" ? paymentData.amount / 100 : paymentData.amount / 100;
             sendEmail({
-              from: "inTesters <noreply@intesters.com>",
+              from: EMAIL_BRAND.from,
               to: userEmail,
-              subject: `Payment Successful - Invoice`,
-              html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                  <h2 style="color: #7c3aed;">Payment Successful!</h2>
-                  <p>Thank you for your purchase on inTesters.</p>
-                  <p>Your payment has been processed successfully. You can view your packages and transaction history in your wallet.</p>
-                  <p>Thank you for choosing inTesters!</p>
-                </div>
-              `,
+              subject: `Payment Successful | inTesters`,
+              html: paymentReceiptEmailHtml({
+                amount: amountInr.toLocaleString("en-IN", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                }),
+                currency,
+                paymentId: paymentData.id,
+                description: order?.plan?.name || "inTesters purchase",
+              }),
             }).catch((err) => {
               logger.error("Failed to send receipt email:", err);
             });
@@ -914,6 +969,166 @@ export const handleWebhook = async (req: Request, res: Response) => {
       return res.status(200).json({ status: "processed" });
     }
 
+    // Handle subscription events
+    if (event.event.startsWith("subscription.")) {
+      await processSubscriptionWebhook(event as any);
+      await prismaClient.webhookEventLog.update({
+        where: { eventId },
+        data: { processed: true, processedAt: new Date() },
+      });
+      return res.status(200).json({ status: "processed" });
+    }
+
+    // Handle refund events (covers admin dashboard-initiated refunds)
+    if (event.event.startsWith("refund.")) {
+      const refundEntity = event.payload.refund?.entity;
+      if (!refundEntity) {
+        logger.warn("Refund webhook missing refund entity");
+        return res.status(200).json({ status: "skipped" });
+      }
+
+      const paymentId = refundEntity.payment_id;
+      const refundAmount = refundEntity.amount;
+      const razorpayRefundId = refundEntity.id;
+      const refundStatus = refundEntity.status;
+
+      const payment = await prismaClient.payment.findUnique({
+        where: { razorpayPaymentId: paymentId },
+        include: { order: { include: { plan: true } } },
+      });
+
+      if (!payment) {
+        logger.warn(`Refund webhook for unknown payment: ${paymentId}`);
+        await prismaClient.webhookEventLog.update({
+          where: { eventId },
+          data: { processed: true, processedAt: new Date() },
+        });
+        return res.status(200).json({ status: "ok" });
+      }
+
+      if (refundStatus === "failed") {
+        // Just record the failed refund, no DB updates
+        try {
+          await prismaClient.refund.upsert({
+            where: { razorpayRefundId },
+            create: {
+              paymentId: payment.id,
+              razorpayRefundId,
+              razorpayPaymentId: paymentId,
+              amount: refundAmount,
+              currency: payment.currency,
+              status: "FAILED",
+              speed: refundEntity.speed_requested || "normal",
+            },
+            update: { status: "FAILED" },
+          });
+        } catch (err) {
+          logger.error("Failed to record failed refund:", err);
+        }
+        await prismaClient.webhookEventLog.update({
+          where: { eventId },
+          data: { processed: true, processedAt: new Date() },
+        });
+        return res.status(200).json({ status: "ok" });
+      }
+
+      // Refund created or processed — record it and update wallet
+      const isProcessed = refundStatus === "processed" || event.event === "refund.processed";
+      const newAmountRefunded = (payment.amountRefunded || 0) + refundAmount;
+      const isFullRefund = newAmountRefunded >= payment.amount - 1;
+
+      // Calculate proportional packages to deduct (only for ONE_TIME payments)
+      let packagesToDeduct = 0;
+      const isSubscriptionRefund = payment.paymentType === "SUBSCRIPTION";
+      if (!isSubscriptionRefund) {
+        const order = payment.order;
+        if (order) {
+          const totalOrderPackages = order.packageCount || order.plan?.package || 0;
+          packagesToDeduct = payment.amount > 0
+            ? Math.round((refundAmount / payment.amount) * totalOrderPackages)
+            : 0;
+        }
+      }
+
+      try {
+        await withRetry(() =>
+          prismaClient.$transaction(async (tx) => {
+            // Check if this refund was already applied (avoids double deduction
+            // when Razorpay emits both refund.created and refund.processed)
+            const existingRefund = await tx.refund.findUnique({
+              where: { razorpayRefundId },
+              select: { id: true, status: true },
+            });
+            const alreadyApplied = existingRefund?.status === "PROCESSED";
+
+            // Upsert refund record (idempotent)
+            await tx.refund.upsert({
+              where: { razorpayRefundId },
+              create: {
+                paymentId: payment.id,
+                razorpayRefundId,
+                razorpayPaymentId: paymentId,
+                amount: refundAmount,
+                currency: payment.currency,
+                status: isProcessed ? "PROCESSED" : "PENDING",
+                reason: refundEntity.notes?.reason || null,
+                speed: refundEntity.speed_requested || "normal",
+                processedAt: isProcessed ? new Date() : null,
+              },
+              update: {
+                status: isProcessed ? "PROCESSED" : "PENDING",
+                processedAt: isProcessed ? new Date() : undefined,
+              },
+            });
+
+            // Update payment refund info
+            await tx.payment.update({
+              where: { id: payment.id },
+              data: {
+                amountRefunded: newAmountRefunded,
+                refundStatus: isFullRefund ? "FULL" : "PARTIAL",
+              },
+            });
+
+            // Deduct wallet packages proportionally (only for ONE_TIME payments, skip SUBSCRIPTION)
+            if (!alreadyApplied && packagesToDeduct > 0) {
+              const walletUserId = payment.userId || payment.order?.userId;
+              if (!walletUserId) {
+                logger.warn(`No userId found for payment ${paymentId}, skipping wallet deduction`);
+              } else {
+                await tx.userWallet.update({
+                  where: { userId: walletUserId },
+                  data: {
+                    totalPackages: { decrement: packagesToDeduct },
+                  },
+                });
+
+                await tx.userTransaction.create({
+                  data: {
+                    userId: walletUserId,
+                    action: null,
+                    package: packagesToDeduct,
+                    transactionType: "REFUND",
+                    status: "DEBIT",
+                    paymentMethod: "PACKAGE",
+                    razorpayPaymentId: paymentId,
+                  },
+                });
+              }
+            }
+          })
+        );
+      } catch (err) {
+        logger.error("Failed to process refund webhook transaction:", err);
+      }
+
+      await prismaClient.webhookEventLog.update({
+        where: { eventId },
+        data: { processed: true, processedAt: new Date() },
+      });
+      return res.status(200).json({ status: "processed" });
+    }
+
     return res.status(200).json({ status: "processed" });
   } catch (error) {
     logger.error("Webhook error:", error);
@@ -949,7 +1164,13 @@ export const initiateRefund = async (req: Request, res: Response) => {
       return sendError(res, 404, "Payment not found");
     }
 
-    if (payment.order.userId !== userId && !isAdmin) {
+    // Subscription payments cannot be refunded (only cancelled)
+    if (payment.paymentType === "SUBSCRIPTION") {
+      return sendError(res, 400, "Subscription payments cannot be refunded. Only cancellation is supported.");
+    }
+
+    const refundUserId = payment.userId || payment.order?.userId;
+    if (refundUserId !== userId && !isAdmin) {
       return sendError(res, 403, "Unauthorized");
     }
 
@@ -985,12 +1206,14 @@ export const initiateRefund = async (req: Request, res: Response) => {
 
     // Calculate proportional packages to deduct
     let packagesToDeduct = 0;
-    const order = await prismaClient.order.findUnique({
-      where: { id: payment.orderId },
-      include: { plan: true },
-    });
-    if (order) {
-      const totalOrderPackages = order.packageCount || order.plan?.package || 0;
+    const refundOrder = payment.orderId
+      ? await prismaClient.order.findUnique({
+          where: { id: payment.orderId },
+          include: { plan: true },
+        })
+      : null;
+    if (refundOrder) {
+      const totalOrderPackages = refundOrder.packageCount || refundOrder.plan?.package || 0;
       packagesToDeduct = payment.amount > 0
         ? Math.round((currentRefundAmount / payment.amount) * totalOrderPackages)
         : 0;
@@ -1023,9 +1246,10 @@ export const initiateRefund = async (req: Request, res: Response) => {
       });
 
       // 3. Deduct packages from wallet proportionally
-      if (packagesToDeduct > 0) {
+      if (packagesToDeduct > 0 && refundOrder) {
+        const walletUserId = refundOrder.userId;
         await tx.userWallet.update({
-          where: { userId: payment.order.userId },
+          where: { userId: walletUserId },
           data: {
             totalPackages: { decrement: packagesToDeduct },
           },
@@ -1034,12 +1258,13 @@ export const initiateRefund = async (req: Request, res: Response) => {
         // Create transaction record
         await tx.userTransaction.create({
           data: {
-            userId: payment.order.userId,
+            userId: walletUserId,
             action: null,
             package: packagesToDeduct,
             transactionType: "REFUND",
             status: "DEBIT",
             paymentMethod: "PACKAGE",
+            razorpayPaymentId: paymentId,
           },
         });
       }

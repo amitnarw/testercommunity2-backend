@@ -146,6 +146,19 @@ export interface RazorpayOrder {
   created_at: number;
 }
 
+export interface RazorpayRefundEntity {
+  id: string;
+  entity: string;
+  payment_id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  speed_processed?: string;
+  speed_requested?: string;
+  notes?: Record<string, string>;
+  created_at: number;
+}
+
 // Webhook event interface
 export interface RazorpayWebhookEvent {
   entity: string;
@@ -158,6 +171,56 @@ export interface RazorpayWebhookEvent {
     };
     order?: {
       entity: RazorpayOrder;
+    };
+    refund?: {
+      entity: RazorpayRefundEntity;
+    };
+  };
+  created_at: number;
+}
+
+// Subscription webhook event interface
+export interface RazorpaySubscriptionWebhookEvent {
+  entity: string;
+  account_id: string;
+  event: string;
+  contains: string[];
+  payload: {
+    subscription?: {
+      entity: {
+        id: string;
+        entity: string;
+        plan_id: string;
+        status:
+          | "created"
+          | "authenticated"
+          | "active"
+          | "pending"
+          | "halted"
+          | "cancelled"
+          | "completed"
+          | "expired";
+        current_start?: number | null;
+        current_end?: number | null;
+        ended_at?: number | null;
+        charge_at: number;
+        start_at: number;
+        end_at: number;
+        auth_attempts: number;
+        total_count: number;
+        paid_count: number;
+        customer_notify: boolean;
+        created_at: number;
+        short_url?: string;
+        has_scheduled_changes: boolean;
+        change_scheduled_at?: number | null;
+        source: string;
+        remaining_count: string;
+        customer_id?: string | null;
+      };
+    };
+    payment?: {
+      entity: RazorpayPaymentEntity;
     };
   };
   created_at: number;

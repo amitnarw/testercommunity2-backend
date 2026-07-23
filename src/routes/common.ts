@@ -14,6 +14,8 @@ import adminFinanceRouter from "./adminFinance.route";
 import declarationRouter from "./declaration.route";
 import faqRouter from "./faq.route";
 import guideRouter from "./guide.route";
+import subscriptionRouter from "./subscription.route";
+import mailRouter from "./mail.route";
 
 const router = Router();
 
@@ -32,5 +34,7 @@ router.use("/admin/finance", adminFinanceRouter);
 router.use("/declaration", declarationRouter);
 router.use("/faq", faqRouter);
 router.use("/blog", guideRouter);
+router.use("/subscription", subscriptionRouter);
+router.use("/admin/mail", mailRouter);
 
 export default router;

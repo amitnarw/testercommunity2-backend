@@ -86,7 +86,7 @@ async function seedRoleUsers() {
         },
       });
 
-      logger.info(`✅ ${user.role} created — ${user.email}`);
+      logger.info(`✅ ${user.role} created ,  ${user.email}`);
     } catch (error: any) {
       if (
         error.message?.includes("already exists") ||

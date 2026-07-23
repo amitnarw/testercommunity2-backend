@@ -48,8 +48,13 @@ model User {
   invoices                   Invoice[]
   playStoreDeclarations      PlayStoreDeclaration[]
   immediateAttentionItems    ImmediateAttention[]
+  handshakeSubscriptions     HandshakeSubscription[]
+  handshakeLevel             Int                         @default(1)
+   handshakeCompletedCount    Int                         @default(0)
+   assignedMails              AdminMail[]                 @relation("AssignedMailUser")
+   mailUser                   AdminMail[]                 @relation("MailUser")
 
-  @@map("user")
+   @@map("user")
 }
 
 model UserDetail {
@@ -106,6 +111,7 @@ model TesterRelation {
   id                 Int                       @id @default(autoincrement())
   testerId           String
   dashboardAndHubId  Int?
+  offeredAppId       Int?
   isActive           Boolean                   @default(true)
   status             TesterStatus              @default(IN_PROGRESS)
   joinedAt           DateTime                  @default(now())
@@ -118,10 +124,47 @@ model TesterRelation {
   updatedAt          DateTime                  @updatedAt
   dailyVerifications DailyTesterVerification[]
   dashboardAndHub    DashboardAndHub?          @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
+  offeredApp         DashboardAndHub?          @relation("OfferedAppRelation", fields: [offeredAppId], references: [id])
   tester             User                      @relation(fields: [testerId], references: [id])
+  handshakeLinkAsA   HandshakeLink?            @relation("HandshakeRelationA")
+  handshakeLinkAsB   HandshakeLink?            @relation("HandshakeRelationB")
 
   @@unique([testerId, dashboardAndHubId])
   @@map("tester_relation")
+}
+
+model HandshakeLink {
+  id                Int                @id @default(autoincrement())
+  relationAId       Int                @unique
+  relationBId        Int                @unique
+  relationA         TesterRelation     @relation("HandshakeRelationA", fields: [relationAId], references: [id], onDelete: Cascade)
+  relationB         TesterRelation     @relation("HandshakeRelationB", fields: [relationBId], references: [id], onDelete: Cascade)
+  aBlockedUntil     DateTime?
+  bBlockedUntil     DateTime?
+  lastProcessedDay  Int                @default(0)
+  status            HandshakeLinkStatus @default(ACTIVE)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@map("handshake_link")
+}
+
+model HandshakeSubscription {
+  id                     Int                       @id @default(autoincrement())
+  userId                 String
+  razorpaySubscriptionId String                    @unique
+  razorpayPlanId         String
+  status                 HandshakeSubscriptionStatus @default(CREATED)
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  paidCount              Int                       @default(0)
+  totalCycles            Int
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+  user                   User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments               Payment[]
+
+  @@map("handshake_subscription")
 }
 
 model DailyTesterVerification {
@@ -156,16 +199,17 @@ model Session {
 }
 
 model Plans {
-  id        String     @id @default(uuid()) @map("_id")
-  name      String
-  price     Float
-  package   Int
-  features  Json
-  isActive  Boolean    @default(true)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  orders    Order[]
-  userPlans UserPlan[]
+  id          String     @id @default(uuid()) @map("_id")
+  name        String
+  price       Float
+  package     Int
+  features    Json
+  billingType String     @default("ONE_TIME")
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  orders      Order[]
+  userPlans   UserPlan[]
 
   @@map("plans")
 }
@@ -276,6 +320,7 @@ model DashboardAndHub {
   promoCode                PromoCode?             @relation(fields: [promoCodeId], references: [id])
   feedback                 Feedback[]
   testerRelations          TesterRelation[]
+  offeredInRelations       TesterRelation[]       @relation("OfferedAppRelation")
   activities               UserActivity[]
   earningHistory           UserTransaction[]
   testers                  User[]                 @relation("DashboardAndHubTesters")
@@ -438,7 +483,7 @@ model WebsiteFeedbackSuggestion {
 }
 
 /// Unified conversation model: replaces SupportRequest.
-/// type separates: AI_CHAT, LIVE_CHAT, TICKET — all stored in one table.
+/// type separates: AI_CHAT, LIVE_CHAT, TICKET ,  all stored in one table.
 model Conversation {
   id       Int                  @id @default(autoincrement())
   type     ConversationType     @default(AI_CHAT)
@@ -608,10 +653,12 @@ model UserTransaction {
   status            UserTransactionStatus
   createdAt         DateTime              @default(now())
   paymentMethod     PaymentMethod?
+  razorpayPaymentId String?
   dashboardAndHub   DashboardAndHub?      @relation(fields: [dashboardAndHubId], references: [id])
   user              User                  @relation(fields: [userId], references: [id])
   userWallet        UserWallet?           @relation(fields: [userWalletId], references: [id])
 
+  @@index([razorpayPaymentId])
   @@map("user_transactions")
 }
 
@@ -757,48 +804,52 @@ model Order {
 }
 
 model Payment {
-  id                Int           @id @default(autoincrement())
-  orderId           Int
-  razorpayPaymentId String        @unique
-  razorpayOrderId   String
-  razorpaySignature String?
-  amount            Int
-  currency          String        @default("INR")
-  status            PaymentStatus @default(PENDING)
-  method            String?
-  bank              String?
-  wallet            String?
-  vpa               String?
-  email             String?
-  contact           String?
-  fee               Int?          @default(0)
-  tax               Int?          @default(0)
-  errorCode         String?
-  errorDescription  String?
-  errorReason       String?
-  amountRefunded    Int           @default(0)
-  refundStatus      RefundStatus?
-  notes             Json?
-  captured          Boolean       @default(false)
-  international     Boolean       @default(false)
-  webhookVerified   Boolean       @default(false)
-  webhookPayload    Json?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  userId            String?
-  customer_name     String?
-  customer_email    String?
-  amount_inr        Int?
-  user              User?         @relation(fields: [userId], references: [id])
-  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  refunds           Refund[]
-  invoice           Invoice?
+  id                     Int                     @id @default(autoincrement())
+  orderId                Int?
+  razorpayPaymentId      String                  @unique
+  razorpayOrderId        String
+  razorpaySignature      String?
+  amount                 Int
+  currency               String                  @default("INR")
+  status                 PaymentStatus           @default(PENDING)
+  method                 String?
+  bank                   String?
+  wallet                 String?
+  vpa                    String?
+  email                  String?
+  contact                String?
+  fee                    Int?                    @default(0)
+  tax                    Int?                    @default(0)
+  errorCode              String?
+  errorDescription       String?
+  errorReason            String?
+  amountRefunded         Int                     @default(0)
+  refundStatus           RefundStatus?
+  notes                  Json?
+  captured               Boolean                 @default(false)
+  international          Boolean                 @default(false)
+  webhookVerified        Boolean                 @default(false)
+  webhookPayload         Json?
+  paymentType            String                  @default("ONE_TIME")
+  handshakeSubscriptionId Int?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  userId                 String?
+  customer_name          String?
+  customer_email         String?
+  amount_inr             Int?
+  user                   User?                   @relation(fields: [userId], references: [id])
+  order                  Order?                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  handshakeSubscription  HandshakeSubscription?  @relation(fields: [handshakeSubscriptionId], references: [id])
+  refunds                Refund[]
+  invoice                Invoice?
 
   @@index([orderId])
   @@index([razorpayPaymentId])
   @@index([razorpayOrderId])
   @@index([status])
   @@index([userId])
+  @@index([handshakeSubscriptionId])
   @@map("payment")
 }
 
@@ -1180,6 +1231,24 @@ enum FaqCategory {
 enum DashboardAndHubAppType {
   PAID
   FREE
+  HANDSHAKE
+}
+
+enum HandshakeLinkStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum HandshakeSubscriptionStatus {
+  CREATED
+  AUTHENTICATED
+  ACTIVE
+  PENDING
+  HALTED
+  CANCELLED
+  COMPLETED
+  EXPIRED
 }
 
 enum DashboardAndHubStatus {
@@ -1456,6 +1525,62 @@ enum PaymentMethod {
   POINTS
   PACKAGE
   PROMO_FREE
+}
+
+enum MailStatus {
+  UNREAD
+  READ
+  REPLIED
+  ARCHIVED
+}
+
+enum MailDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model AdminMail {
+  id            Int             @id @default(autoincrement())
+  threadKey     String
+  fromEmail     String
+  fromName      String?
+  toAddress     String
+  subject       String
+  status        MailStatus      @default(UNREAD)
+  lastMessageAt DateTime        @default(now())
+  assignedTo    String?
+  userId        String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  messages      AdminMailMessage[]
+  assignedUser  User?           @relation("AssignedMailUser", fields: [assignedTo], references: [id], onDelete: SetNull)
+  user          User?           @relation("MailUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([toAddress])
+  @@index([threadKey])
+  @@index([assignedTo])
+  @@index([userId])
+  @@map("admin_mail")
+}
+
+model AdminMailMessage {
+  id          Int           @id @default(autoincrement())
+  mailId      Int
+  direction   MailDirection
+  fromEmail   String
+  toEmail     String
+  subject     String?
+  body        String
+  attachments Json?
+  messageId   String?
+  inReplyTo   String?
+  createdAt   DateTime      @default(now())
+  mail        AdminMail     @relation(fields: [mailId], references: [id], onDelete: Cascade)
+
+  @@index([mailId])
+  @@index([messageId])
+  @@map("admin_mail_message")
 }
 
 model BillingInfo {

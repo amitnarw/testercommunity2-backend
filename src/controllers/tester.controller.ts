@@ -320,7 +320,7 @@ export const getTesterEarningHistory = async (req: Request, res: Response) => {
     const history = transactions?.map((tx) => ({
       id: tx.id,
       date: tx.createdAt,
-      project: tx.dashboardAndHub?.androidApp?.appName ?? "—",
+      project: tx.dashboardAndHub?.androidApp?.appName ?? ", ",
       amount: tx.points ?? 0,
       status: tx.status, // CREDIT | DEBIT | HOLD
       action: tx.action,
