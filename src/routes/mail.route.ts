@@ -4,6 +4,7 @@ import {
   listMails,
   getMailThread,
   sendMailReply,
+  sendNewEmail,
   markMailRead,
   archiveMail,
   getMailUnreadCount,
@@ -22,6 +23,7 @@ router.use(checkAuthentication);
 router.get("/", checkAuthorization({ module: "mail", action: "canReadList" }), listMails);
 router.get("/unread-count", checkAuthorization({ module: "mail", action: "canReadList" }), getMailUnreadCount);
 router.get("/:id", checkAuthorization({ module: "mail", action: "canReadSingle" }), getMailThread);
+router.post("/send", checkAuthorization({ module: "mail", action: "canCreate" }), decryptPayload, sendNewEmail);
 router.post("/:id/reply", checkAuthorization({ module: "mail", action: "canUpdate" }), decryptPayload, sendMailReply);
 router.post("/:id/read", checkAuthorization({ module: "mail", action: "canUpdate" }), markMailRead);
 router.post("/:id/archive", checkAuthorization({ module: "mail", action: "canUpdate" }), archiveMail);
