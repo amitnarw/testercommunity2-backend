@@ -35,6 +35,7 @@ export const ingestInbound = async (req: Request, res: Response) => {
     }
 
     const mailData: any = {
+      threadKey,
       fromEmail,
       fromName: fromName || null,
       toAddress,
@@ -269,6 +270,85 @@ export const getMailUnreadCount = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error fetching unread count:", error);
     return sendError(res, 500, "Failed to fetch unread count");
+  }
+};
+
+export const sendNewEmail = async (req: Request, res: Response) => {
+  try {
+    const { toEmail, fromAddress, subject, body } = req.body.payload || req.body;
+
+    if (!toEmail || !fromAddress || !subject || !body) {
+      return sendError(res, 400, "toEmail, fromAddress, subject, and body are required");
+    }
+
+    if (!fromAddress.includes("@") || !toEmail.includes("@")) {
+      return sendError(res, 400, "Invalid email address");
+    }
+
+    const threadKey = [
+      [fromAddress, toEmail].sort().join("|"),
+      subject?.replace(/^(Re:\s*|Fwd:\s*|Fw:\s*)/i, "").trim() || "(no subject)",
+    ].join("::");
+
+    const existingMail = await prismaClient.adminMail.findFirst({
+      where: { threadKey },
+      orderBy: { lastMessageAt: "desc" },
+    });
+
+    let mail: any;
+
+    if (existingMail) {
+      mail = await prismaClient.adminMail.update({
+        where: { id: existingMail.id },
+        data: {
+          status: "REPLIED",
+          lastMessageAt: new Date(),
+        },
+      });
+    } else {
+      mail = await prismaClient.adminMail.create({
+        data: {
+          threadKey,
+          fromEmail: fromAddress,
+          toAddress: toEmail,
+          subject,
+          status: "REPLIED",
+          lastMessageAt: new Date(),
+        },
+      });
+    }
+
+    await prismaClient.adminMailMessage.create({
+      data: {
+        mailId: mail.id,
+        direction: "OUTBOUND",
+        fromEmail: fromAddress,
+        toEmail,
+        subject,
+        body,
+      },
+    });
+
+    const emailResult = await sendEmail({
+      from: `inTesters <${fromAddress}>`,
+      to: toEmail,
+      subject,
+      html: body,
+    });
+
+    if (!emailResult.success) {
+      console.error("Email send failed, message recorded in DB:", emailResult.error);
+    }
+
+    try {
+      const io = getIO();
+      io.of("/mail").to("admin:mail").emit("mail:new", { mailId: mail.id, fromEmail: fromAddress, subject });
+    } catch (_) {}
+
+    return sendSuccess(res, { ...(mail as any), emailDeliveryFailed: !emailResult.success }, "Email sent");
+  } catch (error) {
+    console.error("Error sending new email:", error);
+    return sendError(res, 500, "Failed to send email");
   }
 };
 
