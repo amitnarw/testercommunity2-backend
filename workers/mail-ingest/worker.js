@@ -40,6 +40,5 @@ export default {
       console.error("Mail ingest error:", err.message);
     }
 
-    await message.forward("intesters@appdix.com");
-  },
+    },
 };

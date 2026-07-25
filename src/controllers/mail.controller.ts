@@ -186,7 +186,7 @@ export const sendMailReply = async (req: Request, res: Response) => {
     });
 
     if (!emailResult.success) {
-      return sendError(res, 500, "Failed to send email reply");
+      console.error("Email reply send failed, message recorded in DB:", emailResult.error);
     }
 
     await prismaClient.adminMailMessage.create({
@@ -214,7 +214,7 @@ export const sendMailReply = async (req: Request, res: Response) => {
       io.of("/mail").to("admin:mail").emit("mail:updated", { mailId: mail.id, status: "REPLIED" });
     } catch (_) {}
 
-    return sendSuccess(res, updatedMail as any, "Reply sent");
+    return sendSuccess(res, { ...(updatedMail as any), emailDeliveryFailed: !emailResult.success }, "Reply sent");
   } catch (error) {
     console.error("Error sending mail reply:", error);
     return sendError(res, 500, "Failed to send reply");
@@ -260,6 +260,25 @@ export const archiveMail = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error archiving mail:", error);
     return sendError(res, 500, "Failed to archive mail");
+  }
+};
+
+export const deleteMail = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const mail = await prismaClient.adminMail.findUnique({ where: { id: Number(id) } });
+    if (!mail) {
+      return sendError(res, 404, "Mail not found");
+    }
+
+    await prismaClient.adminMailMessage.deleteMany({ where: { mailId: Number(id) } });
+    await prismaClient.adminMail.delete({ where: { id: Number(id) } });
+
+    return sendSuccess(res, null, "Mail deleted permanently");
+  } catch (error) {
+    console.error("Error deleting mail:", error);
+    return sendError(res, 500, "Failed to delete mail");
   }
 };
 

@@ -7,6 +7,7 @@ import {
   sendNewEmail,
   markMailRead,
   archiveMail,
+  deleteMail,
   getMailUnreadCount,
   assignMail,
 } from "@/controllers/mail.controller";
@@ -27,6 +28,7 @@ router.post("/send", checkAuthorization({ module: "mail", action: "canCreate" })
 router.post("/:id/reply", checkAuthorization({ module: "mail", action: "canUpdate" }), decryptPayload, sendMailReply);
 router.post("/:id/read", checkAuthorization({ module: "mail", action: "canUpdate" }), markMailRead);
 router.post("/:id/archive", checkAuthorization({ module: "mail", action: "canUpdate" }), archiveMail);
+router.delete("/:id", checkAuthorization({ module: "mail", action: "canUpdate" }), deleteMail);
 router.post("/:id/assign", checkAuthorization({ module: "mail", action: "canUpdate" }), decryptPayload, assignMail);
 
 export default router;
