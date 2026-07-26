@@ -116,11 +116,27 @@ async function setRoleCookie(
   }
 }
 
+const baseAdapter = prismaAdapter(prismaClient, {
+  provider: "postgresql",
+});
+
+const wrappedAdapter = (options: any) => {
+  const adapter = baseAdapter(options);
+  const originalDelete = adapter.delete;
+  adapter.delete = async ({ model, where }: any) => {
+    try {
+      return await originalDelete({ model, where });
+    } catch (e: any) {
+      if (e?.code === "P2025") return;
+      throw e;
+    }
+  };
+  return adapter;
+};
+
 export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL,
-  database: prismaAdapter(prismaClient, {
-    provider: "postgresql",
-  }),
+  database: wrappedAdapter,
 
   emailAndPassword: {
     enabled: true,

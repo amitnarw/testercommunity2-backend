@@ -292,6 +292,21 @@ export const getMailUnreadCount = async (req: Request, res: Response) => {
   }
 };
 
+export const getMailCounts = async (req: Request, res: Response) => {
+  try {
+    const [all, read, unread, sent] = await Promise.all([
+      prismaClient.adminMail.count(),
+      prismaClient.adminMail.count({ where: { status: "READ" } }),
+      prismaClient.adminMail.count({ where: { status: "UNREAD" } }),
+      prismaClient.adminMail.count({ where: { status: "REPLIED" } }),
+    ]);
+    return sendSuccess(res, { all, read, unread, sent }, "Mail counts fetched");
+  } catch (error) {
+    console.error("Error fetching mail counts:", error);
+    return sendError(res, 500, "Failed to fetch mail counts");
+  }
+};
+
 export const sendNewEmail = async (req: Request, res: Response) => {
   try {
     const { toEmail, fromAddress, subject, body } = req.body.payload || req.body;
