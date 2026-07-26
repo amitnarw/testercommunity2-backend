@@ -9,8 +9,15 @@ import {
   archiveMail,
   deleteMail,
   getMailUnreadCount,
+  getMailCounts,
   assignMail,
 } from "@/controllers/mail.controller";
+import {
+  listMailSenders,
+  createMailSender,
+  updateMailSender,
+  deleteMailSender,
+} from "@/controllers/mail-sender.controller";
 import { checkAuthentication } from "@/middlewares/checkAuthentication";
 import { checkAuthorization } from "@/middlewares/checkAuthorization";
 import { decryptPayload } from "@/middlewares/decyptPayload";
@@ -21,7 +28,13 @@ router.post("/inbound", ingestInbound);
 
 router.use(checkAuthentication);
 
+router.get("/senders", checkAuthorization({ module: "mail", action: "canReadList" }), listMailSenders);
+router.post("/senders", checkAuthorization({ module: "mail", action: "canCreate" }), decryptPayload, createMailSender);
+router.put("/senders/:id", checkAuthorization({ module: "mail", action: "canUpdate" }), decryptPayload, updateMailSender);
+router.delete("/senders/:id", checkAuthorization({ module: "mail", action: "canUpdate" }), deleteMailSender);
+
 router.get("/", checkAuthorization({ module: "mail", action: "canReadList" }), listMails);
+router.get("/counts", checkAuthorization({ module: "mail", action: "canReadList" }), getMailCounts);
 router.get("/unread-count", checkAuthorization({ module: "mail", action: "canReadList" }), getMailUnreadCount);
 router.get("/:id", checkAuthorization({ module: "mail", action: "canReadSingle" }), getMailThread);
 router.post("/send", checkAuthorization({ module: "mail", action: "canCreate" }), decryptPayload, sendNewEmail);

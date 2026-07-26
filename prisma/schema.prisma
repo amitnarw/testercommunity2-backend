@@ -1583,6 +1583,17 @@ model AdminMailMessage {
   @@map("admin_mail_message")
 }
 
+model MailSenderAddress {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  label     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("mail_sender_address")
+}
+
 model BillingInfo {
   id        Int      @id @default(autoincrement())
   userId    String   @unique
