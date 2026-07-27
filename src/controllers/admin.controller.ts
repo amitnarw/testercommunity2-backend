@@ -48,12 +48,12 @@ export const getPublicControlRoomStats = async (req: Request, res: Response) => 
       return sendSuccess(res, {}, "ok");
     }
     const responseData = {
-      communitySize: response.communitySize ?? 100,
+      countriesSupported: response.countriesSupported ?? 10,
       bugsFound: response.bugsFound ?? 554,
-      proAppsTested: response.proAppsTested ?? 55,
-      communityApps: response.communityApps ?? 106,
+      proAppsTested: response.proAppsTested ?? 4200,
+      platformUptime: response.platformUptime ?? 99,
       uniqueDevices: response.uniqueDevices ?? 350,
-      communityPoints: response.communityPoints ?? 25000,
+      fastTurnaround: response.fastTurnaround ?? 48,
     };
     return sendSuccess(res, responseData, "ok");
   } catch (error) {

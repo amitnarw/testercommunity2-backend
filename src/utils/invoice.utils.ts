@@ -249,7 +249,7 @@ export const COMPANY_DETAILS = {
   stateCode: "07",
   stateName: "Delhi",
   sacCode: "998313",
-  email: "contact@gamdix.in",
+  email: "pro-billing@system.intesters.com",
   website: "www.intesters.com",
   cin: "",
   lutNumber: "ZD070426007807A",
