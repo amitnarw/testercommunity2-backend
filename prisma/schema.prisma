@@ -560,12 +560,12 @@ model ControlRoom {
   pointsWithdrawalLimit     Int?
   pointsWithdrawalThreshold Int?
   humanChatEnabled          Boolean  @default(true)
-  communitySize             Int?
+  countriesSupported        Int?
   bugsFound                 Int?
   proAppsTested             Int?
-  communityApps             Int?
+  platformUptime            Int?
   uniqueDevices             Int?
-  communityPoints           Int?
+  fastTurnaround            Int?
   alexSystemPrompt          String?
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @default(now()) @updatedAt

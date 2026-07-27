@@ -359,8 +359,8 @@ export const updateControlRoom = async (req: Request, res: Response) => {
 
     const allowedFields = [
       "profileSurveyPoints", "pointsWithdrawalLimit", "pointsWithdrawalThreshold",
-      "humanChatEnabled", "communitySize", "bugsFound", "proAppsTested",
-      "communityApps", "uniqueDevices", "communityPoints",
+      "humanChatEnabled", "countriesSupported", "bugsFound", "proAppsTested",
+      "platformUptime", "uniqueDevices", "fastTurnaround",
       "alexSystemPrompt",
     ];
     const data: Record<string, any> = {};
