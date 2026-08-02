@@ -127,7 +127,9 @@ const wrappedAdapter = (options: any) => {
     try {
       return await originalDelete({ model, where });
     } catch (e: any) {
-      if (e?.code === "P2025") return;
+      if (e?.code === "P2025") {
+        return { count: 0 } as any;
+      }
       throw e;
     }
   };

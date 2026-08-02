@@ -5,6 +5,8 @@ import {
   acceptApp,
   rejectApp,
   getSubmittedAppsCount,
+  updatePaidSubmission,
+  deletePaidSubmission,
   // Dashboard
   getDashboardStats,
   // Feedback
@@ -172,6 +174,8 @@ router.get("/get-submitted-apps-count", checkAuthorization({ module: "submission
 router.post("/accept-app", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, acceptApp);
 router.post("/reject-app", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, rejectApp);
 router.post("/update-project-status", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, updateProjectStatus);
+router.patch("/submission-paid/:id", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, updatePaidSubmission);
+router.delete("/submission-paid/:id", checkAuthorization({ module: "submissions", action: "canDelete" }), deletePaidSubmission);
 
 // Feedback
 router.get("/feedback", checkAuthorization({ module: "feedback", action: "canReadList" }), getAllFeedback);

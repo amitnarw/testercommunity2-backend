@@ -16,6 +16,7 @@ import faqRouter from "./faq.route";
 import guideRouter from "./guide.route";
 import subscriptionRouter from "./subscription.route";
 import mailRouter from "./mail.route";
+import appChatRouter from "./appChat.route";
 
 const router = Router();
 
@@ -36,5 +37,6 @@ router.use("/declaration", declarationRouter);
 router.use("/faq", faqRouter);
 router.use("/blog", guideRouter);
 router.use("/subscription", subscriptionRouter);
+router.use("/app-chat", appChatRouter);
 
 export default router;

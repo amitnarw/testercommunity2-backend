@@ -199,17 +199,27 @@ model Session {
 }
 
 model Plans {
-  id          String     @id @default(uuid()) @map("_id")
-  name        String
-  price       Float
-  package     Int
-  features    Json
-  billingType String     @default("ONE_TIME")
-  isActive    Boolean    @default(true)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  orders      Order[]
-  userPlans   UserPlan[]
+  id               String   @id @default(uuid()) @map("_id")
+  name             String
+  price            Float
+  package          Int
+  features         Json
+  description      String?
+  badgeText        String?
+  accent           String   @default("primary")
+  gradientFrom     String?
+  gradientTo       String?
+  customPriceLabel String?
+  isPopular        Boolean  @default(false)
+  sequence        Int      @default(0)
+  billingType      String   @default("ONE_TIME")
+  isActive         Boolean  @default(true)
+  ctaLabel         String?
+  ctaHref          String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  orders           Order[]
+  userPlans        UserPlan[]
 
   @@map("plans")
 }
@@ -325,6 +335,7 @@ model DashboardAndHub {
   earningHistory           UserTransaction[]
   testers                  User[]                 @relation("DashboardAndHubTesters")
   playStoreDeclaration     PlayStoreDeclaration?
+  appChatConversations     Conversation[]         @relation("AppTestingChat")
 
   @@map("dashboard_and_hub")
 }
@@ -501,6 +512,8 @@ model Conversation {
   firstResponseAt DateTime?
   resolvedAt      DateTime?
   lastMessageAt   DateTime?
+  ownerLastReadAt DateTime?
+  agentLastReadAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -508,6 +521,8 @@ model Conversation {
   // Relations
   user          User?     @relation("UserConversations", fields: [userId], references: [id])
   assignedAgent User?     @relation("AssignedConversations", fields: [assignedTo], references: [id])
+  dashboardAndHubId Int?
+  appDashboardAndHub DashboardAndHub? @relation("AppTestingChat", fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
   messages      Message[]
   media         Media[]
 
@@ -516,6 +531,7 @@ model Conversation {
   @@index([status])
   @@index([type])
   @@index([createdAt])
+  @@index([dashboardAndHubId])
   @@map("conversation")
 }
 
@@ -566,6 +582,12 @@ model ControlRoom {
   platformUptime            Int?
   uniqueDevices             Int?
   fastTurnaround            Int?
+  landingHeading            String?
+  landingSubheading         String?
+  landingStatTitles         Json?
+  landingStatDescriptions   Json?
+  landingStatValues         Json?
+  landingStatIcons          Json?
   alexSystemPrompt          String?
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @default(now()) @updatedAt
