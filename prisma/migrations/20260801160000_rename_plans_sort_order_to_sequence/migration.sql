@@ -1,0 +1,1 @@
+ALTER TABLE plans RENAME COLUMN sortOrder TO sequence;

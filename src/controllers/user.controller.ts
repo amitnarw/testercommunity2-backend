@@ -446,8 +446,8 @@ export const getAllPricingPlans = async (req: Request, res: Response) => {
     const plans = await prismaClient?.plans?.findMany({
       where: {
         isActive: true,
-        billingType: "ONE_TIME",
       },
+      orderBy: [{ sequence: "asc" }, { price: "asc" }],
     });
     const responseData = plans.map((item) => {
       return {
@@ -465,6 +465,48 @@ export const getAllPricingPlans = async (req: Request, res: Response) => {
       actorRole: req?.role as string,
       module: "user",
       action: "getAllPricingPlans",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+export const getEnterprisePlan = async (req: Request, res: Response) => {
+  try {
+    const plan = await prismaClient?.plans?.findFirst({
+      where: {
+        isActive: true,
+        billingType: "CUSTOM",
+      },
+    });
+
+    if (!plan) {
+      return sendSuccess(res, null, "ok");
+    }
+
+    const responseData = {
+      ...plan,
+      features: JSON.parse(JSON.stringify(plan?.features)),
+      createdAt: plan?.createdAt?.toString(),
+      updatedAt: plan?.updatedAt,
+    };
+
+    return sendSuccess(res, responseData, "ok");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getEnterprisePlan",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
@@ -565,11 +607,15 @@ export const logOutFromSession = async (req: Request, res: Response) => {
       return sendError(res, 404, "Session not found");
     }
 
-    await prismaClient?.session?.delete({
+    const result = await prismaClient?.session?.deleteMany({
       where: {
         id: session?.id,
       },
     });
+
+    if (!result?.count) {
+      return sendSuccess(res, null, "Session already logged out");
+    }
 
     return sendSuccess(res, null, "Session logged out successfully");
   } catch (error) {

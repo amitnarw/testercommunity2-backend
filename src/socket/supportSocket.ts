@@ -18,7 +18,8 @@ const ephemeralMessages = new Map<number, EphemeralMessage[]>();
 const MAX_EPHEMERAL_MESSAGES = 500;
 
 // Incrementing counter for ephemeral message IDs (avoids Date.now() collisions)
-let ephemeralMsgCounter = 0;
+// Start at a high offset to never collide with DB auto-increment ids.
+let ephemeralMsgCounter = 1_000_000_000;
 function nextEphemeralId(): number {
   return ++ephemeralMsgCounter;
 }
@@ -661,6 +662,150 @@ export function setupSupportSocket(namespace: Namespace) {
     socket.on("agent:refresh_queue", async () => {
       if (!isAgent) return;
       await initAgentState(socket, userId, userName);
+    });
+
+    // -- App chat events --
+    socket.on("app_chat:join", async (payload: { appId: number }) => {
+      const { appId } = payload;
+      try {
+        // Join a stable per-app room so the client receives messages even before
+        // a conversation is lazily created on the first message.
+        socket.join(`appchat:app:${appId}`);
+        const conversation = await prismaClient.conversation.findFirst({
+          where: {
+            dashboardAndHubId: appId,
+            type: "LIVE_CHAT",
+            status: { in: ["OPEN", "IN_PROGRESS"] },
+          },
+        });
+        if (conversation && conversation.id) {
+          socket.join(`appchat:${conversation.id}`);
+          socket.emit("app_chat:joined", { appId, conversationId: conversation.id });
+        } else {
+          // No conversation yet - lazily created on first message. Not an error.
+          socket.emit("app_chat:joined", { appId, conversationId: null });
+        }
+      } catch (error) {
+        logger.error("[app_chat:join] Error:", error);
+        socket.emit("app_chat:join_error", { message: "Failed to join app chat" });
+      }
+    });
+
+    socket.on("app_chat:typing", async (payload: { appId: number }) => {
+      try {
+        const { appId } = payload;
+        socket.broadcast.to(`appchat:app:${Number(appId)}`).emit("app_chat:typing", { appId: Number(appId) });
+      } catch (error) {
+        logger.error("[app_chat:typing] Error:", error);
+      }
+    });
+
+    socket.on("app_chat:stop_typing", async (payload: { appId: number }) => {
+      try {
+        const { appId } = payload;
+        socket.broadcast.to(`appchat:app:${Number(appId)}`).emit("app_chat:stop_typing", { appId: Number(appId) });
+      } catch (error) {
+        logger.error("[app_chat:stop_typing] Error:", error);
+      }
+    });
+
+    socket.on("app_chat:leave", async (payload: { appId: number }) => {
+      const { appId } = payload;
+      try {
+        socket.leave(`appchat:app:${appId}`);
+        const conversation = await prismaClient.conversation.findFirst({
+          where: {
+            dashboardAndHubId: appId,
+            type: "LIVE_CHAT",
+            status: { in: ["OPEN", "IN_PROGRESS"] },
+          },
+        });
+        if (conversation && conversation.id) {
+          socket.leave(`appchat:${conversation.id}`);
+        }
+      } catch (error) {
+        logger.error("[app_chat:leave] Error:", error);
+      }
+    });
+
+    socket.on("app_chat:send_message", async (payload: { appId: number; message: string }) => {
+      try {
+        const { appId, message } = payload;
+        if (!message?.trim()) return;
+
+        let conversation = await prismaClient.conversation.findFirst({
+          where: {
+            dashboardAndHubId: appId,
+            type: "LIVE_CHAT",
+            status: { in: ["OPEN", "IN_PROGRESS"] },
+          },
+        });
+
+        // Create conversation lazily on the FIRST real message from either side
+        if (!conversation) {
+          const dashboardAndHub = await prismaClient.dashboardAndHub.findUnique({
+            where: { id: Number(appId) },
+            include: { androidApp: { select: { appName: true } } },
+          });
+
+          const appName = dashboardAndHub?.androidApp?.appName || "Untitled App";
+          const ownerId = dashboardAndHub?.appOwnerId;
+
+          conversation = await prismaClient.conversation.create({
+            data: {
+              userId: ownerId || userId,
+              type: "LIVE_CHAT",
+              status: "OPEN",
+              subject: `App testing chat: ${appName}`,
+              description: "Chat with Testing Manager for app testing assistance",
+              dashboardAndHubId: Number(appId),
+              category: "TECHNICAL",
+              priority: "MEDIUM",
+            },
+          });
+        }
+
+        // Ensure sender is in the room so they receive subsequent broadcasts
+        socket.join(`appchat:app:${appId}`);
+        socket.join(`appchat:${conversation.id}`);
+
+        const senderType = isAgent ? "AGENT" : "USER";
+
+        const newMessage = await prismaClient.message.create({
+          data: {
+            conversationId: conversation.id,
+            senderId: userId,
+            senderType,
+            messageType: "TEXT",
+            content: message,
+            isAi: false,
+          },
+        });
+
+        await prismaClient.conversation.update({
+          where: { id: conversation.id },
+          data: {
+            lastMessageAt: new Date(),
+            status: "IN_PROGRESS",
+          },
+        });
+
+        const msgId = nextEphemeralId();
+        const messagePayload = {
+          appId,
+          conversationId: conversation.id,
+          id: msgId,
+          senderId: userId,
+          senderType,
+          senderName: userName,
+          message,
+          createdAt: newMessage.createdAt.toISOString(),
+        };
+        namespace.to(`appchat:app:${appId}`).emit("app_chat:message", messagePayload);
+      } catch (error) {
+        logger.error("[app_chat:send_message] Error:", error);
+        socket.emit("app_chat:message_error", { message: "Failed to send message" });
+      }
     });
 
     socket.on("agent:get_status", async () => {
