@@ -247,12 +247,30 @@ export const auth = betterAuth({
       const frontendUrl = `${
         process.env.CORS_ORIGIN?.split(",")[0]
       }/auth/verification?token=${token}`;
-      await sendEmail({
-        from: EMAIL_BRAND.from,
-        to: user.email,
-        subject: "Verify your email address | inTesters",
-        html: verificationEmailHtml(frontendUrl),
-      });
+      try {
+        const result = await sendEmail({
+          from: EMAIL_BRAND.from,
+          to: user.email,
+          subject: "Verify your email address | inTesters",
+          html: verificationEmailHtml(frontendUrl),
+        });
+        if (!result.success) {
+          logger.error(
+            "Verification email failed to send",
+            { to: user.email, error: result.error }
+          );
+          return;
+        }
+        logger.info(
+          "Verification email sent",
+          { to: user.email, resendId: (result.data as any)?.id }
+        );
+      } catch (err) {
+        logger.error(
+          "Verification email threw",
+          { to: user.email, err: err instanceof Error ? err.message : err }
+        );
+      }
     },
     async afterEmailVerification(user, request) {
       logger.info(`${user.email} has been successfully verified!`);
