@@ -21,7 +21,7 @@ export const EMAIL_BRAND = {
   logoUrl: "https://intesters.com/inTesters-logo-dark.svg",
   website: "https://www.intesters.com",
   supportUrl: "https://www.intesters.com/support",
-  from: "inTesters <noreply@intesters.com>",
+  from: "inTesters <noreply@system.intesters.com>",
 };
 
 const FONT_LINK =

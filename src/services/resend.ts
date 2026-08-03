@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import logger from "../utils/logger";
 
 export const sendEmail = async ({
   from,
@@ -11,12 +12,19 @@ export const sendEmail = async ({
   subject: string;
   html: string;
 }) => {
-  const resend = new Resend(process.env.RESEND_API_KEY);
-  if (!process.env.RESEND_API_KEY || !resend) {
-    return { success: false, error: "Resend API not found" };
+  if (!process.env.RESEND_API_KEY) {
+    const msg = "Resend API key not configured";
+    logger.error(msg, { to, subject });
+    return { success: false, error: msg };
+  }
+  if (!from || !to || !subject) {
+    const msg = "Missing required email field";
+    logger.error(msg, { to, subject, from });
+    return { success: false, error: msg };
   }
 
   try {
+    const resend = new Resend(process.env.RESEND_API_KEY);
     const { data, error } = await resend.emails.send({
       from,
       to,
@@ -25,14 +33,15 @@ export const sendEmail = async ({
     });
 
     if (error) {
+      logger.error("Resend API returned error", { to, subject, error });
       return { success: false, error };
     }
 
-    return { success: true, data: "Email sent successfully" + data };
+    logger.info("Email sent via Resend", { to, subject, resendId: (data as any)?.id });
+    return { success: true, data };
   } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err?.message : JSON.stringify(err),
-    };
+    const msg = err instanceof Error ? err.message : JSON.stringify(err);
+    logger.error("Resend client threw", { to, subject, err: msg });
+    return { success: false, error: msg };
   }
 };
