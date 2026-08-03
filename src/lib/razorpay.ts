@@ -146,6 +146,19 @@ export interface RazorpayOrder {
   created_at: number;
 }
 
+export interface RazorpayRefundEntity {
+  id: string;
+  entity: string;
+  payment_id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  speed_processed?: string;
+  speed_requested?: string;
+  notes?: Record<string, string>;
+  created_at: number;
+}
+
 // Webhook event interface
 export interface RazorpayWebhookEvent {
   entity: string;
@@ -158,6 +171,9 @@ export interface RazorpayWebhookEvent {
     };
     order?: {
       entity: RazorpayOrder;
+    };
+    refund?: {
+      entity: RazorpayRefundEntity;
     };
   };
   created_at: number;

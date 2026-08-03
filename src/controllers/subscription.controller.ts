@@ -8,6 +8,15 @@ import {
   isRazorpayConfigured,
   type RazorpaySubscriptionWebhookEvent,
 } from "@/lib/razorpay";
+import {
+  getNextInvoiceNumber,
+  calculateTax,
+  determineInvoiceType,
+  amountToWords,
+  formatPeriod,
+  getStateCodeFromName,
+  COMPANY_DETAILS,
+} from "@/utils/invoice.utils";
 
 const RAZORPAY_HANDSHAKE_PLAN_ID = process.env.RAZORPAY_HANDSHAKE_PLAN_ID;
 
@@ -260,6 +269,44 @@ export const getMySubscription = async (req: Request, res: Response) => {
       return sendSuccess(res, { subscription: null });
     }
 
+    // Sync with Razorpay if possible so frontend always sees fresh status
+    if (isRazorpayConfigured() && sub.razorpaySubscriptionId) {
+      try {
+        const razorpay = getRazorpayInstance();
+        const remote: any = await razorpay.subscriptions.fetch(sub.razorpaySubscriptionId);
+        const mappedStatus = remote.status.toUpperCase() as
+          | "ACTIVE" | "AUTHENTICATED" | "CANCELLED" | "HALTED"
+          | "PENDING" | "COMPLETED" | "EXPIRED" | "CREATED";
+
+        // Only update if status actually changed (avoids unnecessary writes)
+        if (mappedStatus && (mappedStatus !== sub.status || remote.paid_count !== sub.paidCount)) {
+          await prismaClient.handshakeSubscription.update({
+            where: { id: sub.id },
+            data: {
+              status: mappedStatus,
+              paidCount: remote.paid_count ?? sub.paidCount,
+              currentPeriodStart: remote.current_start
+                ? new Date(remote.current_start * 1000)
+                : sub.currentPeriodStart,
+              currentPeriodEnd: remote.current_end
+                ? new Date(remote.current_end * 1000)
+                : sub.currentPeriodEnd,
+            },
+          });
+          sub.status = mappedStatus;
+          sub.paidCount = remote.paid_count ?? sub.paidCount;
+          sub.currentPeriodStart = remote.current_start
+            ? new Date(remote.current_start * 1000)
+            : sub.currentPeriodStart;
+          sub.currentPeriodEnd = remote.current_end
+            ? new Date(remote.current_end * 1000)
+            : sub.currentPeriodEnd;
+        }
+      } catch (e) {
+        logger.warn("getMySubscription: Razorpay sync failed, returning local data:", e);
+      }
+    }
+
     return sendSuccess(res, {
       subscription: {
         id: sub.razorpaySubscriptionId,
@@ -376,7 +423,36 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
       },
     });
 
-    return sendSuccess(res, { status: mappedStatus });
+    // Fetch latest payment + invoice for this subscription
+    const latestPayment = await prismaClient.payment.findFirst({
+      where: { handshakeSubscriptionId: sub.id, status: "CAPTURED" },
+      orderBy: { createdAt: "desc" },
+      include: { invoice: { select: { invoice_number: true } } },
+    });
+
+    return sendSuccess(res, {
+      status: mappedStatus,
+      paidCount: remote.paid_count ?? sub.paidCount,
+      currentPeriodStart: remote.current_start
+        ? new Date(remote.current_start * 1000).toISOString()
+        : sub.currentPeriodStart?.toISOString() || null,
+      currentPeriodEnd: remote.current_end
+        ? new Date(remote.current_end * 1000).toISOString()
+        : sub.currentPeriodEnd?.toISOString() || null,
+      latestPayment: latestPayment
+        ? {
+            id: latestPayment.id,
+            amount: latestPayment.amount,
+            currency: latestPayment.currency,
+            method: latestPayment.method,
+            razorpayPaymentId: latestPayment.razorpayPaymentId,
+            createdAt: latestPayment.createdAt.toISOString(),
+          }
+        : null,
+      latestInvoice: latestPayment?.invoice
+        ? { invoice_number: latestPayment.invoice.invoice_number }
+        : null,
+    });
   } catch (error) {
     logger.error("getSubscriptionStatus error:", error);
     return sendError(res, 500, "Failed to fetch subscription status");
@@ -421,6 +497,7 @@ export const processSubscriptionWebhook = async (
       return;
     }
 
+    // Always update subscription status
     await prismaClient.handshakeSubscription.update({
       where: { razorpaySubscriptionId: subscriptionId },
       data: {
@@ -438,8 +515,242 @@ export const processSubscriptionWebhook = async (
     logger.info(
       `Handshake subscription ${subscriptionId} status -> ${mappedStatus}`,
     );
+
+    // Handle subscription.charged — create Payment + Invoice record
+    if (event.event === "subscription.charged") {
+      const paymentEntity = event.payload.payment?.entity;
+      if (!paymentEntity) {
+        logger.warn(`subscription.charged event missing payment entity for ${subscriptionId}`);
+        return;
+      }
+
+      try {
+        await prismaClient.$transaction(async (tx) => {
+          // Idempotent: if payment already exists, skip
+          const paymentExists = await tx.payment.findUnique({
+            where: { razorpayPaymentId: paymentEntity.id },
+            select: { id: true },
+          });
+          if (paymentExists) {
+            logger.info(`Payment ${paymentEntity.id} already recorded for subscription ${subscriptionId}`);
+            return;
+          }
+
+          const transactionDate = new Date();
+          const userId = existing.userId;
+
+          // Determine invoice type from billing info
+          const billingInfo = await tx.billingInfo.findUnique({ where: { userId } });
+          const customerCountry = billingInfo?.country || "India";
+          const customerState = billingInfo?.state || null;
+          const customerStateCode = billingInfo?.stateCode || (customerCountry === "India"
+            ? getStateCodeFromName(customerState) : null);
+          const invoiceType = determineInvoiceType(customerCountry);
+          const invoiceNumber = await getNextInvoiceNumber(invoiceType, tx, transactionDate);
+          const totalPaid = paymentEntity.amount;
+          const currency = paymentEntity.currency || "INR";
+          const quantity = 1;
+          const unitPrice = totalPaid;
+          const taxPreview = calculateTax(totalPaid, invoiceType, customerState, customerStateCode);
+          const divisor = (100 + taxPreview.taxRate) / 100;
+          const baseAmount = invoiceType === "EXP" ? totalPaid : Math.round(totalPaid / divisor);
+          const taxInfo = calculateTax(baseAmount, invoiceType, customerState, customerStateCode);
+          const computedTotal = baseAmount + taxInfo.cgstAmount + taxInfo.sgstAmount + taxInfo.igstAmount;
+          const roundingDiff = totalPaid - computedTotal;
+          if (roundingDiff !== 0) {
+            if (taxInfo.igstAmount > 0) {
+              taxInfo.igstAmount += roundingDiff;
+            } else {
+              taxInfo.sgstAmount += roundingDiff;
+            }
+          }
+
+          const dueDate = new Date();
+          dueDate.setDate(dueDate.getDate() + 30);
+
+          // Create Payment record
+          const paymentRecord = await tx.payment.create({
+            data: {
+              razorpayPaymentId: paymentEntity.id,
+              razorpayOrderId: paymentEntity.order_id || `sub_${subscriptionId}`,
+              amount: totalPaid,
+              currency,
+              status: "CAPTURED",
+              method: paymentEntity.method,
+              email: paymentEntity.email,
+              contact: paymentEntity.contact,
+              fee: paymentEntity.fee || 0,
+              tax: paymentEntity.tax || 0,
+              captured: true,
+              userId,
+              customer_name: billingInfo?.name || null,
+              customer_email: billingInfo?.email || paymentEntity.email || null,
+              paymentType: "SUBSCRIPTION",
+              handshakeSubscriptionId: existing.id,
+            },
+          });
+
+          // Create Invoice
+          await tx.invoice.create({
+            data: {
+              paymentId: paymentRecord.id,
+              userId,
+              invoice_number: invoiceNumber,
+              invoice_type: invoiceType,
+              service_name: "Handshake Testing Subscription",
+              sac_code: COMPANY_DETAILS.sacCode,
+              period: formatPeriod(transactionDate),
+              quantity,
+              unit_price: unitPrice,
+              tax_rate: taxInfo.taxRate,
+              cgst_amount: taxInfo.cgstAmount,
+              sgst_amount: taxInfo.sgstAmount,
+              igst_amount: taxInfo.igstAmount,
+              state_code: customerStateCode,
+              due_date: dueDate,
+              place_of_supply: taxInfo.placeOfSupply,
+              supply_type: taxInfo.supplyType,
+              amount_in_words: amountToWords(totalPaid, currency),
+              lut_number: COMPANY_DETAILS.lutNumber || null,
+            },
+          });
+        });
+      } catch (paymentErr) {
+        logger.error(`Failed to record payment for subscription ${subscriptionId}:`, paymentErr);
+      }
+    }
   } catch (error) {
     logger.error("processSubscriptionWebhook error:", error);
+  }
+};
+
+/**
+ * Sync subscription payments from Razorpay API into local Payment + Invoice
+ * records. Useful when webhooks haven't fired (dev environment) or as a manual
+ * catch-up mechanism.
+ */
+export const syncSubscriptionPayments = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    if (!userId) {
+      return sendError(res, 401, "Unauthorized");
+    }
+
+    const sub = await prismaClient.handshakeSubscription.findFirst({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!sub || !sub.razorpaySubscriptionId) {
+      return sendError(res, 404, "No subscription found");
+    }
+
+    if (!isRazorpayConfigured()) {
+      return sendError(res, 503, "Payment service is not configured");
+    }
+
+    const razorpay = getRazorpayInstance();
+
+    // Fetch subscription payment history from Razorpay
+    const remotePayments: any = await razorpay.payments.all({
+      subscription_id: sub.razorpaySubscriptionId,
+    } as any);
+
+    const items: any[] = remotePayments?.items || [];
+    let synced = 0;
+
+    for (const paymentEntity of items) {
+      if (paymentEntity.status !== "captured") continue;
+
+      // Upsert is idempotent on razorpayPaymentId
+      const existing = await prismaClient.payment.findUnique({
+        where: { razorpayPaymentId: paymentEntity.id },
+        select: { id: true },
+      });
+      if (existing) continue;
+
+      const transactionDate = new Date(paymentEntity.created_at * 1000);
+      const billingInfo = await prismaClient.billingInfo.findUnique({ where: { userId } });
+      const customerCountry = billingInfo?.country || "India";
+      const customerState = billingInfo?.state || null;
+      const customerStateCode = billingInfo?.stateCode || (customerCountry === "India"
+        ? getStateCodeFromName(customerState) : null);
+      const invoiceType = determineInvoiceType(customerCountry);
+      const invoiceNumber = await getNextInvoiceNumber(invoiceType, prismaClient, transactionDate);
+      const totalPaid = paymentEntity.amount;
+      const currency = paymentEntity.currency || "INR";
+      const quantity = 1;
+      const unitPrice = totalPaid;
+      const taxPreview = calculateTax(totalPaid, invoiceType, customerState, customerStateCode);
+      const divisor = (100 + taxPreview.taxRate) / 100;
+      const baseAmount = invoiceType === "EXP" ? totalPaid : Math.round(totalPaid / divisor);
+      const taxInfo = calculateTax(baseAmount, invoiceType, customerState, customerStateCode);
+      const computedTotal = baseAmount + taxInfo.cgstAmount + taxInfo.sgstAmount + taxInfo.igstAmount;
+      const roundingDiff = totalPaid - computedTotal;
+      if (roundingDiff !== 0) {
+        if (taxInfo.igstAmount > 0) {
+          taxInfo.igstAmount += roundingDiff;
+        } else {
+          taxInfo.sgstAmount += roundingDiff;
+        }
+      }
+      const dueDate = new Date(transactionDate);
+      dueDate.setDate(dueDate.getDate() + 30);
+
+      await prismaClient.$transaction(async (tx) => {
+        const p = await tx.payment.create({
+          data: {
+            razorpayPaymentId: paymentEntity.id,
+            razorpayOrderId: paymentEntity.order_id || `sub_${sub.razorpaySubscriptionId}`,
+            amount: totalPaid,
+            currency,
+            status: "CAPTURED",
+            method: paymentEntity.method,
+            email: paymentEntity.email,
+            contact: paymentEntity.contact,
+            fee: paymentEntity.fee || 0,
+            tax: paymentEntity.tax || 0,
+            captured: true,
+            userId,
+            customer_name: billingInfo?.name || null,
+            customer_email: billingInfo?.email || paymentEntity.email || null,
+            paymentType: "SUBSCRIPTION",
+            handshakeSubscriptionId: sub.id,
+          },
+        });
+
+        await tx.invoice.create({
+          data: {
+            paymentId: p.id,
+            userId,
+            invoice_number: invoiceNumber,
+            invoice_type: invoiceType,
+            service_name: "Handshake Testing Subscription",
+            sac_code: COMPANY_DETAILS.sacCode,
+            period: formatPeriod(transactionDate),
+            quantity,
+            unit_price: unitPrice,
+            tax_rate: taxInfo.taxRate,
+            cgst_amount: taxInfo.cgstAmount,
+            sgst_amount: taxInfo.sgstAmount,
+            igst_amount: taxInfo.igstAmount,
+            state_code: customerStateCode,
+            due_date: dueDate,
+            place_of_supply: taxInfo.placeOfSupply,
+            supply_type: taxInfo.supplyType,
+            amount_in_words: amountToWords(totalPaid, currency),
+            lut_number: COMPANY_DETAILS.lutNumber || null,
+          },
+        });
+      });
+
+      synced++;
+    }
+
+    return sendSuccess(res, { synced }, `Synced ${synced} payments`);
+  } catch (error) {
+    logger.error("syncSubscriptionPayments error:", error);
+    return sendError(res, 500, "Failed to sync subscription payments");
   }
 };
 
@@ -475,6 +786,15 @@ export const listHandshakeSubscriptionsAdmin = async (
         where,
         include: {
           user: { select: { id: true, name: true, email: true } },
+          payments: {
+            select: {
+              id: true,
+              amountRefunded: true,
+              invoice: {
+                select: { id: true, invoice_number: true },
+              },
+            },
+          },
         },
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,

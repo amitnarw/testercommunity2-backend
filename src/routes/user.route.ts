@@ -13,6 +13,7 @@ import {
   saveDiscoverySource,
   saveInitialProfileData,
   saveProfileData,
+  getEnterprisePlan,
 } from "@/controllers/user.controller";
 import { checkAuthentication } from "@/middlewares/checkAuthentication";
 // import { checkAuthorizationAccess } from "@/middlewares/checkAuthorization";
@@ -71,5 +72,6 @@ router.get("/get-user-wallet", checkAuthentication, getWalletData);
 router.get("/get-user-transactions", checkAuthentication, getUserTransactions);
 router.get("/get-earn-points", checkAuthentication, getEarnPoints);
 router.get("/get-immediate-attention", checkAuthentication, getUserImmediateAttention);
+router.get("/get-enterprise-plan", getEnterprisePlan);
 
 export default router;

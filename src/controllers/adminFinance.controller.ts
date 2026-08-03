@@ -11,6 +11,143 @@ import {
   getStateCodeFromName,
   COMPANY_DETAILS,
 } from "@/utils/invoice.utils";
+import {
+  getRazorpayInstance,
+  isRazorpayConfigured,
+} from "@/lib/razorpay";
+import { v4 as uuidv4 } from "uuid";
+
+const VALID_ACCENTS = ["primary", "emerald", "blue", "amber", "purple"];
+
+const HEX_RE = /^#[0-9a-fA-F]{3,8}$/;
+
+const PLAN_FIELDS = [
+  "name",
+  "price",
+  "package",
+  "features",
+  "description",
+  "badgeText",
+  "accent",
+  "gradientFrom",
+  "gradientTo",
+  "customPriceLabel",
+  "isPopular",
+  "sequence",
+  "billingType",
+  "isActive",
+  "ctaLabel",
+  "ctaHref",
+] as const;
+
+const serializePlan = (p: any) => ({
+  id: p.id,
+  name: p.name,
+  price: p.price,
+  package: p.package,
+  features: p.features,
+  description: p.description ?? null,
+  badgeText: p.badgeText ?? null,
+  accent: p.accent ?? "primary",
+  gradientFrom: p.gradientFrom ?? null,
+  gradientTo: p.gradientTo ?? null,
+  customPriceLabel: p.customPriceLabel ?? null,
+  isPopular: p.isPopular ?? false,
+  sequence: p.sequence ?? 0,
+  billingType: p.billingType ?? "ONE_TIME",
+  isActive: p.isActive ?? true,
+  ctaLabel: p.ctaLabel ?? null,
+  ctaHref: p.ctaHref ?? null,
+  createdAt: p.createdAt?.toISOString(),
+  updatedAt: p.updatedAt?.toISOString(),
+});
+
+function sanitizePlanInput(payload: any): any {
+  const data: any = {};
+  for (const field of PLAN_FIELDS) {
+    if (payload[field] === undefined) continue;
+    const value = payload[field];
+
+    if (field === "features") {
+      if (!Array.isArray(value)) continue;
+      data.features = value.filter((f) => typeof f === "string" && f.trim());
+      continue;
+    }
+
+    if (field === "accent") {
+      if (typeof value === "string" && VALID_ACCENTS.includes(value)) {
+        data.accent = value;
+      }
+      continue;
+    }
+
+    if (field === "gradientFrom" || field === "gradientTo") {
+      if (value === null || value === "") {
+        data[field] = null;
+      } else if (typeof value === "string" && HEX_RE.test(value)) {
+        data[field] = value;
+      }
+      continue;
+    }
+
+    if (field === "name") {
+      if (typeof value === "string" && value.trim()) data.name = value.trim();
+      continue;
+    }
+
+    if (field === "description" || field === "badgeText" || field === "customPriceLabel") {
+      if (value === null || value === "") data[field] = null;
+      else if (typeof value === "string") data[field] = value.trim();
+      continue;
+    }
+
+    if (field === "price") {
+      const n = Number(value);
+      if (!Number.isNaN(n) && n >= 0) data.price = n;
+      continue;
+    }
+
+    if (field === "package") {
+      const n = Number(value);
+      if (!Number.isNaN(n) && Number.isInteger(n) && n > 0) data.package = n;
+      continue;
+    }
+
+    if (field === "sequence") {
+      const n = Number(value);
+      if (!Number.isNaN(n) && Number.isInteger(n) && n >= 0) data.sequence = n;
+      continue;
+    }
+
+    if (field === "isPopular" || field === "isActive") {
+      data[field] = value === true;
+      continue;
+    }
+
+    if (field === "billingType") {
+      if (value === "ONE_TIME" || value === "SUBSCRIPTION" || value === "CUSTOM") {
+        data.billingType = value;
+      }
+      continue;
+    }
+
+    if (field === "ctaLabel" || field === "ctaHref") {
+      if (value === null || value === "") data[field] = null;
+      else if (typeof value === "string") data[field] = value.trim();
+      continue;
+    }
+
+    data[field] = value;
+  }
+  return data;
+}
+
+const normalizeFeatures = (features: any): string[] => {
+  if (Array.isArray(features)) {
+    return features.filter((f) => typeof f === "string" && f.trim());
+  }
+  return [];
+};
 
 const qs = (val: any): string | undefined =>
   typeof val === "string" ? val : undefined;
@@ -208,11 +345,13 @@ export const getFinancePayments = async (req: Request, res: Response) => {
     const skip = (page - 1) * limit;
     const status = qs(req.query.status);
     const method = qs(req.query.method);
+    const paymentType = qs(req.query.paymentType);
     const search = qs(req.query.search);
 
     const where: any = {};
     if (status) where.status = status;
     if (method) where.method = method;
+    if (paymentType) where.paymentType = paymentType;
     if (search) {
       where.OR = [
         { razorpayPaymentId: { contains: search, mode: "insensitive" } },
@@ -234,6 +373,9 @@ export const getFinancePayments = async (req: Request, res: Response) => {
           user: { select: { id: true, name: true, email: true, image: true } },
           refunds: { select: { id: true, amount: true, status: true, reason: true } },
           invoice: { select: { id: true, invoice_number: true } },
+          handshakeSubscription: {
+            select: { id: true, status: true, razorpaySubscriptionId: true },
+          },
         },
         orderBy: { createdAt: "desc" },
         skip,
@@ -258,12 +400,14 @@ export const getFinancePayments = async (req: Request, res: Response) => {
         amountRefunded: p.amountRefunded,
         refundStatus: p.refundStatus,
         captured: p.captured,
+        paymentType: p.paymentType,
         customer_name: p.customer_name,
         customer_email: p.customer_email,
         order: p.order,
         user: p.user,
         refunds: p.refunds,
         invoice: p.invoice,
+        handshakeSubscription: p.handshakeSubscription,
         createdAt: p.createdAt.toISOString(),
       })),
       pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
@@ -695,8 +839,9 @@ export const createInvoice = async (req: Request, res: Response) => {
             currency: payment.currency,
           },
         });
+        if (!payment.order) throw new Error("Order not found for this payment");
         await tx.order.update({
-          where: { id: payment.orderId },
+          where: { id: payment.order.id },
           data: {
             amount: baseAmount,
             packageCount: quantity,
@@ -739,10 +884,12 @@ export const createInvoice = async (req: Request, res: Response) => {
 
       const invoice = await tx.invoice.create({ data: invoiceData });
 
-      await tx.order.update({
-        where: { id: payment.orderId },
-        data: { invoiceId: invoiceNumber },
-      });
+      if (payment.order) {
+        await tx.order.update({
+          where: { id: payment.order.id },
+          data: { invoiceId: invoiceNumber },
+        });
+      }
 
       return invoice;
     });
@@ -1003,22 +1150,215 @@ export const getFinancePlans = async (req: Request, res: Response) => {
   try {
 
     const plans = await prismaClient.plans.findMany({
-      orderBy: { price: "asc" },
+      orderBy: [{ sequence: "asc" }, { price: "asc" }],
     });
 
-    return sendSuccess(res, plans.map((p: any) => ({
-      id: p.id,
-      name: p.name,
-      price: p.price,
-      package: p.package,
-      features: p.features,
-      isActive: p.isActive,
-      createdAt: p.createdAt.toISOString(),
-      updatedAt: p.updatedAt.toISOString(),
-    })) as any);
+    return sendSuccess(res, plans.map((p: any) => serializePlan(p)) as any);
   } catch (error) {
     logger.error("Error in getFinancePlans:", error);
     return sendError(res, 500, "Failed to fetch plans");
+  }
+};
+
+export const listAdminPlans = getFinancePlans;
+
+export const createAdminPlan = async (req: Request, res: Response) => {
+  try {
+    const payload = req.body?.payload || req.body;
+    const data = sanitizePlanInput(payload);
+
+    if (!data.name) {
+      return sendError(res, 400, "Plan name is required");
+    }
+    if (data.price === undefined || typeof data.price !== "number") {
+      return sendError(res, 400, "Plan price is required");
+    }
+    if (data.package === undefined) {
+      data.package = 1;
+    }
+    if (!data.billingType) {
+      data.billingType = "ONE_TIME";
+    }
+    if (data.accent === undefined) {
+      data.accent = "primary";
+    }
+    if (!data.features) {
+      data.features = normalizeFeatures(payload.features);
+    }
+    if (data.isActive === undefined) data.isActive = true;
+    if (data.isPopular === undefined) data.isPopular = false;
+    if (data.sequence === undefined) data.sequence = 0;
+
+    const plan = await prismaClient.plans.create({
+      data: {
+        id: uuidv4(),
+        name: data.name,
+        price: data.price,
+        package: data.package,
+        features: data.features ?? [],
+        description: data.description ?? null,
+        badgeText: data.badgeText ?? null,
+        accent: data.accent,
+        gradientFrom: data.gradientFrom ?? null,
+        gradientTo: data.gradientTo ?? null,
+        customPriceLabel: data.customPriceLabel ?? null,
+        isPopular: data.isPopular,
+        sequence: data.sequence,
+        billingType: data.billingType,
+        isActive: data.isActive,
+      },
+    });
+
+    return sendSuccess(res, serializePlan(plan) as any, "Plan created successfully");
+  } catch (error) {
+    logger.error("Error in createAdminPlan:", error);
+    return sendError(res, 500, "Failed to create plan");
+  }
+};
+
+export const updateAdminPlan = async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params?.id || "");
+    if (!id) return sendError(res, 400, "Plan id is required");
+
+    const existing = await prismaClient.plans.findUnique({ where: { id } });
+    if (!existing) return sendError(res, 404, "Plan not found");
+
+    const payload = req.body?.payload || req.body;
+    const data = sanitizePlanInput(payload);
+
+    if (Object.keys(data).length === 0) {
+      return sendError(res, 400, "No valid fields to update");
+    }
+
+    const updated = await prismaClient.plans.update({ where: { id }, data });
+    return sendSuccess(res, serializePlan(updated) as any, "Plan updated successfully");
+  } catch (error) {
+    logger.error("Error in updateAdminPlan:", error);
+    return sendError(res, 500, "Failed to update plan");
+  }
+};
+
+export const reorderAdminPlans = async (req: Request, res: Response) => {
+  try {
+    const payload = req.body?.payload || req.body;
+    const orderedIds = Array.isArray(payload?.orderedIds) ? payload.orderedIds : [];
+    if (orderedIds.length === 0) {
+      return sendError(res, 400, "orderedIds is required");
+    }
+
+    await prismaClient.$transaction(
+      orderedIds.map((id: string, index: number) =>
+        prismaClient.plans.update({
+          where: { id },
+          data: { sequence: index },
+        }),
+      ),
+    );
+
+    return sendSuccess(res, { ok: true }, "Plans reordered successfully");
+  } catch (error) {
+    logger.error("Error in reorderAdminPlans:", error);
+    return sendError(res, 500, "Failed to reorder plans");
+  }
+};
+
+const ACTIVE_SUB_STATUSES = ["ACTIVE", "AUTHENTICATED", "PENDING", "CREATED"] as any;
+
+/**
+ * Cancel all active handshake subscriptions. For a SUBSCRIPTION plan delete
+ * these are all handshake subscribers (razorpayPlanId holds the Razorpay
+ * plan id, not the DB plan id, so we cancel them all).
+ */
+async function cancelSubscribersForPlan(immediate: boolean) {
+  const subs = await prismaClient.handshakeSubscription.findMany({
+    where: {
+      status: { in: ACTIVE_SUB_STATUSES },
+    },
+  });
+
+  let cancelled = 0;
+  let failed = 0;
+
+  if (isRazorpayConfigured()) {
+    const razorpay = getRazorpayInstance();
+    for (const sub of subs) {
+      try {
+        await razorpay.subscriptions.cancel(sub.razorpaySubscriptionId, immediate);
+        cancelled++;
+      } catch (e: any) {
+        logger.warn(
+          `Razorpay cancel failed for subscription ${sub.razorpaySubscriptionId}: ${e?.message || e}`,
+        );
+        failed++;
+      }
+    }
+  } else {
+    cancelled = subs.length;
+  }
+
+  if (subs.length > 0) {
+    await prismaClient.handshakeSubscription.updateMany({
+      where: {
+        status: { in: ACTIVE_SUB_STATUSES },
+      },
+      data: { status: "CANCELLED" },
+    });
+  }
+
+  return { total: subs.length, cancelled, failed };
+}
+
+export const deleteAdminPlan = async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params?.id || "");
+    if (!id) return sendError(res, 400, "Plan id is required");
+
+    const plan = await prismaClient.plans.findUnique({ where: { id } });
+    if (!plan) return sendError(res, 404, "Plan not found");
+
+    const confirmCancel = req.query?.confirmCancelSubscribers === "1" || req.query?.confirmCancelSubscribers === "true";
+
+    if (plan.billingType === "SUBSCRIPTION" && !confirmCancel) {
+      const subCount = await prismaClient.handshakeSubscription.count({
+        where: {
+          status: { in: ACTIVE_SUB_STATUSES },
+        },
+      });
+
+      if (subCount > 0) {
+        return sendError(
+          res,
+          409,
+          `${subCount} active subscriber(s) exist. Cancel them all before deleting this plan?`,
+          undefined,
+          undefined,
+          {
+            code: "ACTIVE_SUBSCRIBERS_EXIST",
+            subscriberCount: subCount,
+            planId: id,
+          } as any,
+        );
+      }
+    }
+
+    if (confirmCancel) {
+      const result = await cancelSubscribersForPlan(true);
+      if (result.failed > 0) {
+        return sendError(
+          res,
+          409,
+          `${result.failed} of ${result.total} subscriptions could not be cancelled on Razorpay. Resolve before deleting.`,
+        );
+      }
+    }
+
+    await prismaClient.plans.delete({ where: { id } });
+
+    return sendSuccess(res, { ok: true }, "Plan deleted successfully");
+  } catch (error) {
+    logger.error("Error in deleteAdminPlan:", error);
+    return sendError(res, 500, "Failed to delete plan");
   }
 };
 

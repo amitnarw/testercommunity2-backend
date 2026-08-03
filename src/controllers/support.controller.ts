@@ -393,7 +393,7 @@ export const streamChat = async (req: Request, res: Response) => {
         .map((p) => {
           const features = Array.isArray(p.features) ? p.features.join(", ") : "";
           const cycleLabel = p.package === 1 ? "1 Pro testing cycle" : `${p.package} Pro testing cycles`;
-          return `- ${p.name}: ₹${p.price} (${cycleLabel})${features ? ` — Features: ${features}` : ""}`;
+          return `- ${p.name}: ₹${p.price} (${cycleLabel})${features ? ` ,  Features: ${features}` : ""}`;
         })
         .join("\n");
     }

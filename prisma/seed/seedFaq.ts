@@ -16,7 +16,7 @@ const faqs: FaqSeed[] = [
   // ==================== General ====================
   {
     title: "What is inTesters?",
-    description: "inTesters is a platform designed to help Android developers meet the Google Play Store's requirement of having their app tested by at least 20 people for 14 days. We offer two paths: a free, community-driven approach and a paid, professional service.",
+    description: "inTesters is a platform designed to help Android developers meet the Google Play Store's requirement of having their app tested by at least 12 people for 14 days. We offer two paths: Handshake Testing (₹99/month, 1:1 barter) and Pro Testing (managed professional service).",
     category: "general",
     sortOrder: 1,
   },
@@ -28,40 +28,46 @@ const faqs: FaqSeed[] = [
   },
   {
     title: "How do I get started?",
-    description: "Just sign up for a free account! From there, you can choose your path. You can start testing other apps to earn points via Free Testing, or you can purchase a package and submit your app for professional testing via Pro Testing.",
+    description: "Sign up and subscribe to Handshake Testing (₹99/month). Publish your app, browse other developers' apps, and send handshake requests. When accepted, you test their app and they test yours ,  a true barter system.",
     category: "general",
     sortOrder: 3,
   },
   // ==================== Community ====================
   {
-    title: "How does Free Testing work?",
-    description: "It's a reciprocal ecosystem. You test apps submitted by other developers. For each valid test you complete, you earn points. You must have enough points to submit your own app for free testing by the community.",
+    title: "How does Handshake Testing work?",
+    description: "It's a 1:1 barter system. Subscribe for ₹99/month, publish your apps on the hub, and send testing requests to other developers. When a request is accepted, both sides test each other's app for 14 days. Once both complete, the handshake is done.",
     category: "community",
     sortOrder: 1,
   },
   {
-    title: "Is Free Testing really free?",
-    description: "Yes, in terms of money. It requires your time and effort to test other apps, which is how you contribute and earn your own testing credits (points). You cannot buy points for free testing; they must be earned.",
+    title: "Do I need a subscription for Handshake Testing?",
+    description: "Yes. Handshake Testing is a paid subscription service at ₹99/month. This replaces the old free/points model with a sustainable barter system. You can test as many handshake partners as your level allows within your subscription.",
     category: "community",
     sortOrder: 2,
   },
   {
-    title: "What kind of feedback can I expect from free testing?",
-    description: "You'll receive feedback from a diverse range of real users on real devices. This often uncovers usability issues, device-specific bugs, and general feedback that you might not find in a controlled environment.",
+    title: "What kind of feedback can I expect from handshake testing?",
+    description: "You'll receive feedback from a fellow developer who is invested in the testing process. Since you're testing each other's apps, both sides are motivated to provide meaningful, constructive feedback.",
     category: "community",
     sortOrder: 3,
   },
   {
-    title: "Should I use Free Testing or Pro Testing?",
-    description: "Free Testing is great if you have time to test other apps and want to save money. Pro Testing is ideal if you need guaranteed results, vetted testers, detailed bug reports, and a fully managed 14-day cycle. Most developers start free and upgrade to Pro when they need faster, more reliable results.",
+    title: "Should I use Handshake Testing or Pro Testing?",
+    description: "Handshake Testing is great if you have time to test other developers' apps and want a reciprocal arrangement. Pro Testing is ideal if you need guaranteed results, vetted testers, detailed bug reports, and a fully managed 14-day cycle with zero effort from you.",
     category: "community",
     sortOrder: 4,
   },
   {
-    title: "Why do developers upgrade from Free to Pro?",
-    description: "The #1 reason is time. Free testing requires you to spend 20+ hours testing other apps before you can submit yours. Pro Testing gives you 20+ vetted testers, detailed bug reports, device coverage stats, and Google Play compliance verification -- all managed by our team with zero effort from you. Check our pricing page for current rates.",
+    title: "Why do developers upgrade from Handshake to Pro?",
+    description: "The #1 reason is time. Handshake testing requires you to spend 14 days testing your partner's app before your own testing completes. Pro Testing gives you 20+ vetted testers, detailed bug reports, device coverage stats, and Google Play compliance verification -- all managed by our team with zero effort from you.",
     category: "community",
     sortOrder: 5,
+  },
+  {
+    title: "How does the level system work?",
+    description: "You start at Level 1 with 12 tester slots per app. Every 2 completed handshakes (where both sides finish 14 days), you gain 1 level and unlock 1 extra slot. Maximum is Level 9 with 20 slots per app.",
+    category: "community",
+    sortOrder: 6,
   },
   // ==================== Professional ====================
   {
@@ -77,8 +83,8 @@ const faqs: FaqSeed[] = [
     sortOrder: 2,
   },
   {
-    title: "How is Pro Testing different from Free Testing?",
-    description: "Free Testing is a reciprocal community where you test others' apps to earn points. It costs no money but requires your time. Pro Testing is a paid, fully managed service. You get 20+ vetted professional testers, detailed bug reports, device coverage analytics, and Google Play compliance verification -- all handled by our team with zero effort from you.",
+    title: "How is Pro Testing different from Handshake Testing?",
+    description: "Handshake Testing is a reciprocal barter system where you subscribe (₹99/month) and test another developer's app in exchange for them testing yours. Pro Testing is a paid, fully managed service where you get 20+ vetted professional testers, detailed bug reports, device coverage analytics, and Google Play compliance verification -- all handled by our team with zero effort from you.",
     category: "professional",
     sortOrder: 3,
   },
@@ -102,20 +108,20 @@ const faqs: FaqSeed[] = [
   },
   // ==================== Homepage ====================
   {
-    title: "What's the difference between the Community and Professional Paths?",
-    description: "The Community Path is a free, reciprocal model where you test other members' apps to earn points, which you then use to get your own app tested. The Professional Path allows you to purchase points to hire our team of vetted, professional testers for a guaranteed, managed testing experience.",
+    title: "What's the difference between Handshake and Professional Paths?",
+    description: "The Handshake Path is a subscription-based (₹99/month) 1:1 barter model where you test another developer's app and they test yours. The Professional Path allows you to purchase a testing package to hire our team of vetted, professional testers for a guaranteed, managed testing experience.",
     category: "homepage",
     sortOrder: 1,
   },
   {
-    title: "How does the points system work?",
-    description: "Points are our platform's currency. You can either earn them for free by testing apps through Free Testing, or purchase them directly. You then spend these points to get your own app tested, either by the community or by our professional team.",
+    title: "How does the level system work?",
+    description: "Your level determines how many testers you can request per app. At Level 1 you get 12 slots. Every 2 completed handshakes raises your level by 1, adding 1 more slot (max Level 9 = 20 slots).",
     category: "homepage",
     sortOrder: 2,
   },
   {
-    title: "Is the Community Path really free?",
-    description: "Yes! It's free in terms of money, but it requires your time and effort to test other apps. It's a 'give-to-get' model that helps everyone meet Google's testing requirements.",
+    title: "Do I need a subscription for Handshake Testing?",
+    description: "Yes. Handshake Testing costs ₹99/month. This pays for the platform infrastructure and keeps the system fair. You can publish multiple apps and send requests as your level permits.",
     category: "homepage",
     sortOrder: 3,
   },
@@ -139,8 +145,8 @@ const faqs: FaqSeed[] = [
     sortOrder: 2,
   },
   {
-    title: "What is the difference between packages and points?",
-    description: "Packages are purchased for the Professional Path to have our team test your app. Points are earned for free on the Community Path by testing other apps, and are used to have the community test your app. They are two separate systems.",
+    title: "What is the difference between Handshake subscription and Pro packages?",
+    description: "The Handshake subscription (₹99/month) gives you access to the 1:1 barter testing hub. Pro packages are one-time purchases for the Professional Path, where our team manages the entire 14-day testing cycle for you. They are two separate systems.",
     category: "pricing",
     sortOrder: 3,
   },

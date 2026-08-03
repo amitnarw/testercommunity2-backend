@@ -16,6 +16,11 @@ import {
   updateFinancePricing,
   getUserWalletDetail,
   getFinancePlans,
+  listAdminPlans,
+  createAdminPlan,
+  updateAdminPlan,
+  deleteAdminPlan,
+  reorderAdminPlans,
   getFinancePaymentMethods,
 } from "@/controllers/adminFinance.controller";
 import { initiateRefund } from "@/controllers/billing.controller";
@@ -46,6 +51,10 @@ router.get("/pricing", checkAuthorization({ module: "finance", action: "canReadL
 router.put("/pricing/:id", checkAuthorization({ module: "finance", action: "canUpdate" }), decryptPayload, updateFinancePricing);
 router.get("/user/:userId/wallet", checkAuthorization({ module: "finance", action: "canReadSingle" }), getUserWalletDetail);
 router.get("/plans", checkAuthorization({ module: "finance", action: "canReadList" }), getFinancePlans);
+router.post("/plans", checkAuthorization({ module: "finance", action: "canCreate" }), decryptPayload, createAdminPlan);
+router.put("/plans/reorder", checkAuthorization({ module: "finance", action: "canUpdate" }), decryptPayload, reorderAdminPlans);
+router.put("/plans/:id", checkAuthorization({ module: "finance", action: "canUpdate" }), decryptPayload, updateAdminPlan);
+router.delete("/plans/:id", checkAuthorization({ module: "finance", action: "canDelete" }), deleteAdminPlan);
 router.get("/payment-methods", checkAuthorization({ module: "finance", action: "canReadList" }), getFinancePaymentMethods);
 
 export default router;

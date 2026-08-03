@@ -159,6 +159,7 @@ export const addHubApp = async (req: Request, res: Response) => {
     } = payload;
 
     const isHandshake = appType === "HANDSHAKE";
+    const isPaid = appType === "PAID";
 
     if (
       !app_name ||
@@ -174,7 +175,7 @@ export const addHubApp = async (req: Request, res: Response) => {
       total_tester === null ||
       total_days === undefined ||
       total_days === null ||
-      (!isHandshake && (points_cost === undefined || points_cost === null))
+      ((!isHandshake && !isPaid) && (points_cost === undefined || points_cost === null))
     ) {
       return sendError(
         res,
@@ -240,7 +241,7 @@ export const addHubApp = async (req: Request, res: Response) => {
     let final_points_cost = isHandshake ? 0 : points_cost;
     let appliedPromoCodeId: number | null = null;
 
-    if (!isHandshake) {
+    if (!isHandshake && !isPaid) {
       if (points_cost < expectedCost && !promo_code) {
         return sendError(
           res,
@@ -321,23 +322,23 @@ export const addHubApp = async (req: Request, res: Response) => {
           data: {
             appId: androidAppData?.id,
             appOwnerId: req?.userId || "",
-            appType: "HANDSHAKE",
+            appType: isPaid ? "PAID" : (isHandshake ? "HANDSHAKE" : "FREE"),
             currentTester: 0,
             totalTester: total_tester,
             currentDay: 0,
             totalDay: total_days,
             instructionsForTester: instruction_for_tester,
-            costPoints: isHandshake ? 0 : final_points_cost,
+            costPoints: isHandshake ? 0 : (isPaid ? final_points_cost : 0),
             rewardPoints: 0,
             // averageTimeTesting
             minimumAndroidVersion: minimum_android_version,
             status: "IN_REVIEW",
-            promoCodeId: isHandshake ? null : appliedPromoCodeId,
+            promoCodeId: isPaid ? appliedPromoCodeId : null,
           },
         });
 
         let walletData = null;
-        if (!isHandshake) {
+        if (!isHandshake && isPaid) {
           walletData = await tx?.userWallet?.update({
             where: {
               userId: req?.userId,
@@ -374,7 +375,7 @@ export const addHubApp = async (req: Request, res: Response) => {
           });
         }
 
-        if (!isHandshake) {
+        if (isPaid) {
           await tx?.userTransaction?.create({
             data: {
               userId: req.userId || "",
@@ -396,11 +397,13 @@ export const addHubApp = async (req: Request, res: Response) => {
             dashboardAndHubId: dashboardAndHub?.id,
             androidAppId: androidAppData?.id,
             actionType: "SUBMIT_APP",
-            description: isHandshake
-              ? `${app_description} (Handshake)`
-              : appliedPromoCodeId
-                ? `${app_description} (Promo: ${promo_code})`
-                : app_description,
+            description: isPaid
+              ? `${app_description} (Paid)`
+              : isHandshake
+                ? `${app_description} (Handshake)`
+                : appliedPromoCodeId
+                  ? `${app_description} (Promo: ${promo_code})`
+                  : app_description,
             ipAddress: req?.userIpAddress,
             userAgent: req?.userAgent,
             status: "SUCCESS",
@@ -415,6 +418,21 @@ export const addHubApp = async (req: Request, res: Response) => {
       ...dashboardAndHub,
       statusDetails: JSON.parse(JSON.stringify(dashboardAndHub?.statusDetails)),
     };
+
+    // Create a chat for PAID apps (and potentially other app types)
+    if (isPaid && dashboardAndHubResult) {
+      try {
+        const { createAppChatIfNotExists } = await import("@/lib/appChat");
+        const appName = androidAppData?.appName || "Untitled App";
+        await createAppChatIfNotExists({
+          appId: dashboardAndHubResult.id,
+          appOwnerId: req.userId || "",
+          appName,
+        });
+      } catch (error) {
+        logger.warn("Failed to create chat for PAID app", error);
+      }
+    }
 
     return sendSuccess(res, { androidAppData, dashboardAndHubResult }, "ok");
   } catch (error) {
@@ -2057,7 +2075,7 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       return sendError(
         res,
         400,
-        "proofImage is required for free community testing.",
+        "proofImage is required for handshake testing.",
       );
     }
 
@@ -2295,7 +2313,7 @@ export const completeHostedApp = async (req: Request, res: Response) => {
       // Handshake testing is a barter system: no points are awarded.
       if (rewardAmount > 0 && testersToReward.length > 0) {
         for (const rel of testersToReward) {
-          // Skip admin-assigned testers — they earn nothing on-platform
+          // Skip admin-assigned testers ,  they earn nothing on-platform
           if (rel.assignmentSource === "ADMIN_ASSIGNED") continue;
           const wallet = await tx.userWallet.upsert({
             where: { userId: rel.testerId },

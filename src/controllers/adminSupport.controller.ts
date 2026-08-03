@@ -1,5 +1,6 @@
 import { type Request, type Response } from "express";
 import { prismaClient } from "@/lib/prisma";
+import { type JSONValue } from "@/utils/encryptDecryptPayload";
 import { sendError, sendSuccess } from "@/utils/response";
 
 export const getConversations = async (req: Request, res: Response) => {
@@ -358,17 +359,87 @@ export const updateControlRoom = async (req: Request, res: Response) => {
     const payload = req.body.payload || req.body;
 
     const allowedFields = [
-      "profileSurveyPoints", "pointsWithdrawalLimit", "pointsWithdrawalThreshold",
-      "humanChatEnabled", "communitySize", "bugsFound", "proAppsTested",
-      "communityApps", "uniqueDevices", "communityPoints",
-      "alexSystemPrompt",
-    ];
-    const data: Record<string, any> = {};
-    for (const field of allowedFields) {
-      if (payload[field] !== undefined) {
-        data[field] = payload[field];
+       "profileSurveyPoints", "pointsWithdrawalLimit", "pointsWithdrawalThreshold",
+       "humanChatEnabled", "countriesSupported", "bugsFound", "proAppsTested",
+       "platformUptime", "uniqueDevices", "fastTurnaround",
+       "landingHeading", "landingSubheading",
+       "landingStatTitles", "landingStatDescriptions", "landingStatValues",
+       "landingStatIcons",
+       "alexSystemPrompt",
+     ];
+   const LANDING_STAT_IDS = [
+     "countriesSupported", "bugsFound", "proAppsTested",
+     "platformUptime", "uniqueDevices", "fastTurnaround",
+   ];
+    const ALLOWED_ICONS = new Set([
+      "Activity","Award","BadgeCheck","Banknote","BarChart","Bell","Bookmark","Bug",
+      "Calendar","Camera","CheckCircle","Clock","Cloud","Code","Coins","CreditCard",
+      "Crown","Cpu","DollarSign","Flag","Gamepad2","Gift","GitBranch","Globe",
+      "Headphones","Heart","Hourglass","Keyboard","Laptop","LineChart","Mail",
+      "Megaphone","MessageSquare","Monitor","Mouse","PieChart","Rocket","Send",
+      "Server","Settings","Shield","ShieldCheck","Smartphone","Smile","Sparkles",
+      "Star","Tablet","Tag","Target","Terminal","ThumbsUp","Timer","TrendingDown",
+      "TrendingUp","Trophy","UserCheck","UserPlus","Users","Wallet","Wifi","Wrench","Zap",
+    ]);
+    function sanitizeStatArray(field: "title" | "description" | "value" | "icon", raw: unknown): Array<{ id: string; title?: string; description?: string; value?: string; icon?: string }> | null {
+      if (raw === null || raw === undefined) return null;
+      if (!Array.isArray(raw)) return null;
+      const out: Array<{ id: string; title?: string; description?: string; value?: string; icon?: string }> = [];
+      for (const entry of raw as Array<{ id?: unknown; title?: unknown; description?: unknown; value?: unknown; icon?: unknown }>) {
+        if (typeof entry?.id !== "string" || !LANDING_STAT_IDS.includes(entry.id)) continue;
+        const item: { id: string; title?: string; description?: string; value?: string; icon?: string } = { id: entry.id };
+        if (field === "title") {
+          item.title = typeof entry?.title === "string" ? entry.title : typeof entry?.title === "number" ? String(entry.title) : undefined;
+        }
+        if (field === "description") {
+          item.description = typeof entry?.description === "string" ? entry.description : typeof entry?.description === "number" ? String(entry.description) : undefined;
+        }
+        if (field === "value") {
+          item.value = typeof entry?.value === "string" && String(entry.value).trim() !== "" ? String(entry.value) : undefined;
+        }
+        if (field === "icon") {
+          item.icon = typeof entry?.icon === "string" && ALLOWED_ICONS.has(entry.icon) ? entry.icon : undefined;
+        }
+        out.push(item);
       }
+      return out;
     }
+   const data: Record<string, any> = {};
+   for (const field of allowedFields) {
+     if (payload[field] !== undefined) {
+       if (field === "landingStatTitles") {
+         const sanitized = sanitizeStatArray("title", payload[field]);
+         if (sanitized === null) continue;
+         if (sanitized.length === 0) {
+           return sendError(res, 400, "landingStatTitles must contain at least one valid card id");
+         }
+         data[field] = sanitized;
+       } else if (field === "landingStatDescriptions") {
+         const sanitized = sanitizeStatArray("description", payload[field]);
+         if (sanitized === null) continue;
+         if (sanitized.length === 0) {
+           return sendError(res, 400, "landingStatDescriptions must contain at least one valid card id");
+         }
+         data[field] = sanitized;
+        } else if (field === "landingStatValues") {
+          const sanitized = sanitizeStatArray("value", payload[field]);
+          if (sanitized === null) continue;
+          if (sanitized.length === 0) {
+            return sendError(res, 400, "landingStatValues must contain at least one valid card id");
+          }
+          data[field] = sanitized;
+        } else if (field === "landingStatIcons") {
+          const sanitized = sanitizeStatArray("icon", payload[field]);
+          if (sanitized === null) continue;
+          if (sanitized.length === 0) {
+            return sendError(res, 400, "landingStatIcons must contain at least one valid card id");
+          }
+          data[field] = sanitized;
+        } else {
+         data[field] = payload[field];
+       }
+     }
+   }
     let control = await prismaClient.controlRoom.findFirst({ orderBy: { id: 'asc' } });
     if (!control) {
       control = await prismaClient.controlRoom.create({
@@ -381,7 +452,7 @@ export const updateControlRoom = async (req: Request, res: Response) => {
       });
     }
 
-    return sendSuccess(res, control, "Control room updated");
+    return sendSuccess(res, control as unknown as JSONValue, "Control room updated");
   } catch (error) {
     console.error("Error updating control room:", error);
     return sendError(res, 500, "Failed to update control room");

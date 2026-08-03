@@ -7,6 +7,7 @@ import { prismaClient, Prisma } from "@/lib/prisma";
 import { auth, type SessionWithRole } from "@/lib/auth";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
+import { type JSONValue } from "@/utils/encryptDecryptPayload";
 import { normalizeR2Url } from "@/utils/helperFunctions";
 import { hashPassword, generateRandomString } from "better-auth/crypto"; // MUST use better-auth/crypto (scrypt), not @/utils/passwordUtils (bcrypt), because signIn.email verifies with scrypt
 import { type Request, type Response } from "express";
@@ -19,7 +20,7 @@ export const getControlRoomData = async (req: Request, res: Response) => {
       createdAt: response?.createdAt?.toISOString() || "",
       updatedAt: response?.updatedAt?.toISOString() || "",
     };
-    return sendSuccess(res, responseData, "ok");
+    return sendSuccess(res, responseData as unknown as JSONValue, "ok");
   } catch (error) {
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
@@ -41,29 +42,98 @@ export const getControlRoomData = async (req: Request, res: Response) => {
   }
 };
 
-export const getPublicControlRoomStats = async (req: Request, res: Response) => {
-  try {
-    const response = await prismaClient?.controlRoom?.findFirst({ orderBy: { id: 'asc' } });
-    if (!response) {
-      return sendSuccess(res, {}, "ok");
-    }
-    const responseData = {
-      communitySize: response.communitySize ?? 100,
-      bugsFound: response.bugsFound ?? 554,
-      proAppsTested: response.proAppsTested ?? 55,
-      communityApps: response.communityApps ?? 106,
-      uniqueDevices: response.uniqueDevices ?? 350,
-      communityPoints: response.communityPoints ?? 25000,
-    };
-    return sendSuccess(res, responseData, "ok");
-  } catch (error) {
-    return sendError(
-      res,
-      500,
-      error instanceof Error ? error.message : "Internal Server Error",
-    );
-  }
-};
+const ALLOWED_ICONS = new Set([
+  "Activity","Award","BadgeCheck","Banknote","BarChart","Bell","Bookmark","Bug",
+  "Calendar","Camera","CheckCircle","Clock","Cloud","Code","Coins","CreditCard",
+  "Crown","Cpu","DollarSign","Flag","Gamepad2","Gift","GitBranch","Globe",
+  "Headphones","Heart","Hourglass","Keyboard","Laptop","LineChart","Mail",
+  "Megaphone","MessageSquare","Monitor","Mouse","PieChart","Rocket","Send",
+  "Server","Settings","Shield","ShieldCheck","Smartphone","Smile","Sparkles",
+  "Star","Tablet","Tag","Target","Terminal","ThumbsUp","Timer","TrendingDown",
+  "TrendingUp","Trophy","UserCheck","UserPlus","Users","Wallet","Wifi","Wrench","Zap",
+]);
+
+const LANDING_STAT_CARDS = [
+   { id: "countriesSupported",   title: "Countries Supported",                 description: "Developers and testers worldwide.",        value: "10+",  icon: "Globe" },
+   { id: "bugsFound",            title: "Bugs Squashed",                       description: "Critical & minor bugs found.",             value: "554+", icon: "Bug" },
+   { id: "proAppsTested",        title: "Pro Apps Tested",                     description: "Paid apps fully tested.",                     value: "4200+", icon: "Rocket" },
+   { id: "platformUptime",       title: "Platform Uptime",                     description: "Reliable platform availability.",             value: "99%",  icon: "Shield" },
+   { id: "uniqueDevices",        title: "Unique Devices",                      description: "Diverse Android models.",                     value: "350+", icon: "Smartphone" },
+   { id: "fastTurnaround",       title: "Fast Turnaround",                     description: "Average testing turnaround time.",            value: "48hr", icon: "Clock" },
+ ] as const;
+
+ type StatField = "title" | "description" | "value" | "icon";
+
+ function mergeStatField(
+   field: StatField,
+   dbJson: unknown,
+ ): Array<{ id: string; title?: string; description?: string; value?: string; icon?: string }> {
+   const fallbackMap: Record<string, { title?: string; description?: string; value?: string; icon?: string }> = {};
+   for (const c of LANDING_STAT_CARDS) {
+     fallbackMap[c.id] = { title: c.title, description: c.description, value: c.value, icon: c.icon };
+   }
+   const dbArr = Array.isArray(dbJson) ? (dbJson as Array<{ id?: string; [k: string]: unknown }>) : [];
+
+   const out: Array<{ id: string; title?: string; description?: string; value?: string; icon?: string }> = [];
+   for (const canonical of LANDING_STAT_CARDS) {
+     const dbEntry = dbArr.find((d) => typeof d?.id === "string" && d.id === canonical.id);
+     const merged: { id: string; title?: string; description?: string; value?: string; icon?: string } = { id: canonical.id };
+     if (field === "title") {
+       merged.title = (typeof dbEntry?.title === "string" && dbEntry.title.trim() !== "") || typeof dbEntry?.title === "number"
+         ? String(dbEntry.title)
+         : canonical.title;
+     }
+     if (field === "description") {
+       merged.description = (typeof dbEntry?.description === "string" && dbEntry.description.trim() !== "") || typeof dbEntry?.description === "number"
+         ? String(dbEntry.description)
+         : canonical.description;
+     }
+     if (field === "value") {
+       merged.value = typeof dbEntry?.value === "string" && String(dbEntry.value).trim() !== ""
+         ? String(dbEntry.value)
+         : canonical.value;
+     }
+     if (field === "icon") {
+       merged.icon = typeof dbEntry?.icon === "string" && ALLOWED_ICONS.has(dbEntry.icon)
+         ? dbEntry.icon
+         : canonical.icon;
+     }
+     out.push(merged);
+   }
+   return out;
+ }
+
+ export const getPublicControlRoomStats = async (req: Request, res: Response) => {
+   try {
+     const response = await prismaClient?.controlRoom?.findFirst({ orderBy: { id: 'asc' } });
+     if (!response) {
+       return sendSuccess(res, {}, "ok");
+     }
+     const responseData = {
+        countriesSupported: response.countriesSupported ?? 10,
+        bugsFound: response.bugsFound ?? 554,
+        proAppsTested: response.proAppsTested ?? 4200,
+        platformUptime: response.platformUptime ?? 99,
+        uniqueDevices: response.uniqueDevices ?? 350,
+        fastTurnaround: response.fastTurnaround ?? 48,
+        landingHeading: response.landingHeading ?? "The No.1 Google Play Testing Service",
+        landingSubheading:
+          response.landingSubheading ??
+          "inTesters is the Most Trusted and Reliable Google Play Closed Testing Service, loved by more than 1000+ Developers across 180+ countries.",
+        landingStatTitles: mergeStatField("title", response.landingStatTitles),
+        landingStatDescriptions: mergeStatField("description", response.landingStatDescriptions),
+        landingStatValues: mergeStatField("value", response.landingStatValues),
+        landingStatIcons: mergeStatField("icon", response.landingStatIcons),
+      };
+    return sendSuccess(res, responseData as unknown as JSONValue, "ok");
+   } catch (error) {
+     return sendError(
+       res,
+       500,
+       error instanceof Error ? error.message : "Internal Server Error",
+     );
+   }
+ };
 
 // ==================== PERMISSION MATRIX (super_admin only) ====================
 
@@ -932,117 +1002,117 @@ export const getFeedbackCounts = async (req: Request, res: Response) => {
 
 // ==================== USER MANAGEMENT ====================
 
-export const getAllUsers = async (req: Request, res: Response) => {
-  try {
-    const role = req.query.role as string;
-    const status = req.query.status as string;
-    const search = req.query.search as string;
-
-    const where: any = {};
-
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
-      ];
-    }
-
-    if (status && status !== "All") {
-      if (status === "Active") {
-        where.userDetail = { banned: false };
-      } else if (status === "Banned") {
-        where.userDetail = { banned: true };
-      }
-    }
-
-    let users;
-    if (role && role !== "All") {
-      // Get role ID
-      const roleRecord = await prismaClient.role.findFirst({
-        where: { name: role },
-      });
-
-      if (roleRecord) {
-        where.userDetail = { ...where.userDetail, roleId: roleRecord.id };
-      }
-    }
-
-    users = await prismaClient.user.findMany({
-      where,
-      include: {
-        userDetail: {
-          include: {
-            role: true,
-          },
-        },
-        testerRelations: {
-          select: {
-            status: true,
-            lastActivityAt: true,
-          },
-        },
-        _count: {
-          select: {
-            testerRelations: true,
-            ownedDashboardAndHubApps: true,
-            feedbacks: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
-
-    const formattedUsers = users.map((user) => {
-      // Calculate active and completed test counts from testerRelations
-      const activeTests = user.testerRelations.filter(
-        (tr) => tr.status === "IN_PROGRESS" || tr.status === "PENDING",
-      ).length;
-      const completedTests = user.testerRelations.filter(
-        (tr) => tr.status === "COMPLETED",
-      ).length;
-
-      // Get the most recent activity timestamp
-      const lastActivityAt =
-        user.testerRelations
-          .map((tr) => tr.lastActivityAt)
-          .filter(Boolean)
-          .sort((a, b) => (b?.getTime() || 0) - (a?.getTime() || 0))[0] || null;
-
-      return {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        image: user.image,
-        role: user.userDetail?.role?.name || "User",
-        status: user.userDetail?.banned ? "Banned" : "Active",
-        availability: user.userDetail?.availability || "AVAILABLE",
-        testingPaths: user.userDetail?.profile_type || [],
-        device:
-          user.userDetail?.device_company && user.userDetail?.device_model
-            ? `${user.userDetail.device_company} ${user.userDetail.device_model}`
-            : null,
-        experience: user.userDetail?.experience_level || null,
-        tests: user._count.testerRelations,
-        activeTests,
-        completedTests,
-        lastActivityAt: lastActivityAt?.toISOString() || null,
-        submissions: user._count.ownedDashboardAndHubApps,
-        feedbacks: user._count.feedbacks,
-        createdAt: user.createdAt.toISOString(),
-      };
-    });
-
-    return sendSuccess(res, formattedUsers, "Users fetched successfully");
-  } catch (error) {
-    return sendError(
-      res,
-      500,
-      error instanceof Error ? error.message : "Internal Server Error",
-    );
-  }
-};
+ export const getAllUsers = async (req: Request, res: Response) => {
+     try {
+       const role = req.query.role as string;
+       const status = req.query.status as string;
+       const search = req.query.search as string;
+ 
+       const where: any = {};
+ 
+       if (search) {
+         where.OR = [
+           { name: { contains: search, mode: "insensitive" } },
+           { email: { contains: search, mode: "insensitive" } },
+         ];
+       }
+ 
+       if (status && status !== "All") {
+         if (status === "Active") {
+           where.userDetail = { banned: false };
+         } else if (status === "Banned") {
+           where.userDetail = { banned: true };
+         }
+       }
+ 
+       let users;
+       if (role && role !== "All") {
+         // Get role ID
+         const roleRecord = await prismaClient.role.findFirst({
+           where: { name: role },
+         });
+ 
+         if (roleRecord) {
+           where.userDetail = { ...where.userDetail, roleId: roleRecord.id };
+         }
+       }
+ 
+       users = await prismaClient.user.findMany({
+         where,
+         include: {
+           userDetail: {
+             include: {
+               role: true,
+             },
+           },
+           testerRelations: {
+             select: {
+               status: true,
+               lastActivityAt: true,
+             },
+           },
+           _count: {
+             select: {
+               testerRelations: true,
+               ownedDashboardAndHubApps: true,
+               feedbacks: true,
+             },
+           },
+         },
+         orderBy: {
+           createdAt: "desc",
+         },
+       });
+ 
+       const formattedUsers = (users as any).map((user: any) => {
+         // Calculate active and completed test counts from testerRelations
+         const activeTests = user.testerRelations.filter(
+           (tr: any) => tr.status === "IN_PROGRESS" || tr.status === "PENDING",
+         ).length;
+         const completedTests = user.testerRelations.filter(
+           (tr: any) => tr.status === "COMPLETED",
+         ).length;
+ 
+         // Get the most recent activity timestamp
+         const lastActivityAt =
+           user.testerRelations
+             .map((tr: any) => tr.lastActivityAt)
+             .filter(Boolean)
+             .sort((a: any, b: any) => (b?.getTime() || 0) - (a?.getTime() || 0))[0] || null;
+ 
+         return {
+           id: user.id,
+           name: user.name,
+           email: user.email,
+           image: user.image,
+           role: user.userDetail?.role?.name || "User",
+           status: user.userDetail?.banned ? "Banned" : "Active",
+           availability: user.userDetail?.availability || "AVAILABLE",
+           testingPaths: user.userDetail?.profile_type || [],
+           device:
+             user.userDetail?.device_company && user.userDetail?.device_model
+               ? `${user.userDetail.device_company} ${user.userDetail.device_model}`
+               : null,
+           experience: user.userDetail?.experience_level || null,
+           tests: user._count.testerRelations,
+           activeTests,
+           completedTests,
+           lastActivityAt: lastActivityAt?.toISOString() || null,
+           submissions: user._count.ownedDashboardAndHubApps,
+           feedbacks: user._count.feedbacks,
+           createdAt: user.createdAt.toISOString(),
+         };
+       });
+ 
+       return sendSuccess(res, formattedUsers, "Users fetched successfully");
+     } catch (error) {
+       return sendError(
+         res,
+         500,
+         error instanceof Error ? error.message : "Internal Server Error",
+       );
+     }
+   };
 
 export const getUserById = async (req: Request, res: Response) => {
   try {
@@ -2112,32 +2182,57 @@ export const getSuggestionCounts = async (req: Request, res: Response) => {
 export const getAllNotifications = async (req: Request, res: Response) => {
   try {
     const type = req.query.type as string;
+    const search = (req.query.search as string) || "";
+
+    const page = Math.max(parseInt(req.query.page as string, 10) || 1, 1);
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit as string, 10) || 20, 1),
+      100,
+    );
+    const skip = (page - 1) * limit;
 
     const where: any = {};
     if (type && type !== "All") {
       where.type = type;
     }
+    if (search.trim()) {
+      where.OR = [
+        { title: { contains: search.trim(), mode: "insensitive" } },
+        { description: { contains: search.trim(), mode: "insensitive" } },
+      ];
+    }
 
-    const notifications = await prismaClient.notification.findMany({
-      where,
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
+    const [notifications, total] = await Promise.all([
+      prismaClient.notification.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
           },
+          media: true,
         },
-        media: true,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip,
+        take: limit,
+      }),
+      prismaClient.notification.count({ where }),
+    ]);
 
     return sendSuccess(
       res,
-      notifications as any,
+      {
+        items: notifications as any,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
       "Notifications fetched successfully",
     );
   } catch (error) {
@@ -3109,7 +3204,7 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
 
       if (rewardAmount > 0 && testersToReward.length > 0) {
         for (const rel of testersToReward) {
-          // Skip admin-assigned testers on free apps — they earn nothing on-platform
+          // Skip admin-assigned testers on free apps ,  they earn nothing on-platform
           if (!isPaidApp && rel.assignmentSource === "ADMIN_ASSIGNED") continue;
           const createData: any = {
             userId: rel.testerId,
@@ -4630,6 +4725,215 @@ export const deleteImmediateAttention = async (req: Request, res: Response) => {
       ua: (req as any).userAgent || "",
     };
     return sendError(res, 500, error instanceof Error ? error.message : "Internal Server Error", auditLogPayloadFail);
+  }
+};
+
+// ==================== PAID SUBMISSION FULL EDIT/DELETE ====================
+
+export const updatePaidSubmission = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    if (!payload) {
+      return sendError(res, 400, "Payload is required");
+    }
+
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) {
+      return sendError(res, 400, "Invalid submission ID");
+    }
+
+    const existing = await prismaClient.dashboardAndHub.findUnique({
+      where: { id },
+      include: { androidApp: true },
+    });
+
+    if (!existing) {
+      return sendError(res, 404, "Submission not found");
+    }
+
+    if (existing.appType !== "PAID") {
+      return sendError(res, 400, "This endpoint is only for PAID submissions");
+    }
+
+    const hubData: Record<string, unknown> = {};
+    const androidData: Record<string, unknown> = {};
+
+    // DashboardAndHub fields
+    if (payload.totalTester !== undefined) hubData.totalTester = parseInt(payload.totalTester);
+    if (payload.totalDay !== undefined) hubData.totalDay = parseInt(payload.totalDay);
+    if (payload.minimumAndroidVersion !== undefined) hubData.minimumAndroidVersion = parseFloat(payload.minimumAndroidVersion);
+    if (payload.rewardMoney !== undefined) hubData.rewardMoney = parseFloat(payload.rewardMoney);
+    if (payload.costMoney !== undefined) hubData.costMoney = parseFloat(payload.costMoney);
+    if (payload.instructionsForTester !== undefined) hubData.instructionsForTester = payload.instructionsForTester;
+    if (payload.currentDay !== undefined) hubData.currentDay = parseInt(payload.currentDay);
+    if (payload.currentTester !== undefined) hubData.currentTester = parseInt(payload.currentTester);
+    if (payload.statusDetails !== undefined) hubData.statusDetails = payload.statusDetails;
+    if (payload.promoCodeId !== undefined) hubData.promoCodeId = payload.promoCodeId ? parseInt(payload.promoCodeId) : null;
+    if (payload.testingStartDate !== undefined) hubData.testingStartDate = payload.testingStartDate ? new Date(payload.testingStartDate) : null;
+    if (payload.testingEndDate !== undefined) hubData.testingEndDate = payload.testingEndDate ? new Date(payload.testingEndDate) : null;
+    if (payload.averageTimeTesting !== undefined) hubData.averageTimeTesting = payload.averageTimeTesting;
+
+    // AndroidApp fields
+    if (payload.appName !== undefined) androidData.appName = payload.appName;
+    if (payload.packageName !== undefined) androidData.packageName = payload.packageName;
+    if (payload.description !== undefined) androidData.description = payload.description;
+    if (payload.appCategoryId !== undefined) androidData.appCategoryId = parseInt(payload.appCategoryId);
+    if (payload.appLogoUrl !== undefined) androidData.appLogoUrl = payload.appLogoUrl;
+    if (payload.appScreenshotUrl1 !== undefined) androidData.appScreenshotUrl1 = payload.appScreenshotUrl1;
+    if (payload.appScreenshotUrl2 !== undefined) androidData.appScreenshotUrl2 = payload.appScreenshotUrl2;
+
+    const result = await prismaClient.$transaction(async (tx) => {
+      if (Object.keys(androidData).length > 0) {
+        await tx.androidApp.update({
+          where: { id: existing.appId },
+          data: androidData,
+        });
+      }
+
+      if (Object.keys(hubData).length > 0) {
+        await tx.dashboardAndHub.update({
+          where: { id },
+          data: hubData,
+        });
+      }
+
+      return tx.dashboardAndHub.findUnique({
+        where: { id },
+        include: {
+          androidApp: true,
+          appOwner: { select: { id: true, email: true, name: true } },
+        },
+      });
+    });
+
+    const auditLogPayload: AuditLogPayload = {
+      actorId: req.userId || "",
+      actorRole: req.role as string,
+      module: "submissions",
+      action: "updatePaidSubmission",
+      targetId: String(id),
+      result: "SUCCESS",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+
+    return sendSuccess(res, result as any, "Submission updated successfully", auditLogPayload);
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "submissions",
+      action: "updatePaidSubmission",
+      targetId: String(req?.params?.id || ""),
+      result: "FAIL",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+export const deletePaidSubmission = async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) {
+      return sendError(res, 400, "Invalid submission ID");
+    }
+
+    const existing = await prismaClient.dashboardAndHub.findUnique({
+      where: { id },
+      include: { androidApp: true },
+    });
+
+    if (!existing) {
+      return sendError(res, 404, "Submission not found");
+    }
+
+    if (existing.appType !== "PAID") {
+      return sendError(res, 400, "This endpoint is only for PAID submissions");
+    }
+
+    await prismaClient.$transaction(async (tx) => {
+      // 1. Delete feedback media
+      const feedbacks = await tx.feedback.findMany({
+        where: { dashboardAndHubId: id },
+        select: { id: true },
+      });
+      const feedbackIds = feedbacks.map((f) => f.id);
+      if (feedbackIds.length > 0) {
+        await tx.media.deleteMany({ where: { feedbackId: { in: feedbackIds } } });
+      }
+
+      // 2. Delete feedback
+      await tx.feedback.deleteMany({ where: { dashboardAndHubId: id } });
+
+      // 3. Delete daily verifications for tester relations
+      const rels = await tx.testerRelation.findMany({
+        where: { dashboardAndHubId: id },
+        select: { id: true },
+      });
+      const relIds = rels.map((r) => r.id);
+      if (relIds.length > 0) {
+        await tx.dailyTesterVerification.deleteMany({
+          where: { testerRelationId: { in: relIds } },
+        });
+      }
+
+      // 4. Delete tester relations
+      await tx.testerRelation.deleteMany({ where: { dashboardAndHubId: id } });
+
+      // 5. Delete user transactions
+      await tx.userTransaction.deleteMany({ where: { dashboardAndHubId: id } });
+
+      // 6. Delete user activities
+      await tx.userActivity.deleteMany({ where: { dashboardAndHubId: id } });
+
+      // 7. Delete play store declaration
+      await tx.playStoreDeclaration.deleteMany({ where: { dashboardAndHubId: id } });
+
+      // 8. Delete the dashboard and hub entry
+      await tx.dashboardAndHub.delete({ where: { id } });
+
+      // 9. Delete the android app
+      await tx.androidApp.delete({ where: { id: existing.appId } });
+    });
+
+    const auditLogPayload: AuditLogPayload = {
+      actorId: req.userId || "",
+      actorRole: req.role as string,
+      module: "submissions",
+      action: "deletePaidSubmission",
+      targetId: String(id),
+      result: "SUCCESS",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+
+    return sendSuccess(res, null, "Submission deleted successfully", auditLogPayload);
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "submissions",
+      action: "deletePaidSubmission",
+      targetId: String(req?.params?.id || ""),
+      result: "FAIL",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+      auditLogPayloadFail,
+    );
   }
 };
 

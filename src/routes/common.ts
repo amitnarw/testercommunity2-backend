@@ -15,11 +15,14 @@ import declarationRouter from "./declaration.route";
 import faqRouter from "./faq.route";
 import guideRouter from "./guide.route";
 import subscriptionRouter from "./subscription.route";
+import mailRouter from "./mail.route";
+import appChatRouter from "./appChat.route";
 
 const router = Router();
 
 router.use("/auth", authRouter);
 router.use("/user", userRouter);
+router.use("/admin/mail", mailRouter);
 router.use("/admin", adminRouter);
 router.use("/dashboard", dashboardRouter);
 router.use("/hub", hubRouter);
@@ -34,5 +37,6 @@ router.use("/declaration", declarationRouter);
 router.use("/faq", faqRouter);
 router.use("/blog", guideRouter);
 router.use("/subscription", subscriptionRouter);
+router.use("/app-chat", appChatRouter);
 
 export default router;

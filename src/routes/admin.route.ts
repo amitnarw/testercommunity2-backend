@@ -5,6 +5,8 @@ import {
   acceptApp,
   rejectApp,
   getSubmittedAppsCount,
+  updatePaidSubmission,
+  deletePaidSubmission,
   // Dashboard
   getDashboardStats,
   // Feedback
@@ -148,11 +150,11 @@ const router = Router();
 // Act As (must be before checkAuthorization to allow SUPER_ADMIN to use it)
 router.post("/act-as", checkAuthentication, decryptPayload, actAsRole);
 
-// Permission Matrix (super_admin only — hardcoded check)
+// Permission Matrix (super_admin only ,  hardcoded check)
 router.get("/permissions", checkAuthentication, getAllPermissions);
 router.put("/permissions/:roleId/:moduleId", checkAuthentication, decryptPayload, updatePermission);
 
-// Role CRUD (super_admin only — hardcoded check)
+// Role CRUD (super_admin only ,  hardcoded check)
 router.post("/roles", checkAuthentication, decryptPayload, createRole);
 router.put("/roles/:roleId", checkAuthentication, decryptPayload, updateRole);
 router.delete("/roles/:roleId", checkAuthentication, deleteRole);
@@ -172,6 +174,8 @@ router.get("/get-submitted-apps-count", checkAuthorization({ module: "submission
 router.post("/accept-app", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, acceptApp);
 router.post("/reject-app", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, rejectApp);
 router.post("/update-project-status", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, updateProjectStatus);
+router.patch("/submission-paid/:id", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, updatePaidSubmission);
+router.delete("/submission-paid/:id", checkAuthorization({ module: "submissions", action: "canDelete" }), deletePaidSubmission);
 
 // Feedback
 router.get("/feedback", checkAuthorization({ module: "feedback", action: "canReadList" }), getAllFeedback);
@@ -195,7 +199,7 @@ router.post("/users/convert-auth-type", checkAuthorization({ module: "users", ac
 router.post("/users/update-wallet", checkAuthentication, decryptPayload, updateUserWallet);
 router.post("/users/gift-points-packages", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, giftPointsAndPackages);
 router.delete("/users/:id", checkAuthorization({ module: "users", action: "canDelete" }), deleteUser);
-// Self profile update (no module permission needed — any authenticated admin can update their own)
+// Self profile update (no module permission needed ,  any authenticated admin can update their own)
 router.post("/update-my-profile", checkAuthentication, decryptPayload, updateMyProfile);
 
 // Immediate Attention Required (IAR)

@@ -446,8 +446,8 @@ export const getAllPricingPlans = async (req: Request, res: Response) => {
     const plans = await prismaClient?.plans?.findMany({
       where: {
         isActive: true,
-        billingType: "ONE_TIME",
       },
+      orderBy: [{ sequence: "asc" }, { price: "asc" }],
     });
     const responseData = plans.map((item) => {
       return {
@@ -465,6 +465,48 @@ export const getAllPricingPlans = async (req: Request, res: Response) => {
       actorRole: req?.role as string,
       module: "user",
       action: "getAllPricingPlans",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+export const getEnterprisePlan = async (req: Request, res: Response) => {
+  try {
+    const plan = await prismaClient?.plans?.findFirst({
+      where: {
+        isActive: true,
+        billingType: "CUSTOM",
+      },
+    });
+
+    if (!plan) {
+      return sendSuccess(res, null, "ok");
+    }
+
+    const responseData = {
+      ...plan,
+      features: JSON.parse(JSON.stringify(plan?.features)),
+      createdAt: plan?.createdAt?.toString(),
+      updatedAt: plan?.updatedAt,
+    };
+
+    return sendSuccess(res, responseData, "ok");
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "user",
+      action: "getEnterprisePlan",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
@@ -565,11 +607,15 @@ export const logOutFromSession = async (req: Request, res: Response) => {
       return sendError(res, 404, "Session not found");
     }
 
-    await prismaClient?.session?.delete({
+    const result = await prismaClient?.session?.deleteMany({
       where: {
         id: session?.id,
       },
     });
+
+    if (!result?.count) {
+      return sendSuccess(res, null, "Session already logged out");
+    }
 
     return sendSuccess(res, null, "Session logged out successfully");
   } catch (error) {
@@ -761,6 +807,28 @@ export const getUserTransactions = async (req: Request, res: Response) => {
       skip: parseInt(offset as string, 10),
     });
 
+    // Pre-fetch Refund records for REFUND transactions to show rupee amounts
+    const refundPaymentIds = (transactions || [])
+      .filter((t) => t.transactionType === "REFUND" && t.razorpayPaymentId)
+      .map((t) => t.razorpayPaymentId!);
+    const refundLookup = new Map<string, { amount: number; count: number }>();
+    if (refundPaymentIds.length > 0) {
+      const refunds = await prismaClient.refund.findMany({
+        where: { razorpayPaymentId: { in: refundPaymentIds }, status: "PROCESSED" },
+        select: { razorpayPaymentId: true, amount: true },
+      });
+      for (const r of refunds) {
+        const key = r.razorpayPaymentId;
+        const prev = refundLookup.get(key);
+        if (prev) {
+          prev.amount += r.amount;
+          prev.count += 1;
+        } else {
+          refundLookup.set(key, { amount: r.amount, count: 1 });
+        }
+      }
+    }
+
     // Format the response
     const formattedTransactions = transactions?.map((txn) => {
       // Determine description based on transaction type and action
@@ -818,9 +886,17 @@ export const getUserTransactions = async (req: Request, res: Response) => {
           change = `-${txn.points || 0} Points`;
           break;
         case "REFUND":
-          description = "Refund";
-          amount = `+${txn.package || 0} Packages`;
-          change = `+${txn.package || 0} Packages`;
+          if (txn.razorpayPaymentId && refundLookup.has(txn.razorpayPaymentId)) {
+            const refundInfo = refundLookup.get(txn.razorpayPaymentId)!;
+            const refundedInr = refundInfo.amount / 100;
+            description = `Refund — ₹${refundedInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} returned to your original payment method`;
+            amount = `₹${refundedInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            change = `-${txn.package || 0} Packages`;
+          } else {
+            description = "Refund";
+            amount = `+${txn.package || 0} Packages`;
+            change = `+${txn.package || 0} Packages`;
+          }
           break;
         default:
           description = "Transaction";

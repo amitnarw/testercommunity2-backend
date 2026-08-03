@@ -672,7 +672,7 @@ If your application is rejected by Google for production access specifically bec
 
 ### Unused Professional Slots
 - **30-Day Window**: Any professional slot that has not been 'Activated' is eligible for a full refund within 30 days of purchase.
-- **Process**: Submit a request via the 'Billing' section of your profile or email intesters@nexmail.in.
+- **Process**: Submit a request via the 'Billing' section of your profile or email support@system.intesters.com.
 
 ### Active/Completed Services
 - Once a professional test cycle has commenced and labor has been allocated to our QA staff, refunds are generally not available unless the Success Guarantee is triggered.
@@ -971,7 +971,7 @@ However, in late 2024, developer forums and Google's official documentation refl
 
 ## What Exactly Has Changed?
 
-Google's primary goal—improving the overall quality of apps on the Play Store, remains unchanged. The adjustment to 12 testers acknowledges that gathering a dedicated cohort of 20 people was often an insurmountable hurdle for solo developers without a massive social network.
+Google's primary goal, improving the overall quality of apps on the Play Store, remains unchanged. The adjustment to 12 testers acknowledges that gathering a dedicated cohort of 20 people was often an insurmountable hurdle for solo developers without a massive social network.
 
 **The New Core Policy:**
 - **Tester Count**: You need a minimum of **12 unique testers**.
@@ -1141,7 +1141,7 @@ export async function seedGuides() {
     const categoryId = categorySlug ? categorySlugToId[categorySlug] : undefined;
 
     if (!categoryId) {
-      logger.warn(`  Skipping guide "${guide.title}" — no category found for "${guide.categoryName}"`);
+      logger.warn(`  Skipping guide "${guide.title}" ,  no category found for "${guide.categoryName}"`);
       continue;
     }
 

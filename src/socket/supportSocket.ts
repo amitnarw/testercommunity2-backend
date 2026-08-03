@@ -18,7 +18,8 @@ const ephemeralMessages = new Map<number, EphemeralMessage[]>();
 const MAX_EPHEMERAL_MESSAGES = 500;
 
 // Incrementing counter for ephemeral message IDs (avoids Date.now() collisions)
-let ephemeralMsgCounter = 0;
+// Start at a high offset to never collide with DB auto-increment ids.
+let ephemeralMsgCounter = 1_000_000_000;
 function nextEphemeralId(): number {
   return ++ephemeralMsgCounter;
 }
@@ -390,7 +391,7 @@ export function setupSupportSocket(namespace: Namespace) {
       if (pending) {
         clearTimeout(pending.timer);
         agentOfflineTimers.delete(userId);
-        logger.info(`Agent ${userName} reconnected — cancelled offline grace timer`);
+        logger.info(`Agent ${userName} reconnected ,  cancelled offline grace timer`);
 
         for (const chatId of pending.chatIds) {
           namespace.to(`conv:${chatId}`).emit("agent:reconnected", { chatId });
@@ -602,7 +603,7 @@ export function setupSupportSocket(namespace: Namespace) {
           }
 
           const timer = setTimeout(async () => {
-            logger.info(`Grace period expired for agent ${userName} — closing active chats`);
+            logger.info(`Grace period expired for agent ${userName} ,  closing active chats`);
 
             if (!agentOfflineTimers.has(userId)) return;
 
@@ -663,6 +664,150 @@ export function setupSupportSocket(namespace: Namespace) {
       await initAgentState(socket, userId, userName);
     });
 
+    // -- App chat events --
+    socket.on("app_chat:join", async (payload: { appId: number }) => {
+      const { appId } = payload;
+      try {
+        // Join a stable per-app room so the client receives messages even before
+        // a conversation is lazily created on the first message.
+        socket.join(`appchat:app:${appId}`);
+        const conversation = await prismaClient.conversation.findFirst({
+          where: {
+            dashboardAndHubId: appId,
+            type: "LIVE_CHAT",
+            status: { in: ["OPEN", "IN_PROGRESS"] },
+          },
+        });
+        if (conversation && conversation.id) {
+          socket.join(`appchat:${conversation.id}`);
+          socket.emit("app_chat:joined", { appId, conversationId: conversation.id });
+        } else {
+          // No conversation yet - lazily created on first message. Not an error.
+          socket.emit("app_chat:joined", { appId, conversationId: null });
+        }
+      } catch (error) {
+        logger.error("[app_chat:join] Error:", error);
+        socket.emit("app_chat:join_error", { message: "Failed to join app chat" });
+      }
+    });
+
+    socket.on("app_chat:typing", async (payload: { appId: number }) => {
+      try {
+        const { appId } = payload;
+        socket.broadcast.to(`appchat:app:${Number(appId)}`).emit("app_chat:typing", { appId: Number(appId) });
+      } catch (error) {
+        logger.error("[app_chat:typing] Error:", error);
+      }
+    });
+
+    socket.on("app_chat:stop_typing", async (payload: { appId: number }) => {
+      try {
+        const { appId } = payload;
+        socket.broadcast.to(`appchat:app:${Number(appId)}`).emit("app_chat:stop_typing", { appId: Number(appId) });
+      } catch (error) {
+        logger.error("[app_chat:stop_typing] Error:", error);
+      }
+    });
+
+    socket.on("app_chat:leave", async (payload: { appId: number }) => {
+      const { appId } = payload;
+      try {
+        socket.leave(`appchat:app:${appId}`);
+        const conversation = await prismaClient.conversation.findFirst({
+          where: {
+            dashboardAndHubId: appId,
+            type: "LIVE_CHAT",
+            status: { in: ["OPEN", "IN_PROGRESS"] },
+          },
+        });
+        if (conversation && conversation.id) {
+          socket.leave(`appchat:${conversation.id}`);
+        }
+      } catch (error) {
+        logger.error("[app_chat:leave] Error:", error);
+      }
+    });
+
+    socket.on("app_chat:send_message", async (payload: { appId: number; message: string }) => {
+      try {
+        const { appId, message } = payload;
+        if (!message?.trim()) return;
+
+        let conversation = await prismaClient.conversation.findFirst({
+          where: {
+            dashboardAndHubId: appId,
+            type: "LIVE_CHAT",
+            status: { in: ["OPEN", "IN_PROGRESS"] },
+          },
+        });
+
+        // Create conversation lazily on the FIRST real message from either side
+        if (!conversation) {
+          const dashboardAndHub = await prismaClient.dashboardAndHub.findUnique({
+            where: { id: Number(appId) },
+            include: { androidApp: { select: { appName: true } } },
+          });
+
+          const appName = dashboardAndHub?.androidApp?.appName || "Untitled App";
+          const ownerId = dashboardAndHub?.appOwnerId;
+
+          conversation = await prismaClient.conversation.create({
+            data: {
+              userId: ownerId || userId,
+              type: "LIVE_CHAT",
+              status: "OPEN",
+              subject: `App testing chat: ${appName}`,
+              description: "Chat with Testing Manager for app testing assistance",
+              dashboardAndHubId: Number(appId),
+              category: "TECHNICAL",
+              priority: "MEDIUM",
+            },
+          });
+        }
+
+        // Ensure sender is in the room so they receive subsequent broadcasts
+        socket.join(`appchat:app:${appId}`);
+        socket.join(`appchat:${conversation.id}`);
+
+        const senderType = isAgent ? "AGENT" : "USER";
+
+        const newMessage = await prismaClient.message.create({
+          data: {
+            conversationId: conversation.id,
+            senderId: userId,
+            senderType,
+            messageType: "TEXT",
+            content: message,
+            isAi: false,
+          },
+        });
+
+        await prismaClient.conversation.update({
+          where: { id: conversation.id },
+          data: {
+            lastMessageAt: new Date(),
+            status: "IN_PROGRESS",
+          },
+        });
+
+        const msgId = nextEphemeralId();
+        const messagePayload = {
+          appId,
+          conversationId: conversation.id,
+          id: msgId,
+          senderId: userId,
+          senderType,
+          senderName: userName,
+          message,
+          createdAt: newMessage.createdAt.toISOString(),
+        };
+        namespace.to(`appchat:app:${appId}`).emit("app_chat:message", messagePayload);
+      } catch (error) {
+        logger.error("[app_chat:send_message] Error:", error);
+        socket.emit("app_chat:message_error", { message: "Failed to send message" });
+      }
+    });
+
     socket.on("agent:get_status", async () => {
       if (!isAgent) return;
       const status = await prismaClient.agentStatus.findUnique({
@@ -682,7 +827,7 @@ export function setupSupportSocket(namespace: Namespace) {
       if (pendingTimer) {
         clearTimeout(pendingTimer);
         disconnectTimers.delete(userId);
-        logger.info(`User ${userName} reconnected within grace period — cancelled disconnect timer`);
+        logger.info(`User ${userName} reconnected within grace period ,  cancelled disconnect timer`);
 
         // Notify agents that the user is back
         const activeChats = await prismaClient.conversation.findMany({
@@ -700,7 +845,7 @@ export function setupSupportSocket(namespace: Namespace) {
         await initAgentState(socket, userId, userName);
       }
       // Non-agents: initUserChatState is called via user:rejoin (frontend emits on connect)
-      // Do NOT call it here — it would run twice and duplicate messages
+      // Do NOT call it here ,  it would run twice and duplicate messages
     } catch (error) {
       logger.error("Error auto-initializing chat state:", error);
     }
@@ -719,7 +864,7 @@ export function setupSupportSocket(namespace: Namespace) {
       logger.info(`Socket disconnected: ${userName}`);
 
       if (isAgent) {
-        // Don't set OFFLINE immediately — let the heartbeat/cleanup handle it.
+        // Don't set OFFLINE immediately ,  let the heartbeat/cleanup handle it.
         // This handles: network blips, multi-tab, page refresh gracefully.
         logger.info(`Agent socket disconnected: ${userName} (cleanup will handle status)`);
       } else {
@@ -732,7 +877,7 @@ export function setupSupportSocket(namespace: Namespace) {
           select: { id: true, status: true, assignedTo: true },
         }).catch(() => []);
 
-        // Close WAITING_AGENT chats immediately — no grace period needed
+        // Close WAITING_AGENT chats immediately ,  no grace period needed
         // (user is just in queue, no active conversation to protect)
         let hasWaitingAgent = false;
         for (const chat of activeChats) {
@@ -754,7 +899,7 @@ export function setupSupportSocket(namespace: Namespace) {
         const inProgressChats = activeChats.filter((c) => c.status === "IN_PROGRESS");
 
         if (inProgressChats.length > 0) {
-          logger.info(`User ${userName} disconnected — starting ${DISCONNECT_GRACE_MS / 1000}s grace period for ${inProgressChats.length} active chat(s)`);
+          logger.info(`User ${userName} disconnected ,  starting ${DISCONNECT_GRACE_MS / 1000}s grace period for ${inProgressChats.length} active chat(s)`);
 
           // Notify agent that user disconnected (show indicator)
           for (const chat of inProgressChats) {
@@ -767,7 +912,7 @@ export function setupSupportSocket(namespace: Namespace) {
 
           // Set a new 30-second timer for IN_PROGRESS chats only
           const timer = setTimeout(async () => {
-            logger.info(`Grace period expired for user ${userName} — closing active chats`);
+            logger.info(`Grace period expired for user ${userName} ,  closing active chats`);
 
             // Check if user reconnected while timer was pending
             if (!disconnectTimers.has(userId)) return;
@@ -780,11 +925,11 @@ export function setupSupportSocket(namespace: Namespace) {
               },
             }).catch(() => []);
 
-            // Check again after async DB query — user may have reconnected
+            // Check again after async DB query ,  user may have reconnected
             if (!disconnectTimers.has(userId)) return;
 
             for (const chat of chats) {
-              // Check before each DB operation — user may have reconnected
+              // Check before each DB operation ,  user may have reconnected
               if (!disconnectTimers.has(userId)) return;
 
               await prismaClient.conversation.update({
@@ -1104,7 +1249,7 @@ async function closeWaitingChatsAndNotify(
 
   let closedCount = 0;
   for (const chat of waitingChats) {
-    // Conditional update — only succeeds if still WAITING_AGENT
+    // Conditional update ,  only succeeds if still WAITING_AGENT
     const result = await prismaClient.conversation.updateMany({
       where: { id: chat.id, status: "WAITING_AGENT" },
       data: { status: "CLOSED", resolvedAt: new Date() },
