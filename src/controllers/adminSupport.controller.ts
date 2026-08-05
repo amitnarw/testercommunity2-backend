@@ -359,7 +359,7 @@ export const updateControlRoom = async (req: Request, res: Response) => {
     const payload = req.body.payload || req.body;
 
     const allowedFields = [
-       "profileSurveyPoints", "pointsWithdrawalLimit", "pointsWithdrawalThreshold",
+       "pointsWithdrawalLimit", "pointsWithdrawalThreshold",
        "humanChatEnabled", "countriesSupported", "bugsFound", "proAppsTested",
        "platformUptime", "uniqueDevices", "fastTurnaround",
        "landingHeading", "landingSubheading",

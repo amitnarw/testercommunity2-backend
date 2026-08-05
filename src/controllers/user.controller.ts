@@ -150,45 +150,6 @@ export const getUserProfileData = async (req: Request, res: Response) => {
   }
 };
 
-export const saveInitialProfileData = async (req: Request, res: Response) => {
-  try {
-    const response = await prismaClient?.userDetail?.findFirst({
-      where: {
-        userId: req?.userId,
-      },
-    });
-
-    await prismaClient?.userDetail?.update({
-      where: {
-        id: response?.id,
-      },
-      data: {
-        initial: false,
-      },
-    });
-
-    return sendSuccess(res, null, "Initial: true");
-  } catch (error) {
-    const auditLogPayloadFail: AuditLogPayload = {
-      actorId: req?.userId || "",
-      actorRole: req?.role as string,
-      module: "user",
-      action: "saveInitialProfileData",
-      targetId: req?.userId || "",
-      result: "fail",
-      reason: error instanceof Error ? error.message : "Unknown error",
-      ip: req?.userIpAddress || "",
-      ua: req?.userAgent || "",
-    };
-    return sendError(
-      res,
-      400,
-      error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail,
-    );
-  }
-};
-
 export const saveProfileData = async (req: Request, res: Response) => {
   try {
     const { payload }: { payload: UserDetail } = await req.body;
@@ -261,92 +222,9 @@ export const saveProfileData = async (req: Request, res: Response) => {
       },
     });
 
-    const isProfileComplete =
-      checkAllValues?.first_name &&
-      checkAllValues?.last_name &&
-      checkAllValues?.phone &&
-      checkAllValues?.auth_type &&
-      checkAllValues?.roleId &&
-      checkAllValues?.country &&
-      checkAllValues?.profile_type &&
-      checkAllValues?.job_role &&
-      checkAllValues?.company_name &&
-      checkAllValues?.company_size &&
-      checkAllValues?.position_in_company &&
-      checkAllValues?.company_website &&
-      checkAllValues?.experience_level &&
-      checkAllValues?.total_published_apps &&
-      checkAllValues?.platform_development &&
-      checkAllValues?.publish_frequency &&
-      checkAllValues?.service_usage &&
-      checkAllValues?.communication_methods?.length > 0 &&
-      // checkAllValues?.notification_preference?.length > 0 &&
-      checkAllValues?.device_company &&
-      checkAllValues?.device_model &&
-      checkAllValues?.ram &&
-      checkAllValues?.os &&
-      checkAllValues?.screen_resolution &&
-      checkAllValues?.language &&
-      checkAllValues?.network;
-
-    if (isProfileComplete) {
-      const controlData = await prismaClient?.controlRoom?.findFirst({ orderBy: { id: 'asc' } });
-      const checkUserTransaction =
-        await prismaClient?.userTransaction?.findFirst({
-          where: {
-            userId: req?.userId,
-            action: "BONUS",
-            points: controlData?.profileSurveyPoints || 200,
-            transactionType: "BONUS",
-            status: "CREDIT",
-          },
-        });
-
-      if (!checkUserTransaction?.id) {
-        const userWalletSave = await prismaClient?.userWallet?.upsert({
-          where: {
-            userId: req?.userId,
-          },
-          create: {
-            userId: req?.userId || "",
-            totalPoints: controlData?.profileSurveyPoints || 200,
-            totalPackages: 0,
-          },
-          update: {
-            totalPoints: {
-              increment: 200,
-            },
-          },
-        });
-
-        await prismaClient?.userTransaction?.create({
-          data: {
-            userId: req?.userId || "",
-            userWalletId: userWalletSave?.id,
-            action: "BONUS",
-            points: controlData?.profileSurveyPoints || 200,
-            transactionType: "BONUS",
-            status: "CREDIT",
-            // Profile survey bonus always credits POINTS
-            paymentMethod: "POINTS",
-          },
-        });
-        return sendSuccess(
-          res,
-          { pointsAwarded: true, status: "EARNED_NOW" },
-          "User profile data saved successfully",
-        );
-      } else {
-        return sendSuccess(
-          res,
-          { pointsAwarded: false, status: "ALREADY_EARNED" },
-          "User profile data saved successfully",
-        );
-      }
-    }
     return sendSuccess(
       res,
-      { pointsAwarded: false, status: "INCOMPLETE" },
+      { success: true, profileData: checkAllValues },
       "User profile data saved successfully",
     );
   } catch (error: any) {
@@ -1012,55 +890,6 @@ export const saveDiscoverySource = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
-    );
-  }
-};
-
-export const getEarnPoints = async (req: Request, res: Response) => {
-  try {
-    const userId = req?.userId;
-    if (!userId) {
-      return sendError(res, 401, "Unauthorized");
-    }
-
-    const controlData = await prismaClient?.controlRoom?.findFirst({ orderBy: { id: 'asc' } });
-    const checkUserTransaction = await prismaClient?.userTransaction?.findFirst(
-      {
-        where: {
-          userId: req?.userId,
-          action: "BONUS",
-          points: controlData?.profileSurveyPoints || 200,
-          transactionType: "BONUS",
-          status: "CREDIT",
-        },
-      },
-    );
-
-    return sendSuccess(
-      res,
-      {
-        surveyPoints: controlData?.profileSurveyPoints || 0,
-        surveyDone: checkUserTransaction ? true : false,
-      },
-      "ok",
-    );
-  } catch (error) {
-    const auditLogPayloadFail: AuditLogPayload = {
-      actorId: req?.userId || "",
-      actorRole: req?.role as string,
-      module: "user",
-      action: "getWalletData",
-      targetId: req?.userId || "",
-      result: "fail",
-      reason: error instanceof Error ? error.message : "Unknown error",
-      ip: req?.userIpAddress || "",
-      ua: req?.userAgent || "",
-    };
-    return sendError(
-      res,
-      400,
-      error instanceof Error ? error.message : "Unknown error",
-      auditLogPayloadFail,
     );
   }
 };
