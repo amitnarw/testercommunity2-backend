@@ -33,7 +33,7 @@ async function getHandshakePlanAmount(): Promise<number> {
   try {
     const plan = await prismaClient.plans.findFirst({
       where: { billingType: "SUBSCRIPTION", isActive: true },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ sequence: "desc" }, { createdAt: "desc" }],
     });
     if (plan && typeof plan.price === "number") {
       return Math.round(plan.price * 100);
@@ -93,7 +93,7 @@ export const getHandshakePlan = async (req: Request, res: Response) => {
   try {
     const plan = await prismaClient.plans.findFirst({
       where: { billingType: "SUBSCRIPTION", isActive: true },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ sequence: "desc" }, { createdAt: "desc" }],
     });
     if (!plan) {
       return sendSuccess(res, { plan: null }, "No handshake plan configured");

@@ -32,9 +32,11 @@ const PLAN_FIELDS = [
   "gradientFrom",
   "gradientTo",
   "customPriceLabel",
+  "customPriceSuffix",
   "isPopular",
   "sequence",
   "billingType",
+  "buttonAction",
   "isActive",
   "ctaLabel",
   "ctaHref",
@@ -52,9 +54,11 @@ const serializePlan = (p: any) => ({
   gradientFrom: p.gradientFrom ?? null,
   gradientTo: p.gradientTo ?? null,
   customPriceLabel: p.customPriceLabel ?? null,
+  customPriceSuffix: p.customPriceSuffix ?? null,
   isPopular: p.isPopular ?? false,
   sequence: p.sequence ?? 0,
   billingType: p.billingType ?? "ONE_TIME",
+  buttonAction: p.buttonAction ?? "BUY",
   isActive: p.isActive ?? true,
   ctaLabel: p.ctaLabel ?? null,
   ctaHref: p.ctaHref ?? null,
@@ -95,7 +99,7 @@ function sanitizePlanInput(payload: any): any {
       continue;
     }
 
-    if (field === "description" || field === "badgeText" || field === "customPriceLabel") {
+    if (field === "description" || field === "badgeText" || field === "customPriceLabel" || field === "customPriceSuffix") {
       if (value === null || value === "") data[field] = null;
       else if (typeof value === "string") data[field] = value.trim();
       continue;
@@ -125,8 +129,20 @@ function sanitizePlanInput(payload: any): any {
     }
 
     if (field === "billingType") {
-      if (value === "ONE_TIME" || value === "SUBSCRIPTION" || value === "CUSTOM") {
+      if (
+        value === "ONE_TIME" ||
+        value === "SUBSCRIPTION" ||
+        value === "CUSTOM" ||
+        value === "NONE"
+      ) {
         data.billingType = value;
+      }
+      continue;
+    }
+
+    if (field === "buttonAction") {
+      if (value === "BUY" || value === "REDIRECT" || value === "NONE") {
+        data.buttonAction = value;
       }
       continue;
     }
@@ -1202,9 +1218,11 @@ export const createAdminPlan = async (req: Request, res: Response) => {
         gradientFrom: data.gradientFrom ?? null,
         gradientTo: data.gradientTo ?? null,
         customPriceLabel: data.customPriceLabel ?? null,
+        customPriceSuffix: data.customPriceSuffix ?? null,
         isPopular: data.isPopular,
         sequence: data.sequence,
         billingType: data.billingType,
+        buttonAction: data.buttonAction ?? "BUY",
         isActive: data.isActive,
       },
     });
