@@ -51,6 +51,8 @@ model User {
   handshakeSubscriptions     HandshakeSubscription[]
   handshakeLevel             Int                         @default(1)
    handshakeCompletedCount    Int                         @default(0)
+   isActive                   Boolean                     @default(true)
+   deactivatedAt              DateTime?
    assignedMails              AdminMail[]                 @relation("AssignedMailUser")
    mailUser                   AdminMail[]                 @relation("MailUser")
 
@@ -210,9 +212,11 @@ model Plans {
   gradientFrom     String?
   gradientTo       String?
   customPriceLabel String?
+  customPriceSuffix String?
   isPopular        Boolean  @default(false)
   sequence        Int      @default(0)
   billingType      String   @default("ONE_TIME")
+  buttonAction     String   @default("BUY")
   isActive         Boolean  @default(true)
   ctaLabel         String?
   ctaHref          String?

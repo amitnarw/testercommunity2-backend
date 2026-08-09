@@ -419,8 +419,9 @@ export const addHubApp = async (req: Request, res: Response) => {
       statusDetails: JSON.parse(JSON.stringify(dashboardAndHub?.statusDetails)),
     };
 
-    // Create a chat for PAID apps (and potentially other app types)
-    if (isPaid && dashboardAndHubResult) {
+    // Create a chat for every submitted app so the Testing Manager is
+    // available immediately, including while the app is under review.
+    if (dashboardAndHubResult) {
       try {
         const { createAppChatIfNotExists } = await import("@/lib/appChat");
         const appName = androidAppData?.appName || "Untitled App";
@@ -430,7 +431,7 @@ export const addHubApp = async (req: Request, res: Response) => {
           appName,
         });
       } catch (error) {
-        logger.warn("Failed to create chat for PAID app", error);
+        logger.warn("Failed to create chat for app", error);
       }
     }
 

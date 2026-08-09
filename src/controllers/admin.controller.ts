@@ -3495,6 +3495,7 @@ export const updateBlog = async (req: Request, res: Response) => {
       category,
       isActive,
       date,
+      viewCount,
     } = payload;
 
     if (!id) return sendError(res, 400, "Blog ID is required");
@@ -3527,6 +3528,7 @@ export const updateBlog = async (req: Request, res: Response) => {
       category: category !== undefined ? category : undefined,
       isActive: isActive !== undefined ? isActive : undefined,
       date: date !== undefined ? new Date(date) : undefined,
+      viewCount: viewCount !== undefined ? Number(viewCount) : undefined,
     };
 
     // Remove undefined values

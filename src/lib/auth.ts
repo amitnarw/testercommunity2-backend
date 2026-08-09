@@ -183,6 +183,14 @@ export const auth = betterAuth({
           });
         }
 
+        if (user?.isActive === false) {
+          throw new APIError("FORBIDDEN", {
+            code: "ACCOUNT_INACTIVE",
+            message:
+              "Your account has been deactivated. Please reactivate from the login page to continue.",
+          });
+        }
+
         if (user?.userDetail?.banned) {
           const errorMessage = user.userDetail.ban_reason
             ? user.userDetail.ban_reason
@@ -395,6 +403,27 @@ export const auth = betterAuth({
       create: {
         before: async (session, ctx) => {
           if (!ctx) return;
+
+          const dbUser = await prismaClient?.user?.findUnique({
+            where: { id: session.userId },
+            select: { isActive: true, email: true },
+          });
+
+          if (dbUser?.isActive === false) {
+            const errorMessage =
+              "Your account has been deactivated. Please reactivate from the login page to continue.";
+
+            if (ctx.path && (ctx.path.startsWith("/callback") || ctx.path.startsWith("/oauth2/callback"))) {
+              const origin = process.env.CORS_ORIGIN?.split(",")[0] || "http://localhost:3000";
+              const inactiveURL = `${origin}/auth/deactivated?email=${encodeURIComponent(dbUser.email)}&reason=${encodeURIComponent(errorMessage)}`;
+              throw ctx.redirect(inactiveURL);
+            }
+
+            throw new APIError("FORBIDDEN", {
+              code: "ACCOUNT_INACTIVE",
+              message: errorMessage,
+            });
+          }
 
           const userDetail = await prismaClient?.userDetail?.findUnique({
             where: { userId: session.userId },

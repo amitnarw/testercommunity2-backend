@@ -12,6 +12,9 @@ import {
   saveDiscoverySource,
   saveProfileData,
   getEnterprisePlan,
+  toggleMyActiveStatus,
+  reactivateAccount,
+  checkEmailStatus,
 } from "@/controllers/user.controller";
 import { checkAuthentication } from "@/middlewares/checkAuthentication";
 // import { checkAuthorizationAccess } from "@/middlewares/checkAuthorization";
@@ -65,5 +68,13 @@ router.get("/get-user-wallet", checkAuthentication, getWalletData);
 router.get("/get-user-transactions", checkAuthentication, getUserTransactions);
 router.get("/get-immediate-attention", checkAuthentication, getUserImmediateAttention);
 router.get("/get-enterprise-plan", getEnterprisePlan);
+router.get("/check-email-status", checkEmailStatus);
+router.post(
+  "/me/status",
+  checkAuthentication,
+  decryptPayload,
+  toggleMyActiveStatus,
+);
+router.post("/reactivate", decryptPayload, reactivateAccount);
 
 export default router;

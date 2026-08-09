@@ -7,6 +7,9 @@ import DeviceDetector from "device-detector-js";
 import geoip from "geoip-lite";
 import { auth } from "@/lib/auth";
 import { fromNodeHeaders } from "better-auth/node";
+import { isRazorpayConfigured, getRazorpayInstance } from "@/lib/razorpay";
+import { verifyPassword } from "@/utils/passwordUtils";
+import logger from "@/utils/logger";
 
 function getLocation(ip: string | null) {
   if (!ip) return { city: "Unknown", region: "Unknown", country: "Unknown" };
@@ -920,5 +923,203 @@ export const getUserImmediateAttention = async (req: Request, res: Response) => 
     return sendSuccess(res, formatted, "ok");
   } catch (error) {
     return sendError(res, 500, error instanceof Error ? error.message : "Internal Server Error");
+  }
+};
+
+/**
+ * Public endpoint: returns minimal info about an email so the deactivated
+ * page can decide which reactivation UX to show. No sensitive fields leaked.
+ */
+export const checkEmailStatus = async (req: Request, res: Response) => {
+  try {
+    const email = (req.query?.email as string) || "";
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return sendError(res, 400, "A valid email is required");
+    }
+
+    const user = await prismaClient.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+      select: {
+        isActive: true,
+        userDetail: { select: { auth_type: true } },
+      },
+    });
+
+    if (!user) {
+      return sendSuccess(res, {
+        exists: false,
+        authType: null,
+        isActive: null,
+      });
+    }
+
+    return sendSuccess(res, {
+      exists: true,
+      authType: user.userDetail?.auth_type ?? null,
+      isActive: user.isActive,
+    });
+  } catch (error) {
+    logger.error("checkEmailStatus error:", error);
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+// ==================== ACCOUNT ACTIVE / INACTIVE ====================
+
+/**
+ * Toggle the current user's active status (soft deactivation / reactivation).
+ * When deactivating, any active Handshake subscription is cancelled on Razorpay.
+ */
+export const toggleMyActiveStatus = async (req: Request, res: Response) => {
+  try {
+    const userId = req?.userId;
+    if (!userId) {
+      return sendError(res, 401, "Unauthorized");
+    }
+
+    const payload = req.body?.payload ?? req.body;
+    const isActive = payload?.isActive;
+    if (typeof isActive !== "boolean") {
+      return sendError(res, 400, "isActive (boolean) is required");
+    }
+
+    const user = await prismaClient.user.findUnique({
+      where: { id: userId },
+      include: {
+        userDetail: { include: { role: { select: { name: true } } } },
+      },
+    });
+
+    if (!user) {
+      return sendError(res, 404, "User not found");
+    }
+
+    if (user.userDetail?.role?.name === "super_admin") {
+      return sendError(
+        res,
+        403,
+        "Super Admin accounts cannot be deactivated for safety and security reasons",
+      );
+    }
+
+    if (!isActive) {
+      const activeSubs = await prismaClient.handshakeSubscription.findMany({
+        where: {
+          userId,
+          status: { in: ["ACTIVE", "AUTHENTICATED", "PENDING", "CREATED"] },
+        },
+      });
+
+      for (const sub of activeSubs) {
+        if (isRazorpayConfigured()) {
+          try {
+            const razorpay = getRazorpayInstance();
+            await razorpay.subscriptions.cancel(sub.razorpaySubscriptionId, false);
+          } catch (cancelError) {
+            logger.warn(
+              "Razorpay subscription cancel failed during deactivation:",
+              cancelError,
+            );
+          }
+        }
+        await prismaClient.handshakeSubscription.update({
+          where: { id: sub.id },
+          data: { status: "CANCELLED" },
+        });
+      }
+    }
+
+    const updated = await prismaClient.user.update({
+      where: { id: userId },
+      data: { isActive, deactivatedAt: isActive ? null : new Date() },
+    });
+
+    return sendSuccess(
+      res,
+      {
+        isActive: updated.isActive,
+        deactivatedAt: updated.deactivatedAt?.toISOString() ?? null,
+      },
+      isActive ? "Account reactivated" : "Account deactivated",
+    );
+  } catch (error) {
+    logger.error("toggleMyActiveStatus error:", error);
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+/**
+ * Public reactivation endpoint used from the login screen.
+ * Requires the account's email + password to reactivate a deactivated account.
+ */
+export const reactivateAccount = async (req: Request, res: Response) => {
+  try {
+    const payload = req.body?.payload ?? req.body;
+    const email = payload?.email as string | undefined;
+    const password = payload?.password as string | undefined;
+
+    if (!email || !password) {
+      return sendError(res, 400, "Email and password are required");
+    }
+
+    const user = await prismaClient.user.findFirst({
+      where: {
+        email: { equals: email, mode: "insensitive" },
+      },
+      include: {
+        userDetail: { include: { role: { select: { name: true } } } },
+      },
+    });
+
+    if (!user) {
+      return sendError(res, 401, "Invalid email or password");
+    }
+
+    const account = await prismaClient.account.findFirst({
+      where: { userId: user.id, providerId: "credential" },
+    });
+
+    if (!account?.password) {
+      return sendError(res, 401, "Invalid email or password");
+    }
+
+    const passwordValid = await verifyPassword(password, account.password);
+    if (!passwordValid) {
+      return sendError(res, 401, "Invalid email or password");
+    }
+
+    if (user.userDetail?.role?.name === "super_admin") {
+      return sendError(
+        res,
+        403,
+        "Super Admin accounts cannot be reactivated through this flow",
+      );
+    }
+
+    if (user.isActive) {
+      return sendError(res, 400, "Account is already active");
+    }
+
+    await prismaClient.user.update({
+      where: { id: user.id },
+      data: { isActive: true, deactivatedAt: null },
+    });
+
+    return sendSuccess(res, "Account reactivated successfully", "ok");
+  } catch (error) {
+    logger.error("reactivateAccount error:", error);
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
   }
 };
