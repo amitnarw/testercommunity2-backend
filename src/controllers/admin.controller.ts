@@ -116,10 +116,10 @@ const LANDING_STAT_CARDS = [
         platformUptime: response.platformUptime ?? 99,
         uniqueDevices: response.uniqueDevices ?? 350,
         fastTurnaround: response.fastTurnaround ?? 48,
-        landingHeading: response.landingHeading ?? "The No.1 Google Play Testing Service",
+        landingHeading: response.landingHeading ?? "Closing Your Loop on Closed Testing, End to End",
         landingSubheading:
           response.landingSubheading ??
-          "inTesters is the Most Trusted and Reliable Google Play Closed Testing Service, loved by more than 1000+ Developers across 180+ countries.",
+          "From your first build to your Play Store submission, we run the cycle: 14 days, real devices, real activity, and the data Google actually asks for.",
         landingStatTitles: mergeStatField("title", response.landingStatTitles),
         landingStatDescriptions: mergeStatField("description", response.landingStatDescriptions),
         landingStatValues: mergeStatField("value", response.landingStatValues),
