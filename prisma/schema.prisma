@@ -53,6 +53,15 @@ model User {
    handshakeCompletedCount    Int                         @default(0)
    isActive                   Boolean                     @default(true)
    deactivatedAt              DateTime?
+   eliteBadge                 Boolean                     @default(false)
+   eliteBadgeAwardedAt        DateTime?
+   eliteBadgeAwardedBy        String?
+   eliteBadgeReason           String?
+   deprecatedHandshakeSubscriptionStatus String?
+   handshakeRequestsSent      HandshakeRequest[]          @relation("HandshakeRequestFromUser")
+   handshakeRequestsReceived  HandshakeRequest[]          @relation("HandshakeRequestToUser")
+   penaltyTasks               PenaltyTask[]
+   addOnPurchases             AddOnPurchase[]
    assignedMails              AdminMail[]                 @relation("AssignedMailUser")
    mailUser                   AdminMail[]                 @relation("MailUser")
 
@@ -119,12 +128,19 @@ model TesterRelation {
   joinedAt           DateTime                  @default(now())
   completedAt        DateTime?
   daysCompleted      Int                       @default(0)
+  /// S8-G1: true once this tester missed >=1 required day in the CURRENT
+  /// cycle. A completed handshake where either side has this flag does NOT
+  /// count toward that tester's level upgrade (spec: "miss even 1 day ->
+  /// doesn't count as successful testing"). Survives served-ledger cleanup.
+  hadMissSinceStart  Boolean                   @default(false)
   lastActivityAt     DateTime?
   statusDetails      Json?
   assignmentSource   TesterAssignmentSource    @default(SELF_JOIN)
   createdAt          DateTime                  @default(now())
   updatedAt          DateTime                  @updatedAt
   dailyVerifications DailyTesterVerification[]
+  missedDays         MissedDay[]
+  penaltyTasks       PenaltyTask[]
   dashboardAndHub    DashboardAndHub?          @relation(fields: [dashboardAndHubId], references: [id], onDelete: Cascade)
   offeredApp         DashboardAndHub?          @relation("OfferedAppRelation", fields: [offeredAppId], references: [id])
   tester             User                      @relation(fields: [testerId], references: [id])
@@ -148,9 +164,14 @@ model HandshakeLink {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
+  // P4: hourly cron sweeps findMany({status:"ACTIVE"}) and hot per-request
+  // paths findFirst on status + relation ids.
+  @@index([status])
   @@map("handshake_link")
 }
 
+/// @deprecated Legacy Razorpay subscription system. Retained as audit-only;
+/// Handshake Testing is now free. Do not reference from new code.
 model HandshakeSubscription {
   id                     Int                       @id @default(autoincrement())
   userId                 String
@@ -163,10 +184,161 @@ model HandshakeSubscription {
   totalCycles            Int
   createdAt              DateTime                  @default(now())
   updatedAt              DateTime                  @updatedAt
+  deprecatedAt           DateTime?
   user                   User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   payments               Payment[]
 
   @@map("handshake_subscription")
+}
+
+/// Handshake request between two developers. Distinct from TesterRelation:
+/// a request is an expression of intent that may be auto-matched (mutual),
+/// accepted one-sided, rejected, or expired before any testing relation is created.
+model HandshakeRequest {
+  id              Int                       @id @default(autoincrement())
+  fromUserId      String
+  toUserId        String
+  requestedAppId  Int
+  offeredAppId    Int?
+  status          HandshakeRequestStatus    @default(PENDING)
+  message         String?
+  rejectionReason String?
+  expiresAt       DateTime
+  respondedAt     DateTime?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  fromUser        User                      @relation("HandshakeRequestFromUser", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser          User                      @relation("HandshakeRequestToUser", fields: [toUserId], references: [id], onDelete: Cascade)
+  requestedApp    DashboardAndHub           @relation("HandshakeRequestRequestedApp", fields: [requestedAppId], references: [id], onDelete: Cascade)
+  offeredApp      DashboardAndHub?          @relation("HandshakeRequestOfferedApp", fields: [offeredAppId], references: [id], onDelete: SetNull)
+
+  @@index([toUserId, status, expiresAt])
+  @@index([fromUserId, status])
+  @@index([status, expiresAt])
+  @@map("handshake_request")
+}
+
+/// A penalty task assigned to a user who failed to complete required testing.
+/// Completion unblocks normal platform access. Multiple tasks may be assigned
+/// based on missed-day count (1 miss -> 1 task, 2 miss -> 2 tasks).
+model PenaltyTask {
+  id                Int                 @id @default(autoincrement())
+  userId            String
+  sourceRelationId  Int?
+  sourceCampaignId  Int?
+  reason            String
+  assignedAt        DateTime            @default(now())
+  completedAt       DateTime?
+  deadline          DateTime
+  status            PenaltyTaskStatus   @default(PENDING)
+  taskAppId         Int?
+  proofImageUrl     String?
+  verifiedByAdminId String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceRelation    TesterRelation?     @relation(fields: [sourceRelationId], references: [id], onDelete: SetNull)
+  sourceCampaign    DashboardAndHub?    @relation("PenaltyTaskSourceCampaign", fields: [sourceCampaignId], references: [id], onDelete: SetNull)
+  taskApp           DashboardAndHub?    @relation("PenaltyTaskTaskApp", fields: [taskAppId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@map("penalty_task")
+}
+
+/// Records each calendar day a tester missed on a given testing relation.
+/// Used to drive the staged penalty system.
+model MissedDay {
+  id               Int            @id @default(autoincrement())
+  testerRelationId Int
+  dayNumber        Int
+  recordedAt       DateTime       @default(now())
+  testerRelation   TesterRelation @relation(fields: [testerRelationId], references: [id], onDelete: Cascade)
+
+  @@unique([testerRelationId, dayNumber])
+  @@index([testerRelationId])
+  @@map("missed_day")
+}
+
+/// Catalog of paid add-ons available on the active campaign dashboard
+/// (Professional Tester, Priority Support, Extra Testing, etc).
+model AddOn {
+  id           Int                 @id @default(autoincrement())
+  name         String
+  description  String
+  priceINR     Int
+  category     AddOnCategory
+  isActive     Boolean             @default(true)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  purchases    AddOnPurchase[]
+
+  @@map("add_on")
+}
+
+/// Record of a user's purchase of an AddOn for a specific campaign.
+/// Triggers Razorpay one-time payment.
+model AddOnPurchase {
+  id               Int                       @id @default(autoincrement())
+  userId           String
+  campaignId       Int
+  addOnId          Int
+  razorpayOrderId  String?                   @unique
+  amountINR        Int
+  status           AddOnPurchaseStatus       @default(CREATED)
+  purchasedAt      DateTime?
+  refundedAt       DateTime?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  user             User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign         DashboardAndHub           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  addOn            AddOn                     @relation(fields: [addOnId], references: [id])
+
+  @@index([userId, status])
+  @@index([campaignId])
+  @@map("add_on_purchase")
+}
+
+/// Admin-assigned professional tester slot. When OPEN, the slot is waiting
+/// for a professional tester to claim it. FILLED when a tester accepts.
+model ProfessionalTesterAssignment {
+  id                Int                              @id @default(autoincrement())
+  campaignId        Int
+  assignedByAdminId String
+  professionalUserId String?
+  status            ProfessionalTesterStatus        @default(OPEN)
+  feeINR            Int                             @default(0)
+  assignedAt        DateTime                        @default(now())
+  filledAt          DateTime?
+  notes             String?
+  createdAt         DateTime                        @default(now())
+  updatedAt         DateTime                        @updatedAt
+  campaign          DashboardAndHub                 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, status])
+  @@map("professional_tester_assignment")
+}
+
+/// Level thresholds for the handshake level system.
+/// Per spec §33: L1=10, L2=25, L3=50, L4=100, L5=250, L6=500, L7=1000, L8=2500, L9=5000
+model LevelConfig {
+  level      Int      @id
+  threshold  Int      @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("level_config")
+}
+
+/// Admin-editable system configuration for handshake testing.
+/// Seeded with defaults: request expiry days, per-user request limit,
+/// 24h wait hours, professional tester fee.
+model SystemConfig {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@map("system_config")
 }
 
 model DailyTesterVerification {
@@ -308,10 +480,8 @@ model DashboardAndHub {
   currentTester            Int
   totalTester              Int
   currentDay               Int
-  totalDay                 Int
+  totalDay                 Int                    @default(16)
   instructionsForTester    String?
-  rewardPoints             Float?
-  costPoints               Float?
   rewardMoney              Float?
   costMoney                Float?
   averageTimeTesting       String?
@@ -323,6 +493,9 @@ model DashboardAndHub {
   updatedAt                DateTime               @updatedAt
   testingEndDate           DateTime?
   testingStartDate         DateTime?
+  testingStartEligibleAt   DateTime?
+  waitingPeriodStartedAt   DateTime?
+  escalatedToAdminAt       DateTime?
   activeTestersOverride    Int?
   bugCountOverride         Int?
   completedTestersOverride Int?
@@ -340,7 +513,16 @@ model DashboardAndHub {
   testers                  User[]                 @relation("DashboardAndHubTesters")
   playStoreDeclaration     PlayStoreDeclaration?
   appChatConversations     Conversation[]         @relation("AppTestingChat")
+  addOnPurchases           AddOnPurchase[]
+  professionalAssignments  ProfessionalTesterAssignment[]
+  handshakeRequestsAsTarget HandshakeRequest[]              @relation("HandshakeRequestRequestedApp")
+  handshakeRequestsAsOffer HandshakeRequest[]               @relation("HandshakeRequestOfferedApp")
+  penaltyTasksAsSource     PenaltyTask[]                   @relation("PenaltyTaskSourceCampaign")
+  penaltyTasksAsTask       PenaltyTask[]                   @relation("PenaltyTaskTaskApp")
 
+  // P4: every hub/dashboard query + transitionReadyCampaigns filters on
+  // (appType, status).
+  @@index([appType, status])
   @@map("dashboard_and_hub")
 }
 
@@ -576,9 +758,6 @@ model AgentStatus {
 
 model ControlRoom {
   id                        Int      @id @default(autoincrement())
-  profileSurveyPoints       Int?
-  pointsWithdrawalLimit     Int?
-  pointsWithdrawalThreshold Int?
   humanChatEnabled          Boolean  @default(true)
   countriesSupported        Int?
   bugsFound                 Int?
@@ -673,7 +852,10 @@ model UserTransaction {
   userWalletId      Int?
   dashboardAndHubId Int?
   action            EarningAction?
-  points            Float?                @default(0)
+  /// S9: generic transaction amount. Replaces the legacy `points` column,
+  /// which doubled as the amount slot for both points and money rows.
+  /// Historical values were copied over in the remove_points_economy migration.
+  amount            Float                 @default(0)
   package           Float?                @default(0)
   transactionType   UserTransactionType
   status            UserTransactionStatus
@@ -691,7 +873,6 @@ model UserTransaction {
 model UserWallet {
   id             Int               @id @default(autoincrement())
   userId         String            @unique
-  totalPoints    Float             @default(0)
   totalPackages  Float             @default(0)
   balanceMoney   Float             @default(0)
   lastUpdated    DateTime          @updatedAt
@@ -1231,6 +1412,9 @@ enum TesterStatus {
   DROPPED
   REMOVED
   REJECTED
+  MISSED
+  PENALIZED
+  REPLACED
 }
 
 enum TesterAssignmentSource {
@@ -1266,6 +1450,43 @@ enum HandshakeLinkStatus {
   CANCELLED
 }
 
+enum HandshakeRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+  MUTUAL_MATCHED
+}
+
+enum PenaltyTaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  EXPIRED
+  FAILED
+}
+
+enum AddOnCategory {
+  PROFESSIONAL_TESTER
+  PRIORITY_SUPPORT
+  EXTRA_TESTING
+}
+
+enum AddOnPurchaseStatus {
+  CREATED
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum ProfessionalTesterStatus {
+  OPEN
+  FILLED
+  COMPLETED
+  CANCELLED
+}
+
 enum HandshakeSubscriptionStatus {
   CREATED
   AUTHENTICATED
@@ -1278,11 +1499,19 @@ enum HandshakeSubscriptionStatus {
 }
 
 enum DashboardAndHubStatus {
-  IN_REVIEW
   DRAFT
+  PENDING_ADMIN_REVIEW
+  APPROVED
+  FINDING_TESTERS
+  WAITING_FOR_PARTNERS
+  TESTING_ACTIVE
+  COMPLETED
+  UNDER_ADMIN_REVIEW
+  SUSPENDED
+  REMOVED
+  IN_REVIEW
   REJECTED
   IN_TESTING
-  COMPLETED
   ON_HOLD
   REQUESTED
   AVAILABLE

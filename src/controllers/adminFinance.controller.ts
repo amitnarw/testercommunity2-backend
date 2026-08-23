@@ -11,10 +11,6 @@ import {
   getStateCodeFromName,
   COMPANY_DETAILS,
 } from "@/utils/invoice.utils";
-import {
-  getRazorpayInstance,
-  isRazorpayConfigured,
-} from "@/lib/razorpay";
 import { v4 as uuidv4 } from "uuid";
 
 const VALID_ACCENTS = ["primary", "emerald", "blue", "amber", "purple"];
@@ -185,10 +181,6 @@ export const getFinanceDashboard = async (req: Request, res: Response) => {
       _sum: { totalPackages: true },
     });
 
-    const totalPointsDistributed = await prismaClient.userWallet.aggregate({
-      _sum: { totalPoints: true },
-    });
-
     const totalTesterEarnings = await prismaClient.userWallet.aggregate({
       _sum: { balanceMoney: true },
     });
@@ -269,7 +261,6 @@ export const getFinanceDashboard = async (req: Request, res: Response) => {
         {} as Record<string, number>,
       ),
       packagesSold: Math.floor(totalPackagesSold._sum.totalPackages || 0),
-      pointsDistributed: Math.floor(totalPointsDistributed._sum.totalPoints || 0),
       testerEarnings: Math.floor(totalTesterEarnings._sum.balanceMoney || 0),
       pendingWithdrawalsCount,
       pendingWithdrawalsAmount: Math.round(pendingWithdrawalsAmount * 100) / 100,
@@ -389,9 +380,6 @@ export const getFinancePayments = async (req: Request, res: Response) => {
           user: { select: { id: true, name: true, email: true, image: true } },
           refunds: { select: { id: true, amount: true, status: true, reason: true } },
           invoice: { select: { id: true, invoice_number: true } },
-          handshakeSubscription: {
-            select: { id: true, status: true, razorpaySubscriptionId: true },
-          },
         },
         orderBy: { createdAt: "desc" },
         skip,
@@ -423,7 +411,6 @@ export const getFinancePayments = async (req: Request, res: Response) => {
         user: p.user,
         refunds: p.refunds,
         invoice: p.invoice,
-        handshakeSubscription: p.handshakeSubscription,
         createdAt: p.createdAt.toISOString(),
       })),
       pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
@@ -1135,11 +1122,17 @@ export const getUserWalletDetail = async (req: Request, res: Response) => {
     ]);
 
     return sendSuccess(res, {
-      wallet: wallet || { totalPoints: 0, totalPackages: 0, balanceMoney: 0 },
+      // S9-F2: totalPoints compat removed — wallet is packages + money.
+      wallet: wallet
+        ? { ...wallet }
+        : { totalPackages: 0, balanceMoney: 0 },
       transactions: transactions.map((t) => ({
         id: t.id,
         action: t.action,
-        points: t.points,
+        // S9-F5: generic amount; `isLegacyPoints` lets the UI skip the ₹
+        // prefix on pre-migration rows whose amount holds points.
+        amount: t.amount,
+        isLegacyPoints: t.paymentMethod === "POINTS",
         package: t.package,
         transactionType: t.transactionType,
         status: t.status,
@@ -1284,47 +1277,28 @@ export const reorderAdminPlans = async (req: Request, res: Response) => {
 const ACTIVE_SUB_STATUSES = ["ACTIVE", "AUTHENTICATED", "PENDING", "CREATED"] as any;
 
 /**
- * Cancel all active handshake subscriptions. For a SUBSCRIPTION plan delete
- * these are all handshake subscribers (razorpayPlanId holds the Razorpay
- * plan id, not the DB plan id, so we cancel them all).
+ * Mark all active handshake subscriptions as deprecated. The Handshake
+ * Subscription system has been removed; legacy rows are kept for audit only
+ * and are not actively cancelled on Razorpay here. Admins should handle
+ * historical refunds through the Razorpay dashboard if needed.
  */
-async function cancelSubscribersForPlan(immediate: boolean) {
+async function cancelSubscribersForPlan(_immediate: boolean) {
   const subs = await prismaClient.handshakeSubscription.findMany({
     where: {
       status: { in: ACTIVE_SUB_STATUSES },
     },
   });
 
-  let cancelled = 0;
-  let failed = 0;
-
-  if (isRazorpayConfigured()) {
-    const razorpay = getRazorpayInstance();
-    for (const sub of subs) {
-      try {
-        await razorpay.subscriptions.cancel(sub.razorpaySubscriptionId, immediate);
-        cancelled++;
-      } catch (e: any) {
-        logger.warn(
-          `Razorpay cancel failed for subscription ${sub.razorpaySubscriptionId}: ${e?.message || e}`,
-        );
-        failed++;
-      }
-    }
-  } else {
-    cancelled = subs.length;
-  }
-
   if (subs.length > 0) {
     await prismaClient.handshakeSubscription.updateMany({
       where: {
         status: { in: ACTIVE_SUB_STATUSES },
       },
-      data: { status: "CANCELLED" },
+      data: { status: "CANCELLED", deprecatedAt: new Date() },
     });
   }
 
-  return { total: subs.length, cancelled, failed };
+  return { total: subs.length, cancelled: subs.length, failed: 0 };
 }
 
 export const deleteAdminPlan = async (req: Request, res: Response) => {
@@ -1348,7 +1322,7 @@ export const deleteAdminPlan = async (req: Request, res: Response) => {
         return sendError(
           res,
           409,
-          `${subCount} active subscriber(s) exist. Cancel them all before deleting this plan?`,
+          `${subCount} active subscriber(s) exist. Mark them deprecated before deleting this plan?`,
           undefined,
           undefined,
           {
@@ -1361,14 +1335,7 @@ export const deleteAdminPlan = async (req: Request, res: Response) => {
     }
 
     if (confirmCancel) {
-      const result = await cancelSubscribersForPlan(true);
-      if (result.failed > 0) {
-        return sendError(
-          res,
-          409,
-          `${result.failed} of ${result.total} subscriptions could not be cancelled on Razorpay. Resolve before deleting.`,
-        );
-      }
+      await cancelSubscribersForPlan(true);
     }
 
     await prismaClient.plans.delete({ where: { id } });

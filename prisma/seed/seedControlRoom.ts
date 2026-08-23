@@ -12,9 +12,6 @@ export async function seedControlRoom() {
     await prisma.controlRoom.update({
       where: { id: existing.id },
       data: {
-        profileSurveyPoints: existing.profileSurveyPoints ?? 200,
-        pointsWithdrawalLimit: existing.pointsWithdrawalLimit ?? 2000,
-        pointsWithdrawalThreshold: existing.pointsWithdrawalThreshold ?? 20000,
         countriesSupported: existing.countriesSupported ?? 10,
         bugsFound: existing.bugsFound ?? 554,
         proAppsTested: existing.proAppsTested ?? 4200,
@@ -27,9 +24,6 @@ export async function seedControlRoom() {
   } else {
     await prisma.controlRoom.create({
       data: {
-        profileSurveyPoints: 200,
-        pointsWithdrawalLimit: 2000,
-        pointsWithdrawalThreshold: 20000,
         countriesSupported: 10,
         bugsFound: 554,
         proAppsTested: 4200,

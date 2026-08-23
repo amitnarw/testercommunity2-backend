@@ -7,6 +7,7 @@ import logger from "../utils/logger";
 import type { DashboardAndHubStatus } from "@prisma/client";
 import { deleteFunction } from "./r2.controller";
 import { extractPackageName } from "@/services/common";
+import { cancelPendingRequestsForCampaign } from "@/lib/handshake";
 
 export const getHubStats = async (req: Request, res: Response) => {
   try {
@@ -17,7 +18,6 @@ export const getHubStats = async (req: Request, res: Response) => {
     const response = await prismaClient.user.findUnique({
       where: { id: userId },
       select: {
-        wallet: { select: { totalPoints: true } },
         handshakeLevel: true,
         handshakeCompletedCount: true,
       },
@@ -60,8 +60,11 @@ export const getHubStats = async (req: Request, res: Response) => {
         appOwnerId: { not: userId },
         appType: "HANDSHAKE",
         testerRelations: {
+          // P2.6: only active participations hide a campaign (re-handshake
+          // after completion stays discoverable).
           none: {
             testerId: userId,
+            status: { in: ["PENDING", "IN_PROGRESS", "MISSED", "PENALIZED"] },
           },
         },
       },
@@ -76,7 +79,6 @@ export const getHubStats = async (req: Request, res: Response) => {
     });
 
     const finalResponse = {
-      wallet: response?.wallet?.totalPoints || 0,
       appsSubmitted,
       testersEngaged,
       testsCompleted,
@@ -153,15 +155,50 @@ export const addHubApp = async (req: Request, res: Response) => {
       minimum_android_version,
       total_tester,
       total_days,
-      points_cost,
-      promo_code,
       appType,
     } = payload;
 
     const isHandshake = appType === "HANDSHAKE";
     const isPaid = appType === "PAID";
 
-    if (
+    // P1.5: server-side penalty gate (spec §30) ,  penalized users may not
+    // publish new handshake campaigns until they serve their tasks.
+    if (isHandshake) {
+      const { getActivePenaltyCount } = await import("@/lib/handshake");
+      if ((await getActivePenaltyCount(req.userId!)) > 0) {
+        return sendError(
+          res,
+          423,
+          "You have an active penalty that must be served before publishing new handshake apps",
+          undefined,
+          undefined,
+          {
+            blocked: true,
+            reason: "Active penalty ,  see /handshake-testing/penalty",
+          },
+        );
+      }
+    }
+
+    // Spec §5.1: handshake apps only require App Name, Icon, Link.
+    // All other fields (description, screenshots) are optional for HANDSHAKE.
+    // Spec §23: testing period defaults to 16 days for handshake.
+    if (isHandshake) {
+      if (
+        !app_name ||
+        !app_url ||
+        !app_logo_url ||
+        !category_id ||
+        minimum_android_version === undefined ||
+        minimum_android_version === null
+      ) {
+        return sendError(
+          res,
+          400,
+          "For Handshake apps, app_name, app_url, app_logo_url, category_id, minimum_android_version are required",
+        );
+      }
+    } else if (
       !app_name ||
       !app_url ||
       !app_logo_url ||
@@ -174,8 +211,7 @@ export const addHubApp = async (req: Request, res: Response) => {
       total_tester === undefined ||
       total_tester === null ||
       total_days === undefined ||
-      total_days === null ||
-      ((!isHandshake && !isPaid) && (points_cost === undefined || points_cost === null))
+      total_days === null
     ) {
       return sendError(
         res,
@@ -214,95 +250,9 @@ export const addHubApp = async (req: Request, res: Response) => {
 
     const package_name = extractPackageName(app_url);
 
-    // Handshake testing is gated behind an active subscription (no points cost)
-    if (isHandshake) {
-      const { hasActiveHandshakeSubscription } = await import(
-        "@/controllers/subscription.controller"
-      );
-      const active = await hasActiveHandshakeSubscription(req.userId!);
-      if (!active) {
-        return sendError(
-          res,
-          403,
-          "An active handshake testing subscription is required to publish an app",
-          undefined,
-          undefined,
-          { subscriptionRequired: true },
-        );
-      }
-    }
-
-    // Transparency Validation: Calculate cost on server to prevent tampering
-    const baseTesterRate = 80;
-    const baseDayRate = 10;
-    const expectedCost =
-      total_tester * baseTesterRate + total_days * baseDayRate;
-
-    let final_points_cost = isHandshake ? 0 : points_cost;
-    let appliedPromoCodeId: number | null = null;
-
-    if (!isHandshake && !isPaid) {
-      if (points_cost < expectedCost && !promo_code) {
-        return sendError(
-          res,
-          400,
-          `Invalid points cost. Expected at least ${expectedCost} points.`,
-        );
-      }
-
-      if (promo_code) {
-        const normalizedPromoCode = promo_code.trim().toUpperCase();
-        if (!/^[A-Z0-9]{3,20}$/.test(normalizedPromoCode)) {
-          return sendError(res, 400, "Promo code must be 3-20 alphanumeric characters");
-        }
-
-        const dbPromo = await prismaClient.promoCode.findUnique({
-          where: { code: normalizedPromoCode },
-        });
-
-        if (!dbPromo || !dbPromo.isActive) {
-          return sendError(res, 400, "Invalid or inactive promo code.");
-        }
-
-        if (dbPromo.maxUses && dbPromo.usedCount >= dbPromo.maxUses) {
-          return sendError(res, 400, "Promo code usage limit reached.");
-        }
-
-        if (dbPromo.maxPerUser) {
-          const usage = await prismaClient.userPromoUsage.findUnique({
-            where: {
-              userId_promoCodeId: {
-                userId: req.userId!,
-                promoCodeId: dbPromo.id,
-              },
-            },
-          });
-
-          if (usage && usage.usedCount >= dbPromo.maxPerUser) {
-            return sendError(
-              res,
-              400,
-              `You have already used this promo code ${dbPromo.maxPerUser} times.`,
-            );
-          }
-        }
-
-        if (dbPromo.discountType === "PERCENTAGE") {
-          final_points_cost = Math.max(0, expectedCost * (1 - dbPromo.discountValue / 100));
-        } else {
-          final_points_cost = dbPromo.discountValue;
-        }
-        appliedPromoCodeId = dbPromo.id;
-      }
-
-      const userWallet = await prismaClient.userWallet.findUnique({
-        where: { userId: req.userId! },
-      });
-
-      if (final_points_cost > 0 && (!userWallet || userWallet.totalPoints < final_points_cost)) {
-        return sendError(res, 400, "Insufficient points balance.");
-      }
-    }
+    // S9: the legacy points economy (points cost validation, promo-discounted
+    // points pricing, wallet balance gate, and the points debit) has been
+    // removed — the platform runs on HANDSHAKE barter + Pro packages/money.
 
     const { androidAppData, dashboardAndHub } = await prismaClient.$transaction(
       async (tx) => {
@@ -310,13 +260,33 @@ export const addHubApp = async (req: Request, res: Response) => {
           data: {
             appName: app_name,
             appLogoUrl: app_logo_url,
-            appScreenshotUrl1: app_screenshot_url_1,
-            appScreenshotUrl2: app_screenshot_url_2,
+            // Spec §5.1: screenshots optional for HANDSHAKE
+            appScreenshotUrl1: isHandshake
+              ? (app_screenshot_url_1 || "")
+              : app_screenshot_url_1,
+            appScreenshotUrl2: isHandshake
+              ? (app_screenshot_url_2 || "")
+              : app_screenshot_url_2,
             appCategoryId: Number(category_id),
             packageName: package_name || "",
-            description: app_description,
+            description: isHandshake ? (app_description || "") : app_description,
           },
         });
+
+        // Spec v2: handshake campaigns are FIXED at 14 testers x 16 days.
+        // Client-sent values are ignored; admins can adjust post-approval.
+        let resolvedTotalDays =
+          total_days !== undefined && total_days !== null
+            ? total_days
+            : 14;
+        let resolvedTotalTester =
+          total_tester !== undefined && total_tester !== null
+            ? Number(total_tester)
+            : 0;
+        if (isHandshake) {
+          resolvedTotalTester = 14;
+          resolvedTotalDays = 16;
+        }
 
         const dashboardAndHub = await tx?.dashboardAndHub?.create({
           data: {
@@ -324,72 +294,15 @@ export const addHubApp = async (req: Request, res: Response) => {
             appOwnerId: req?.userId || "",
             appType: isPaid ? "PAID" : (isHandshake ? "HANDSHAKE" : "FREE"),
             currentTester: 0,
-            totalTester: total_tester,
+            totalTester: resolvedTotalTester,
             currentDay: 0,
-            totalDay: total_days,
+            totalDay: resolvedTotalDays,
             instructionsForTester: instruction_for_tester,
-            costPoints: isHandshake ? 0 : (isPaid ? final_points_cost : 0),
-            rewardPoints: 0,
             // averageTimeTesting
             minimumAndroidVersion: minimum_android_version,
             status: "IN_REVIEW",
-            promoCodeId: isPaid ? appliedPromoCodeId : null,
           },
         });
-
-        let walletData = null;
-        if (!isHandshake && isPaid) {
-          walletData = await tx?.userWallet?.update({
-            where: {
-              userId: req?.userId,
-            },
-            data: {
-              totalPoints: {
-                decrement: final_points_cost,
-              },
-            },
-          });
-        }
-
-        if (appliedPromoCodeId) {
-          await tx?.promoCode?.update({
-            where: { id: appliedPromoCodeId },
-            data: { usedCount: { increment: 1 } },
-          });
-
-          await tx.userPromoUsage.upsert({
-            where: {
-              userId_promoCodeId: {
-                userId: req.userId!,
-                promoCodeId: appliedPromoCodeId,
-              },
-            },
-            create: {
-              userId: req.userId!,
-              promoCodeId: appliedPromoCodeId,
-              usedCount: 1,
-            },
-            update: {
-              usedCount: { increment: 1 },
-            },
-          });
-        }
-
-        if (isPaid) {
-          await tx?.userTransaction?.create({
-            data: {
-              userId: req.userId || "",
-              userWalletId: walletData?.id,
-              dashboardAndHubId: dashboardAndHub?.id,
-              action: "TESTING",
-              points: final_points_cost,
-              transactionType: "PURCHASE",
-              status: "DEBIT",
-              // PROMO_FREE when a promo made cost exactly 0; otherwise the user paid with POINTS
-              paymentMethod: (appliedPromoCodeId && final_points_cost === 0) ? "PROMO_FREE" : "POINTS",
-            },
-          });
-        }
 
         await tx?.userActivity?.create({
           data: {
@@ -401,9 +314,7 @@ export const addHubApp = async (req: Request, res: Response) => {
               ? `${app_description} (Paid)`
               : isHandshake
                 ? `${app_description} (Handshake)`
-                : appliedPromoCodeId
-                  ? `${app_description} (Promo: ${promo_code})`
-                  : app_description,
+                : app_description,
             ipAddress: req?.userIpAddress,
             userAgent: req?.userAgent,
             status: "SUCCESS",
@@ -465,10 +376,25 @@ export const getHubSubmittedApp = async (req: Request, res: Response) => {
       return sendError(res, 400, "Please send type filter");
     }
 
+    // P2.9: the owner-facing "testing" bucket must include the full v2
+    // lifecycle ,  WAITING_FOR_PARTNERS (24h window) and TESTING_ACTIVE
+    // campaigns were previously invisible in every tab of My Submissions,
+    // leaving owners without UI access to testers/chat/completion.
+    const statusFilter =
+      type === "IN_TESTING"
+        ? {
+            in: [
+              "IN_TESTING",
+              "WAITING_FOR_PARTNERS",
+              "TESTING_ACTIVE",
+            ] as DashboardAndHubStatus[],
+          }
+        : (type as DashboardAndHubStatus);
+
     const hubSubmittedApp = await prismaClient?.dashboardAndHub?.findMany({
       where: {
         appOwnerId: req?.userId,
-        status: type as DashboardAndHubStatus,
+        status: statusFilter,
         appType: "HANDSHAKE",
       },
       include: {
@@ -667,7 +593,18 @@ export const getSubmittedAppsCount = async (req: Request, res: Response) => {
     );
 
     for (const item of appStatusCounts) {
-      result[item.status] = item._count._all;
+      // P2.9: fold the v2 waiting/active states into IN_TESTING so owner
+      // dashboards counting `IN_TESTING + AVAILABLE` see the whole lifecycle.
+      if (
+        item.status === "WAITING_FOR_PARTNERS" ||
+        item.status === "TESTING_ACTIVE"
+      ) {
+        result["IN_TESTING"] += item._count._all;
+        continue;
+      }
+      if (item.status in result) {
+        result[item.status] = item._count._all;
+      }
     }
 
     return sendSuccess(res, result, "ok");
@@ -709,9 +646,23 @@ export const getHubApps = async (req: Request, res: Response) => {
 
     if (type === "AVAILABLE") {
       whereCond.status = "AVAILABLE";
+      // P2.6: exclude only ACTIVE participations ,  campaigns where the user
+      // has a COMPLETED/REJECTED/REPLACED/DROPPED history stay discoverable
+      // so spec §11 re-handshake-after-completion works from the Available
+      // tab (previously `none: { testerId }` hid them forever).
       whereCond.testerRelations = {
         none: {
           testerId: req?.userId,
+          status: { in: ["PENDING", "IN_PROGRESS", "MISSED", "PENALIZED"] },
+        },
+      };
+      // S8-G3: hide campaigns I've sent a still-pending request for, so the
+      // next handshake goes to a fresh developer (spec: "their campaign will
+      // be hidden from the handshake page").
+      whereCond.handshakeRequestsAsTarget = {
+        none: {
+          fromUserId: req?.userId,
+          status: "PENDING",
         },
       };
     } else if (type === "REQUESTED") {
@@ -738,8 +689,11 @@ export const getHubApps = async (req: Request, res: Response) => {
         },
       };
     } else if (type === "IN_TESTING") {
-      // Active testing: User is IN_PROGRESS and App is IN_TESTING
-      whereCond.status = "IN_TESTING";
+      // Active testing: User is IN_PROGRESS and App is in an active-testing
+      // state. S7-5: HANDSHAKE campaigns live in TESTING_ACTIVE while legacy
+      // FREE/PAID use IN_TESTING ,  include both so the hub Running tab shows
+      // every active campaign.
+      whereCond.status = { in: ["IN_TESTING", "TESTING_ACTIVE"] };
       whereCond.testerRelations = {
         some: {
           testerId: req?.userId,
@@ -763,6 +717,17 @@ export const getHubApps = async (req: Request, res: Response) => {
         androidApp: {
           include: {
             appCategory: true,
+          },
+        },
+        // S5a-1: expose owner identity + level/badge so the frontend
+        // DeveloperCard can render real data (was previously undefined).
+        appOwner: {
+          select: {
+            id: true,
+            name: true,
+            image: true,
+            handshakeLevel: true,
+            eliteBadge: true,
           },
         },
         testerRelations: {
@@ -984,7 +949,17 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
             },
           },
         },
-        appOwner: true,
+        // P1.4: project only public fields ,  full User scalars (email etc.)
+        // must not leak to every viewer of the campaign detail.
+        appOwner: {
+          select: {
+            id: true,
+            name: true,
+            image: true,
+            handshakeLevel: true,
+            eliteBadge: true,
+          },
+        },
         feedback: {
           orderBy: {
             createdAt: "desc",
@@ -1020,6 +995,8 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
                 email: true,
                 image: true,
                 createdAt: true,
+                handshakeLevel: true,
+                eliteBadge: true,
                 userDetail: {
                   select: {
                     country: true,
@@ -1173,6 +1150,77 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
 
     // Handshake enrichment: attach partner + block status for the viewing tester
     if (hubAppDetails?.appType === "HANDSHAKE") {
+      const appId = Number(id);
+      const ownerId = hubAppDetails.appOwnerId;
+      // S11-B1/B2: surface pending v2 handshake requests so the detail page
+      // can offer Accept/Reject (owner's pending request to viewer) instead of
+      // the generic join CTA, and show "Request sent" (viewer's own pending).
+      if (req?.userId && ownerId && ownerId !== req.userId) {
+        const [pendingIncomingRequest, myPendingOutgoingRequest] =
+          await Promise.all([
+            prismaClient.handshakeRequest.findFirst({
+              where: {
+                fromUserId: ownerId,
+                toUserId: req.userId,
+                offeredAppId: appId,
+                status: "PENDING",
+              },
+              orderBy: { createdAt: "desc" },
+              select: {
+                id: true,
+                message: true,
+                expiresAt: true,
+                createdAt: true,
+                fromUser: {
+                  select: { id: true, name: true, image: true },
+                },
+              },
+            }),
+            prismaClient.handshakeRequest.findFirst({
+              where: {
+                fromUserId: req.userId,
+                toUserId: ownerId,
+                requestedAppId: appId,
+                status: "PENDING",
+              },
+              orderBy: { createdAt: "desc" },
+              select: {
+                id: true,
+                expiresAt: true,
+                createdAt: true,
+                offeredApp: {
+                  select: {
+                    id: true,
+                    androidApp: {
+                      select: { appName: true, appLogoUrl: true },
+                    },
+                  },
+                },
+              },
+            }),
+          ]);
+        result.handshake = {
+          ...(result.handshake || {}),
+          pendingIncomingRequest: pendingIncomingRequest
+            ? {
+                id: pendingIncomingRequest.id,
+                message: pendingIncomingRequest.message,
+                expiresAt: pendingIncomingRequest.expiresAt,
+                createdAt: pendingIncomingRequest.createdAt,
+                fromUser: pendingIncomingRequest.fromUser,
+              }
+            : null,
+          myPendingOutgoingRequest: myPendingOutgoingRequest
+            ? {
+                id: myPendingOutgoingRequest.id,
+                expiresAt: myPendingOutgoingRequest.expiresAt,
+                createdAt: myPendingOutgoingRequest.createdAt,
+                offeredApp: myPendingOutgoingRequest.offeredApp,
+              }
+            : null,
+        };
+      }
+
       const myRelation = (result.testerRelations || []).find(
         (tr: any) => tr.testerId === req.userId,
       );
@@ -1189,41 +1237,60 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
             relationA: {
               include: {
                 dashboardAndHub: {
-                  include: { androidApp: true, appOwner: true },
+                  // P1.4: public-fields-only projection (see above).
+                  include: {
+                    androidApp: true,
+                    appOwner: {
+                      select: {
+                        id: true,
+                        name: true,
+                        image: true,
+                        handshakeLevel: true,
+                        eliteBadge: true,
+                      },
+                    },
+                  },
                 },
               },
             },
             relationB: {
               include: {
                 dashboardAndHub: {
-                  include: { androidApp: true, appOwner: true },
+                  include: {
+                    androidApp: true,
+                    appOwner: {
+                      select: {
+                        id: true,
+                        name: true,
+                        image: true,
+                        handshakeLevel: true,
+                        eliteBadge: true,
+                      },
+                    },
+                  },
                 },
               },
             },
           },
         });
         if (link) {
-          const { processSkipPenalty, getBlockStatus } = await import(
-            "@/lib/handshake"
-          );
-          await processSkipPenalty(link.id);
-          const refreshed = await prismaClient.handshakeLink.findUnique({
-            where: { id: link.id },
+          const { processStagedPenalty } = await import("@/lib/handshake");
+          await processStagedPenalty(link.id);
+          const isA = link.relationAId === myRelation.id;
+          const partnerRelation = isA ? link.relationB : link.relationA;
+          const activePenalties = await prismaClient.penaltyTask.count({
+            where: {
+              userId: req.userId,
+              status: { in: ["PENDING", "IN_PROGRESS"] },
+            },
           });
-          if (refreshed) {
-            const isA = link.relationAId === myRelation.id;
-            const block = await getBlockStatus(refreshed, isA ? "A" : "B");
-            const partnerRelation = isA
-              ? link.relationB
-              : link.relationA;
-            result.handshake = {
-              linkId: link.id,
-              isBlocked: block.isBlocked,
-              blockedUntil: block.blockedUntil,
-              partnerApp: partnerRelation.dashboardAndHub?.androidApp,
-              partnerOwner: partnerRelation.dashboardAndHub?.appOwner,
-            };
-          }
+          result.handshake = {
+            linkId: link.id,
+            isBlocked: activePenalties > 0,
+            penaltyCount: activePenalties,
+            partnerApp: partnerRelation.dashboardAndHub?.androidApp,
+            partnerOwner: partnerRelation.dashboardAndHub?.appOwner,
+          };
         }
       }
     }
@@ -1267,20 +1334,42 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
         id: Number(hub_id),
         status: "AVAILABLE",
         appOwnerId: { not: req?.userId },
-        testerRelations: {
-          none: {
-            testerId: req?.userId,
-            dashboardAndHubId: Number(hub_id),
-          },
-        },
       },
       include: {
         androidApp: true,
       },
     });
 
+    if (!checkTester) {
+      return sendError(res, 404, "Application not found or not accepting requests");
+    }
+
+    // S7-3: friendly pre-check for an existing relation (the old
+    // `testerRelations.none` filter permanently locked out re-requests after
+    // rejection/completion with a misleading "owner is not accepting" error).
+    const existingRelation = await prismaClient?.testerRelation?.findUnique({
+      where: {
+        testerId_dashboardAndHubId: {
+          testerId: req?.userId || "",
+          dashboardAndHubId: Number(hub_id),
+        },
+      },
+      select: { id: true, status: true, isActive: true },
+    });
     if (
-      !checkTester ||
+      existingRelation &&
+      ["PENDING", "IN_PROGRESS", "MISSED", "PENALIZED"].includes(
+        existingRelation.status,
+      )
+    ) {
+      return sendError(
+        res,
+        409,
+        `You already have a ${existingRelation.status === "PENDING" ? "pending request" : "active participation"} for this app`,
+      );
+    }
+
+    if (
       checkTester?.currentTester === null ||
       checkTester?.currentTester === undefined ||
       !checkTester?.totalTester ||
@@ -1294,6 +1383,25 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
     }
 
     const isHandshake = checkTester.appType === "HANDSHAKE";
+
+    // P1.5: server-side penalty gate (spec §30) ,  penalized users may not
+    // join new handshake campaigns until they serve their tasks.
+    if (isHandshake) {
+      const { getActivePenaltyCount } = await import("@/lib/handshake");
+      if ((await getActivePenaltyCount(req.userId!)) > 0) {
+        return sendError(
+          res,
+          423,
+          "You have an active penalty that must be served before joining new handshake tests",
+          undefined,
+          undefined,
+          {
+            blocked: true,
+            reason: "Active penalty ,  see /handshake-testing/penalty",
+          },
+        );
+      }
+    }
 
     // Handshake-specific validation
     if (isHandshake) {
@@ -1366,15 +1474,33 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
     }
 
     await prismaClient.$transaction(async (tx) => {
-      await tx?.testerRelation?.create({
-        data: {
-          testerId: req?.userId || "",
-          dashboardAndHubId: Number(hub_id),
-          offeredAppId: isHandshake ? Number(offered_app_id) : null,
-          isActive: true,
-          status: "PENDING",
-          daysCompleted: 0,
-        },
+      // P2.12: re-check the requester's slot cap INSIDE the tx ,  the
+      // pre-tx check alone raced concurrent mutual matches and could push a
+      // user past their level cap.
+      if (isHandshake) {
+        const { getAvailableSlots, getActiveHandshakeCount } = await import(
+          "@/lib/handshake"
+        );
+        const user = await tx.user.findUnique({
+          where: { id: req.userId! },
+          select: { handshakeLevel: true },
+        });
+        const level = user?.handshakeLevel || 1;
+        const slots = getAvailableSlots(level);
+        const activeCount = await getActiveHandshakeCount(req.userId!);
+        if (activeCount >= slots) {
+          throw new Error("__JOINER_SLOTS_EXHAUSTED__");
+        }
+      }
+
+      // S7-3: create-or-reuse (terminal rows are reactivated to PENDING so
+      // re-requests after rejection/completion work per spec §11).
+      const { upsertTesterRelation } = await import("@/lib/handshake");
+      await upsertTesterRelation(tx, {
+        testerId: req?.userId || "",
+        hubId: Number(hub_id),
+        reactivateStatus: "PENDING",
+        offeredAppId: isHandshake ? Number(offered_app_id) : null,
       });
 
       await tx?.userActivity?.create({
@@ -1407,6 +1533,24 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
 
     return sendSuccess(res, null, "Tester join request sent successfully");
   } catch (error) {
+    // S7-3: map the shared helper's sentinel to a friendly 409.
+    if (error instanceof Error && error.message === "__ALREADY_PARTICIPATING__") {
+      return sendError(
+        res,
+        409,
+        "You already have a pending request or active participation for this app",
+      );
+    }
+    if (error instanceof Error && error.message === "__JOINER_SLOTS_EXHAUSTED__") {
+      return sendError(
+        res,
+        409,
+        "You have reached your handshake limit. Level up to unlock more.",
+        undefined,
+        undefined,
+        { slotsExhausted: true },
+      );
+    }
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
@@ -1460,6 +1604,11 @@ export const acceptSubmittedHubAppTestingRequest = async (
 
     if (!checkTester || !checkTester?.totalTester) {
       return sendError(res, 409, "Submitted App not found");
+    }
+
+    // Ownership guard: only the campaign owner may accept join requests.
+    if (checkTester.appOwnerId !== req.userId) {
+      return sendError(res, 403, "Only the app owner can accept this request");
     }
 
     const testerRequest = await prismaClient?.testerRelation?.findFirst({
@@ -1529,6 +1678,25 @@ export const acceptSubmittedHubAppTestingRequest = async (
     }
 
     await prismaClient.$transaction(async (tx) => {
+      // P2.12: re-validate the requester's slot cap INSIDE the transaction ,
+      // between request time and accept time they may have consumed slots via
+      // mutual matches elsewhere; acceptance must not push them over the cap.
+      if (isHandshake) {
+        const { getAvailableSlots, getActiveHandshakeCount } = await import(
+          "@/lib/handshake"
+        );
+        const reqUser = await tx.user.findUnique({
+          where: { id: tester_id },
+          select: { handshakeLevel: true },
+        });
+        const reqLevel = reqUser?.handshakeLevel || 1;
+        const reqSlots = getAvailableSlots(reqLevel);
+        const reqActive = await getActiveHandshakeCount(tester_id);
+        if (reqActive >= reqSlots) {
+          throw new Error("__REQUESTER_SLOTS_EXHAUSTED__");
+        }
+      }
+
       await tx?.testerRelation?.update({
         where: {
           id: testerRequest?.id,
@@ -1541,49 +1709,166 @@ export const acceptSubmittedHubAppTestingRequest = async (
       let reciprocalRelationId: number | null = null;
       if (isHandshake && offeredApp) {
         // App owner (checkTester.appOwnerId) becomes a tester of the requester's offered app.
-        const reciprocal = await tx?.testerRelation?.create({
-          data: {
-            testerId: checkTester.appOwnerId,
-            dashboardAndHubId: offeredApp.id,
-            isActive: true,
-            status: "IN_PROGRESS",
-            daysCompleted: 0,
-          },
+        // S7-3: create-or-reuse so a terminal row from an earlier cycle
+        // doesn't die on the unique constraint with a raw P2002.
+        const { upsertTesterRelation } = await import("@/lib/handshake");
+        const reciprocal = await upsertTesterRelation(tx, {
+          testerId: checkTester.appOwnerId,
+          hubId: offeredApp.id,
+          reactivateStatus: "IN_PROGRESS",
         });
         reciprocalRelationId = reciprocal?.id ?? null;
 
         // Increment tester count on the offered app too.
-        const offeredDataValues: any = { currentTester: { increment: 1 } };
-        if (offeredApp.currentTester + 1 === offeredApp.totalTester) {
-          offeredDataValues.status = "IN_TESTING";
-          const now = new Date();
-          offeredDataValues.testingStartDate = now;
-          offeredDataValues.testingEndDate = new Date(
-            now.getTime() + (offeredApp.totalDay || 14) * 24 * 60 * 60 * 1000
-          );
-        }
-        await tx?.dashboardAndHub?.update({
-          where: { id: offeredApp.id },
-          data: offeredDataValues,
+        // H-B7 (S4c-4) + S6-6/S6-7: atomic conditional increment restricted
+        // to actively-recruiting statuses, then an appType-gated transition
+        // derived from the POST-increment row. HANDSHAKE enters the 24h
+        // WAITING_FOR_PARTNERS window; FREE/PAID keep legacy immediate
+        // IN_TESTING activation.
+        const offeredInc = await tx?.dashboardAndHub?.updateMany({
+          where: {
+            id: offeredApp.id,
+            status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+            currentTester: { lt: offeredApp.totalTester },
+          },
+          data: { currentTester: { increment: 1 } },
         });
+        if (offeredInc?.count === 0) {
+          throw new Error("__SLOT_FULL__");
+        }
+        const offeredFresh = await tx?.dashboardAndHub?.findUnique({
+          where: { id: offeredApp.id },
+          select: {
+            currentTester: true,
+            totalTester: true,
+            status: true,
+            appType: true,
+          },
+        });
+        const offeredRecruiting =
+          !!offeredFresh &&
+          offeredFresh.totalTester > 0 &&
+          offeredFresh.currentTester >= offeredFresh.totalTester &&
+          (offeredFresh.status === "AVAILABLE" ||
+            offeredFresh.status === "FINDING_TESTERS");
+        if (offeredRecruiting) {
+          const now = new Date();
+          if (offeredFresh!.appType === "HANDSHAKE") {
+            // Spec §11, §13: 24-hour waiting period before testing starts.
+            await tx?.dashboardAndHub?.updateMany({
+              where: {
+                id: offeredApp.id,
+                status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+                currentTester: { gte: offeredFresh!.totalTester },
+              },
+              data: {
+                status: "WAITING_FOR_PARTNERS",
+                waitingPeriodStartedAt: now,
+                testingStartEligibleAt: new Date(
+                  now.getTime() + 24 * 60 * 60 * 1000,
+                ),
+              },
+            });
+            // S8-G4: campaign is full — cancel other pending requests that
+            // were still targeting it so requesters pick a fresh partner.
+            await cancelPendingRequestsForCampaign(tx, offeredApp.id, now);
+          } else {
+            // Legacy behavior for FREE/PAID: testing starts immediately.
+            const totalDay = offeredApp.totalDay || 14;
+            await tx?.dashboardAndHub?.updateMany({
+              where: {
+                id: offeredApp.id,
+                status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+                currentTester: { gte: offeredFresh!.totalTester },
+              },
+              data: {
+                status: "IN_TESTING",
+                testingStartDate: now,
+                testingEndDate: new Date(
+                  now.getTime() + totalDay * 24 * 60 * 60 * 1000,
+                ),
+              },
+            });
+          }
+        }
       }
 
-      const dataValues: any = { currentTester: { increment: 1 } };
-      if (checkTester.currentTester + 1 === checkTester.totalTester) {
-        dataValues.status = "IN_TESTING";
-        const now = new Date();
-        dataValues.testingStartDate = now;
-        dataValues.testingEndDate = new Date(
-          now.getTime() + (checkTester.totalDay || 14) * 24 * 60 * 60 * 1000
-        );
-      }
-
-      await tx?.dashboardAndHub?.update({
+      // H-B7 (S4c-4) + S6-6/S6-7: atomic conditional increment restricted to
+      // actively-recruiting statuses prevents over-enrollment; the transition
+      // is applied from the POST-increment state so concurrent joint fills
+      // stamp exactly once. HANDSHAKE → 24h WAITING window; FREE/PAID →
+      // legacy immediate IN_TESTING.
+      const incResult = await tx?.dashboardAndHub?.updateMany({
         where: {
           id: Number(hub_id),
+          status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+          currentTester: { lt: checkTester.totalTester },
         },
-        data: dataValues,
+        data: { currentTester: { increment: 1 } },
       });
+
+      if (incResult?.count === 0) {
+        // Race-loser: someone else just filled the slot. Abort the transaction
+        // by throwing; the outer catch returns 409 to the caller.
+        throw new Error("__SLOT_FULL__");
+      }
+
+      const freshTarget = await tx?.dashboardAndHub?.findUnique({
+        where: { id: Number(hub_id) },
+        select: {
+          currentTester: true,
+          totalTester: true,
+          status: true,
+          appType: true,
+          totalDay: true,
+        },
+      });
+      const targetRecruiting =
+        !!freshTarget &&
+        freshTarget.totalTester > 0 &&
+        freshTarget.currentTester >= freshTarget.totalTester &&
+        (freshTarget.status === "AVAILABLE" ||
+          freshTarget.status === "FINDING_TESTERS");
+      if (targetRecruiting) {
+        const now = new Date();
+        if (freshTarget!.appType === "HANDSHAKE") {
+          // Spec §11, §13: 24-hour waiting period before testing starts.
+          await tx?.dashboardAndHub?.updateMany({
+            where: {
+              id: Number(hub_id),
+              status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+              currentTester: { gte: freshTarget!.totalTester },
+            },
+            data: {
+              status: "WAITING_FOR_PARTNERS",
+              waitingPeriodStartedAt: now,
+              testingStartEligibleAt: new Date(
+                now.getTime() + 24 * 60 * 60 * 1000,
+              ),
+            },
+          });
+          // S8-G4: campaign is full — cancel other pending requests that
+          // were still targeting it so requesters pick a fresh partner.
+          await cancelPendingRequestsForCampaign(tx, Number(hub_id), now);
+        } else {
+          // Legacy behavior for FREE/PAID: testing starts immediately.
+          const totalDay = freshTarget!.totalDay || 14;
+          await tx?.dashboardAndHub?.updateMany({
+            where: {
+              id: Number(hub_id),
+              status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+              currentTester: { gte: freshTarget!.totalTester },
+            },
+            data: {
+              status: "IN_TESTING",
+              testingStartDate: now,
+              testingEndDate: new Date(
+                now.getTime() + totalDay * 24 * 60 * 60 * 1000,
+              ),
+            },
+          });
+        }
+      }
 
       // Create the handshake link tying the two relations together
       if (isHandshake && reciprocalRelationId) {
@@ -1621,12 +1906,34 @@ export const acceptSubmittedHubAppTestingRequest = async (
     });
 
     return sendSuccess(res, null, "Tester accepted for the testing");
-  } catch (error) {
-    const auditLogPayloadFail: AuditLogPayload = {
-      actorId: req?.userId || "",
-      actorRole: req?.role as string,
-      module: "user",
-      action: "acceptSubmittedHubAppTestingRequest",
+    } catch (error) {
+      // H-B7: race-loser when all slots were filled between check and update.
+      if (error instanceof Error && error.message === "__SLOT_FULL__") {
+        return sendError(
+          res,
+          409,
+          "This campaign just filled up. Please try a different one.",
+        );
+      }
+      // P2.12: requester cap re-check fired inside the tx (rolled back).
+      if (
+        error instanceof Error &&
+        error.message === "__REQUESTER_SLOTS_EXHAUSTED__"
+      ) {
+        return sendError(
+          res,
+          409,
+          "The requester has reached their handshake limit since sending this request. They must free a slot first.",
+          undefined,
+          undefined,
+          { slotsExhausted: true },
+        );
+      }
+      const auditLogPayloadFail: AuditLogPayload = {
+        actorId: req?.userId || "",
+        actorRole: req?.role as string,
+        module: "user",
+        action: "acceptSubmittedHubAppTestingRequest",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",
@@ -1681,6 +1988,11 @@ export const rejectSubmittedHubAppTestingRequest = async (
       return sendError(res, 409, "Submitted App not found");
     }
 
+    // Ownership guard: only the campaign owner may reject join requests.
+    if (checkTester.appOwnerId !== req.userId) {
+      return sendError(res, 403, "Only the app owner can reject this request");
+    }
+
     const testerRequest = await prismaClient?.testerRelation?.findFirst({
       where: {
         testerId: tester_id,
@@ -1712,6 +2024,10 @@ export const rejectSubmittedHubAppTestingRequest = async (
         },
         data: {
           status: "REJECTED",
+          // S6-8: deactivate the row so stale REJECTED relations never block
+          // cron readiness checks (transitionReadyCampaigns requires every
+          // isActive relation to be IN_PROGRESS/COMPLETED).
+          isActive: false,
           statusDetails: statusDetails,
         },
       });
@@ -1777,7 +2093,10 @@ export const addHubAppFeedback = async (req: Request, res: Response) => {
     const checkApp = await prismaClient?.dashboardAndHub?.findFirst({
       where: {
         id: Number(hub_id),
-        status: "IN_TESTING",
+        // P2.11: accept both active-testing states ,  HANDSHAKE campaigns
+        // live in TESTING_ACTIVE (never IN_TESTING), so the old exact-match
+        // gate made feedback impossible for the entire handshake flow.
+        status: { in: ["IN_TESTING", "TESTING_ACTIVE"] },
         testerRelations: {
           some: {
             testerId: req?.userId,
@@ -2080,7 +2399,15 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       );
     }
 
-    if (relation.status !== "IN_PROGRESS" || relation.dashboardAndHub?.status !== "IN_TESTING") {
+    // S7-1: appType-aware gate. HANDSHAKE campaigns live in TESTING_ACTIVE
+    // (24h WAITING window → cron transition); FREE/PAID keep the legacy
+    // lifecycle where IN_TESTING IS the active-testing state.
+    const campaignStatus = relation.dashboardAndHub?.status;
+    const campaignType = relation.dashboardAndHub?.appType;
+    const statusOk =
+      campaignStatus === "TESTING_ACTIVE" ||
+      (campaignType !== "HANDSHAKE" && campaignStatus === "IN_TESTING");
+    if (relation.status !== "IN_PROGRESS" || !statusOk) {
       return sendError(
         res,
         400,
@@ -2088,50 +2415,45 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       );
     }
 
-    // Handshake: enforce the accumulative skip penalty before allowing submission
+    // Spec §27, §29: handshake penalty is task-based, not block-based.
+    // Process staged penalty (creates MissedDay rows + PenaltyTasks) before allowing submission.
     if (relation.dashboardAndHub?.appType === "HANDSHAKE") {
+      const { processStagedPenalty } = await import("@/lib/handshake");
       const link = await prismaClient.handshakeLink.findFirst({
         where: {
           status: "ACTIVE",
           OR: [{ relationAId: relation.id }, { relationBId: relation.id }],
         },
       });
-
       if (link) {
-        const { processSkipPenalty } = await import("@/lib/handshake");
-        await processSkipPenalty(link.id);
-
-        const refreshed = await prismaClient.handshakeLink.findUnique({
-          where: { id: link.id },
-        });
-        if (refreshed) {
-          const now = new Date();
-          const isRelationA = refreshed.relationAId === relation.id;
-          const blockedUntil = isRelationA
-            ? refreshed.aBlockedUntil
-            : refreshed.bBlockedUntil;
-          if (blockedUntil && blockedUntil > now) {
-            return sendError(
-              res,
-              423,
-              "Your testing partner didn't test your app, so you are temporarily blocked from testing theirs.",
-              undefined,
-              undefined,
-              {
-                blocked: true,
-                blockedUntil,
-                reason:
-                  "Your partner skipped testing. You are paused from testing their app until the penalty is served.",
-              },
-            );
-          }
-        }
+        await processStagedPenalty(link.id);
+      }
+      // Block submission if user has an active penalty that prevents normal testing.
+      const activePenalties = await prismaClient.penaltyTask.count({
+        where: {
+          userId,
+          status: { in: ["PENDING", "IN_PROGRESS"] },
+        },
+      });
+      if (activePenalties > 0) {
+        return sendError(
+          res,
+          423,
+          "You have an active penalty that must be served before normal testing.",
+          undefined,
+          undefined,
+          {
+            blocked: true,
+            reason: "Active penalty ,  see /handshake-testing/penalty",
+            penaltyCount: activePenalties,
+          },
+        );
       }
     }
 
     // 2. Determine Day Number
     const nextDay = relation.daysCompleted + 1;
-    const totalDaysRequired = relation.dashboardAndHub?.totalDay || 14;
+    const totalDaysRequired = relation.dashboardAndHub?.totalDay || 16;
     const completedNow = nextDay >= totalDaysRequired;
 
     if (nextDay > totalDaysRequired) {
@@ -2140,6 +2462,28 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
         400,
         "You have already completed the required testing days.",
       );
+    }
+
+    // P2.4: per-day time gate ,  day N only opens after testingStartDate +
+    // (N-1) calendar days. Without this the whole 16 day cycle (and with it
+    // the hadMiss/level rules) could be completed in minutes.
+    if (
+      relation.dashboardAndHub?.appType === "HANDSHAKE" &&
+      relation.dashboardAndHub?.testingStartDate
+    ) {
+      const startMs = new Date(
+        relation.dashboardAndHub.testingStartDate,
+      ).getTime();
+      const earliestMs =
+        startMs + (nextDay - 1) * 24 * 60 * 60 * 1000 - 60 * 60 * 1000; // 1h grace skew
+      if (Date.now() < earliestMs) {
+        const opensAt = new Date(earliestMs);
+        return sendError(
+          res,
+          425,
+          `Day ${nextDay} verification opens on ${opensAt.toISOString().slice(0, 16).replace("T", " ")} UTC. Come back then.`,
+        );
+      }
     }
 
     // 3. Duplicate Check
@@ -2292,66 +2636,51 @@ export const completeHostedApp = async (req: Request, res: Response) => {
 
     const isHandshake = app.appType === "HANDSHAKE";
 
+    // Anti-farming gate (P1.2): a HANDSHAKE campaign may only be completed by
+    // its owner once testing has actually started AND every active tester has
+    // served all required days. Otherwise two colluding users could complete
+    // on day 0 and farm level credit.
+    if (isHandshake) {
+      if (app.status !== "TESTING_ACTIVE") {
+        return sendError(
+          res,
+          409,
+          "Testing has not started for this campaign yet",
+        );
+      }
+      const requiredDays = app.totalDay || 16;
+      const activeTesters = await prismaClient.testerRelation.findMany({
+        where: {
+          dashboardAndHubId: app.id,
+          isActive: true,
+          status: "IN_PROGRESS",
+        },
+        select: { id: true, daysCompleted: true },
+      });
+      const unfinished = activeTesters.filter(
+        (rel) => (rel.daysCompleted || 0) < requiredDays,
+      );
+      if (unfinished.length > 0) {
+        return sendError(
+          res,
+          409,
+          `${unfinished.length} tester(s) have not completed all ${requiredDays} days yet`,
+        );
+      }
+    }
+
     await prismaClient.$transaction(async (tx) => {
       // Update App Status to COMPLETED
-      const updatedApp = await tx.dashboardAndHub.update({
+      await tx.dashboardAndHub.update({
         where: { id: app.id },
         data: {
           status: "COMPLETED",
         },
       });
 
-      // Find all testers who COMPLETED the test cycle for this app
-      const testersToReward = await tx.testerRelation.findMany({
-        where: {
-          dashboardAndHubId: app.id,
-          status: "COMPLETED",
-        },
-      });
-
-      const rewardAmount = app.rewardPoints || 0;
-
-      // Handshake testing is a barter system: no points are awarded.
-      if (rewardAmount > 0 && testersToReward.length > 0) {
-        for (const rel of testersToReward) {
-          // Skip admin-assigned testers ,  they earn nothing on-platform
-          if (rel.assignmentSource === "ADMIN_ASSIGNED") continue;
-          const wallet = await tx.userWallet.upsert({
-            where: { userId: rel.testerId },
-            create: {
-              userId: rel.testerId,
-              totalPoints: rewardAmount,
-              totalPackages: 0,
-            },
-            update: {
-              totalPoints: { increment: rewardAmount },
-            },
-          });
-
-          await tx.userTransaction.create({
-            data: {
-              userId: rel.testerId,
-              userWalletId: wallet.id,
-              dashboardAndHubId: app.id,
-              action: "TESTING",
-              points: rewardAmount,
-              transactionType: "EARNING",
-              status: "CREDIT",
-            },
-          });
-
-          // Notify Tester
-          await tx.notification.create({
-            data: {
-              title: "Points Awarded!",
-              description: `You've earned ${rewardAmount} points for completing the testing of "${app.androidApp.appName}".`,
-              type: "POINTS_AWARDED",
-              userId: rel.testerId,
-              isActive: true,
-            },
-          });
-        }
-      }
+      // S9: the legacy points-reward loop has been removed — the platform
+      // has no points economy. Handshake testing is pure barter; Pro apps
+      // pay money rewards via the admin completion flow.
 
       // Mark remaining IN_PROGRESS testers as COMPLETED
       await tx.testerRelation.updateMany({
@@ -2526,10 +2855,14 @@ export const startTestingHubApp = async (req: Request, res: Response) => {
     }
 
     const now = new Date();
+    // S7-1: keep statuses consistent per vertical ,  HANDSHAKE active state is
+    // TESTING_ACTIVE (its verification gate requires it); FREE/PAID stay on
+    // legacy IN_TESTING.
+    const activatedStatus = app.appType === "HANDSHAKE" ? "TESTING_ACTIVE" : "IN_TESTING";
     const updatedApp = await prismaClient.dashboardAndHub.update({
       where: { id: app.id },
       data: {
-        status: "IN_TESTING",
+        status: activatedStatus,
         testingStartDate: now,
         testingEndDate: new Date(
           now.getTime() + (app.totalDay || 14) * 24 * 60 * 60 * 1000
