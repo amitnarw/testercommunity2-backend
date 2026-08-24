@@ -691,9 +691,14 @@ export const getHubApps = async (req: Request, res: Response) => {
     } else if (type === "IN_TESTING") {
       // Active testing: User is IN_PROGRESS and App is in an active-testing
       // state. S7-5: HANDSHAKE campaigns live in TESTING_ACTIVE while legacy
-      // FREE/PAID use IN_TESTING ,  include both so the hub Running tab shows
+      // FREE/PAID use IN_TESTING , include both so the hub Running tab shows
       // every active campaign.
-      whereCond.status = { in: ["IN_TESTING", "TESTING_ACTIVE"] };
+      // S12: WAITING_FOR_PARTNERS (24h pre-start window) also belongs here , it
+      // was previously invisible in the list while getAppsCount already
+      // counted it, so the Running badge said N with an empty list.
+      whereCond.status = {
+        in: ["IN_TESTING", "TESTING_ACTIVE", "WAITING_FOR_PARTNERS"],
+      };
       whereCond.testerRelations = {
         some: {
           testerId: req?.userId,
@@ -734,6 +739,87 @@ export const getHubApps = async (req: Request, res: Response) => {
           where: {
             testerId: req?.userId,
           },
+          include: {
+            // S12: today's-proof indicator for the Running card.
+            dailyVerifications: {
+              select: { dayNumber: true, status: true },
+            },
+            // S12: the exact 1:1 partner side of this handshake. relationA/
+            // relationB are @unique on HandshakeLink so traversing the link
+            // (instead of offeredApp) is precise even when a campaign hosts
+            // multiple testers. Legacy relations without a link yield null
+            // and the frontend simply hides the partner block.
+            handshakeLinkAsA: {
+              select: {
+                id: true,
+                status: true,
+                relationB: {
+                  select: {
+                    id: true,
+                    status: true,
+                    daysCompleted: true,
+                    tester: {
+                      select: {
+                        id: true,
+                        name: true,
+                        image: true,
+                        handshakeLevel: true,
+                        eliteBadge: true,
+                      },
+                    },
+                    dashboardAndHub: {
+                      select: {
+                        id: true,
+                        status: true,
+                        currentDay: true,
+                        totalDay: true,
+                        testingStartDate: true,
+                        testingStartEligibleAt: true,
+                        androidApp: {
+                          select: { appName: true, appLogoUrl: true },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            handshakeLinkAsB: {
+              select: {
+                id: true,
+                status: true,
+                relationA: {
+                  select: {
+                    id: true,
+                    status: true,
+                    daysCompleted: true,
+                    tester: {
+                      select: {
+                        id: true,
+                        name: true,
+                        image: true,
+                        handshakeLevel: true,
+                        eliteBadge: true,
+                      },
+                    },
+                    dashboardAndHub: {
+                      select: {
+                        id: true,
+                        status: true,
+                        currentDay: true,
+                        totalDay: true,
+                        testingStartDate: true,
+                        testingStartEligibleAt: true,
+                        androidApp: {
+                          select: { appName: true, appLogoUrl: true },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -749,14 +835,18 @@ export const getHubApps = async (req: Request, res: Response) => {
          const rStatus = relation.status;
 
          // Map TesterStatus to frontend expected Status (DashboardAndHubStatus-like)
-         if (rStatus === "PENDING") status = "REQUESTED";
-         else if (rStatus === "IN_PROGRESS") {
-           // If app is AVAILABLE, it's APPROVED (Waiting to Start)
-           // If app is IN_TESTING, it's IN_TESTING (Active)
-           if (item.status === "AVAILABLE") status = "ACCEPTED";
-           else if (item.status === "IN_TESTING") status = "IN_TESTING";
-           else status = "IN_TESTING"; // Fallback
-         } else if (rStatus === "REJECTED") status = "REJECTED";
+          if (rStatus === "PENDING") status = "REQUESTED";
+          else if (rStatus === "IN_PROGRESS") {
+            // If app is AVAILABLE, it's APPROVED (Waiting to Start)
+            // If app is IN_TESTING, it's IN_TESTING (Active)
+            if (item.status === "AVAILABLE") status = "ACCEPTED";
+            else if (item.status === "IN_TESTING") status = "IN_TESTING";
+            // S12: surface the 24h pre-start window instead of masking it as
+            // active testing so the Running card can show a start countdown.
+            else if (item.status === "WAITING_FOR_PARTNERS")
+              status = "WAITING_FOR_PARTNERS";
+            else status = "IN_TESTING"; // Fallback
+          } else if (rStatus === "REJECTED") status = "REJECTED";
          else if (rStatus === "COMPLETED") status = "COMPLETED";
 
          // Use relation specific statusDetails if rejected
@@ -765,25 +855,67 @@ export const getHubApps = async (req: Request, res: Response) => {
          }
        }
 
-       // Convert Date objects to ISO strings for JSON serialization
-       return {
-         ...item,
-         createdAt: item.createdAt?.toISOString() || null,
-         updatedAt: item.updatedAt?.toISOString() || null,
-         status,
-         statusDetails: statusDetails
-           ? JSON.parse(JSON.stringify(statusDetails))
-           : null,
-         testerRelations: item.testerRelations?.map(relation => ({
-           ...relation,
-           createdAt: relation.createdAt?.toISOString() || null,
-           updatedAt: relation.updatedAt?.toISOString() || null,
-           lastActivityAt: relation.lastActivityAt?.toISOString() || null,
-           statusDetails: relation.statusDetails
-             ? JSON.parse(JSON.stringify(relation.statusDetails))
-             : null,
-         })) || [],
-       };
+        // Convert Date objects to ISO strings for JSON serialization
+        return {
+          ...item,
+          createdAt: item.createdAt?.toISOString() || null,
+          updatedAt: item.updatedAt?.toISOString() || null,
+          status,
+          statusDetails: statusDetails
+            ? JSON.parse(JSON.stringify(statusDetails))
+            : null,
+          testerRelations:
+            item.testerRelations?.map((relation) => {
+              // S12: collapse the two mutually-exclusive link includes into a
+              // single clean `handshakePair` for the frontend.
+              const linkA = relation.handshakeLinkAsA;
+              const linkB = relation.handshakeLinkAsB;
+              const link = linkA ?? linkB;
+              const partnerRelation = linkA ? linkA.relationB : linkB?.relationA;
+              const { handshakeLinkAsA, handshakeLinkAsB, ...restRelation } =
+                relation;
+              return {
+                ...restRelation,
+                createdAt: relation.createdAt?.toISOString() || null,
+                updatedAt: relation.updatedAt?.toISOString() || null,
+                lastActivityAt: relation.lastActivityAt?.toISOString() || null,
+                statusDetails: relation.statusDetails
+                  ? JSON.parse(JSON.stringify(relation.statusDetails))
+                  : null,
+                handshakePair: link
+                  ? {
+                      linkId: link.id,
+                      linkStatus: link.status,
+                      partnerRelation: partnerRelation
+                        ? {
+                            id: partnerRelation.id,
+                            status: partnerRelation.status,
+                            daysCompleted: partnerRelation.daysCompleted,
+                            tester: partnerRelation.tester,
+                            campaign: partnerRelation.dashboardAndHub
+                              ? {
+                                  id: partnerRelation.dashboardAndHub.id,
+                                  status:
+                                    partnerRelation.dashboardAndHub.status,
+                                  currentDay:
+                                    partnerRelation.dashboardAndHub.currentDay,
+                                  totalDay:
+                                    partnerRelation.dashboardAndHub.totalDay,
+                                  testingStartDate:
+                                    partnerRelation.dashboardAndHub.testingStartDate,
+                                  testingStartEligibleAt:
+                                    partnerRelation.dashboardAndHub.testingStartEligibleAt,
+                                  androidApp:
+                                    partnerRelation.dashboardAndHub.androidApp,
+                                }
+                              : null,
+                          }
+                        : null,
+                    }
+                  : null,
+              };
+            }) || [],
+        };
      });
 
     return sendSuccess(res, result, "ok");
@@ -810,7 +942,13 @@ export const getHubApps = async (req: Request, res: Response) => {
 
 export const getAppsCount = async (req: Request, res: Response) => {
   try {
-    // Count available apps (User is not owner, status AVAILABLE, user not a tester)
+    // Count available apps. Filters mirror getHubApps(type:"AVAILABLE")
+    // so the badge on /app/handshake-testing stays in sync with the list:
+    //   - P2.6 parity: exclude only ACTIVE relations so re-handshake-eligible
+    //     developers (terminal relations like COMPLETED/REJECTED/DROPPED/
+    //     REPLACED/CANCELLED) stay visible.
+    //   - S8-G3b parity: hide campaigns the user has already sent a pending
+    //     handshake request to (spec §3.2 "next time I send to a new dev").
     const availableCount = await prismaClient.dashboardAndHub.count({
       where: {
         status: "AVAILABLE",
@@ -821,6 +959,13 @@ export const getAppsCount = async (req: Request, res: Response) => {
         testerRelations: {
           none: {
             testerId: req.userId,
+            status: { in: ["PENDING", "IN_PROGRESS", "MISSED", "PENALIZED"] },
+          },
+        },
+        handshakeRequestsAsTarget: {
+          none: {
+            fromUserId: req.userId,
+            status: "PENDING",
           },
         },
       },
