@@ -1122,7 +1122,7 @@ export const getUserWalletDetail = async (req: Request, res: Response) => {
     ]);
 
     return sendSuccess(res, {
-      // S9-F2: totalPoints compat removed — wallet is packages + money.
+      // S9-F2: totalPoints compat removed , wallet is packages + money.
       wallet: wallet
         ? { ...wallet }
         : { totalPackages: 0, balanceMoney: 0 },

@@ -252,7 +252,7 @@ export const addHubApp = async (req: Request, res: Response) => {
 
     // S9: the legacy points economy (points cost validation, promo-discounted
     // points pricing, wallet balance gate, and the points debit) has been
-    // removed — the platform runs on HANDSHAKE barter + Pro packages/money.
+    // removed , the platform runs on HANDSHAKE barter + Pro packages/money.
 
     const { androidAppData, dashboardAndHub } = await prismaClient.$transaction(
       async (tx) => {
@@ -1914,7 +1914,7 @@ export const acceptSubmittedHubAppTestingRequest = async (
                 ),
               },
             });
-            // S8-G4: campaign is full — cancel other pending requests that
+            // S8-G4: campaign is full , cancel other pending requests that
             // were still targeting it so requesters pick a fresh partner.
             await cancelPendingRequestsForCampaign(tx, offeredApp.id, now);
           } else {
@@ -1992,7 +1992,7 @@ export const acceptSubmittedHubAppTestingRequest = async (
               ),
             },
           });
-          // S8-G4: campaign is full — cancel other pending requests that
+          // S8-G4: campaign is full , cancel other pending requests that
           // were still targeting it so requesters pick a fresh partner.
           await cancelPendingRequestsForCampaign(tx, Number(hub_id), now);
         } else {
@@ -2823,7 +2823,7 @@ export const completeHostedApp = async (req: Request, res: Response) => {
         },
       });
 
-      // S9: the legacy points-reward loop has been removed — the platform
+      // S9: the legacy points-reward loop has been removed , the platform
       // has no points economy. Handshake testing is pure barter; Pro apps
       // pay money rewards via the admin completion flow.
 

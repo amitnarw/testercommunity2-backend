@@ -65,7 +65,7 @@ export const sendHandshakeRequest = async (req: Request, res: Response) => {
       12,
     );
 
-    // S8-G3: duplicate-request guard — one active request per
+    // S8-G3: duplicate-request guard , one active request per
     // (sender, target, campaign). Prevents spamming the same developer with
     // repeated requests (with different offered apps) while one is pending.
     // P2.3 follow-up: only PENDING blocks ,  legacy MUTUAL_MATCHED rows whose

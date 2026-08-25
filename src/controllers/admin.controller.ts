@@ -1669,7 +1669,7 @@ export const getUserById = async (req: Request, res: Response) => {
     }
 
     const userId = id as string;
-    // S9: points aggregates removed — money (amount) and packages remain.
+    // S9: points aggregates removed , money (amount) and packages remain.
     const [creditMoney, debitMoney, creditPackages, debitPackages] =
       await Promise.all([
         prismaClient.userTransaction.aggregate({
@@ -2038,7 +2038,7 @@ export const updateUserWallet = async (req: Request, res: Response) => {
     }
 
     const { payload } = req.body;
-    // S9: totalPoints removed from the wallet — packages only.
+    // S9: totalPoints removed from the wallet , packages only.
     const { id, totalPackages } = payload;
 
     if (!id) {
@@ -2084,7 +2084,7 @@ export const updateUserWallet = async (req: Request, res: Response) => {
 export const giftPointsAndPackages = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
-    // S9: points gifting removed — packages only (legacy `points` param
+    // S9: points gifting removed , packages only (legacy `points` param
     // accepted-but-ignored for old clients).
     const { id, points, packages } = payload;
 
@@ -3772,7 +3772,7 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
         },
       });
 
-      // S9: points economy removed — only PAID apps pay money rewards.
+      // S9: points economy removed , only PAID apps pay money rewards.
       const isPaidApp = app.appType === "PAID";
       const rewardAmount = isPaidApp ? app.rewardMoney || 0 : 0;
 

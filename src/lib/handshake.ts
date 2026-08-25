@@ -106,7 +106,7 @@ export async function upsertTesterRelation(
       daysCompleted: 0,
       completedAt: null,
       lastActivityAt: null,
-      // S8-G1: fresh cycle — clear the previous cycle's miss disqualification.
+      // S8-G1: fresh cycle , clear the previous cycle's miss disqualification.
       hadMissSinceStart: false,
       // Nullable JSON columns require DbNull (not JS null).
       statusDetails: Prisma.DbNull,
@@ -175,7 +175,7 @@ export async function hasVerificationForDay(
  * S8-G1 `hadMissSinceStart` flag so this cycle's completion can no longer
  * count toward the tester's level upgrade. The flag intentionally SURVIVES
  * served-ledger cleanup (S6-3 deletes MissedDay rows once penalties are
- * served — the disqualification must persist).
+ * served , the disqualification must persist).
  */
 export async function recordMissedDay(
   testerRelationId: number,
@@ -800,7 +800,7 @@ export async function cancelPendingRequestsForCampaign(
       status: "CANCELLED",
       respondedAt: now,
       rejectionReason:
-        "Campaign filled before your request was processed — please send a new handshake with a different app",
+        "Campaign filled before your request was processed , please send a new handshake with a different app",
     },
   });
 }
@@ -1066,14 +1066,14 @@ export async function checkAndFinalizeHandshake(
       await incrementHandshakeCompletion(link.relationA.testerId);
     } else {
       logger.info(
-        `[finalize] link ${linkId}: relationA ${link.relationAId} missed days — level credit denied for ${link.relationA.testerId}`,
+        `[finalize] link ${linkId}: relationA ${link.relationAId} missed days , level credit denied for ${link.relationA.testerId}`,
       );
     }
     if (!link.relationB.hadMissSinceStart) {
       await incrementHandshakeCompletion(link.relationB.testerId);
     } else {
       logger.info(
-        `[finalize] link ${linkId}: relationB ${link.relationBId} missed days — level credit denied for ${link.relationB.testerId}`,
+        `[finalize] link ${linkId}: relationB ${link.relationBId} missed days , level credit denied for ${link.relationB.testerId}`,
       );
     }
   } catch (err) {
