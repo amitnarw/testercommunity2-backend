@@ -44,7 +44,6 @@ async function seedTester() {
         emailVerified: true,
         wallet: {
           create: {
-            totalPoints: 0,
             totalPackages: 0,
           },
         },

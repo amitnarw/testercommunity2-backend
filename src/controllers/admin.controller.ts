@@ -3333,7 +3333,7 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
       dashboardAndHubId: parseInt(id),
       status: "IN_PROGRESS" as const,
       isActive: true,
-      assignmentSource: (isFreeApp ? "ADMIN_ASSIGNED" : "SELF_JOIN") as any,
+      assignmentSource: "ADMIN_ASSIGNED" as any,
     }));
 
     await prismaClient.testerRelation.createMany({
@@ -3344,12 +3344,12 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
     const newCurrentTester = app.currentTester + newTesterIds.length;
     let newStatus = app.status;
 
-    // Move to IN_TESTING only if the required number of testers is reached
-    if (
-      app.status === "AVAILABLE" &&
-      newCurrentTester >= (app.totalTester || 0)
-    ) {
-      newStatus = "IN_TESTING";
+    // S7-1: HANDSHAKE campaigns live in TESTING_ACTIVE (the verification
+    // gate requires it); FREE/PAID keep legacy IN_TESTING as their
+    // active state. Mirrors `startTestingHubApp` (hub.controller.ts:3006).
+    const reachedCapacity = newCurrentTester >= (app.totalTester || 0);
+    if (app.status === "AVAILABLE" && reachedCapacity) {
+      newStatus = app.appType === "HANDSHAKE" ? "TESTING_ACTIVE" : "IN_TESTING";
     }
 
     const updateData: any = {
@@ -3357,8 +3357,14 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
       status: newStatus,
     };
 
-    // Set testing dates when moving to IN_TESTING
-    if (newStatus === "IN_TESTING" && !app.testingStartDate) {
+    // Set testingStartDate / testingEndDate when transitioning into either
+    // active-testing state for the first time. Without testingStartDate
+    // getSingleHubAppDetails can't compute currentDay, and the daily
+    // verification UI reads out of sync with the API.
+    if (
+      (newStatus === "IN_TESTING" || newStatus === "TESTING_ACTIVE") &&
+      !app.testingStartDate
+    ) {
       const now = new Date();
       updateData.testingStartDate = now;
       updateData.testingEndDate = new Date(
@@ -3452,9 +3458,13 @@ export const unassignTesterFromApp = async (req: Request, res: Response) => {
     const newCurrentTester = Math.max(0, app.currentTester - 1);
     let newStatus = app.status;
 
-    // If testers are left but below required, move from IN_TESTING back to AVAILABLE
+    // If testers are left but below required, drop from either active-
+    // testing state (IN_TESTING for FREE/PAID, TESTING_ACTIVE for
+    // HANDSHAKE) back to AVAILABLE. Without TESTING_ACTIVE in the
+    // check, a HANDSHAKE campaign unassigned below capacity would stay
+    // stuck in TESTING_ACTIVE even though currentTester < totalTester.
     if (
-      app.status === "IN_TESTING" &&
+      (app.status === "IN_TESTING" || app.status === "TESTING_ACTIVE") &&
       newCurrentTester < (app.totalTester || 0)
     ) {
       newStatus = "AVAILABLE";
