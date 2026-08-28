@@ -59,6 +59,7 @@ import {
   deletePromoCode,
   updateDailyVerificationStatus,
   adminCompleteApp,
+  adminRestartApp,
   getLogs,
   getLogContent,
   deleteLog,
@@ -309,6 +310,7 @@ router.post(
   updateDailyVerificationStatus,
 );
 router.post("/admin-complete-app", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, adminCompleteApp);
+router.post("/admin-restart-app", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, adminRestartApp);
 
 // Admin Declaration (PAID apps)
 router.get("/declarations/:appId", checkAuthorization({ module: "submissions", action: "canReadSingle" }), getAdminDeclaration);

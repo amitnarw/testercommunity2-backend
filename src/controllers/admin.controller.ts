@@ -3742,13 +3742,14 @@ export const updateDailyVerificationStatus = async (
 export const adminCompleteApp = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
-    const { id } = payload; // id is DashboardAndHub ID
+    const { id, force } = payload; // id is DashboardAndHub ID; force bypasses HANDSHAKE per-tester gate
 
     if (!id) {
       return sendError(res, 400, "App ID is required");
     }
 
     const hubId = typeof id === "string" ? parseInt(id) : id;
+    const isForce = force === true;
 
     const existingApp = await prismaClient.dashboardAndHub.findUnique({
       where: { id: hubId },
@@ -3761,6 +3762,49 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
 
     if (existingApp.status === "COMPLETED") {
       return sendSuccess(res, existingApp as any, "App is already completed");
+    }
+
+    // HANDSHAKE gate: if any active testers exist, every one of them must
+    // have served `totalDay` days. Admin can force-complete from any state
+    // (no status pre-check), but cannot strand in-progress testers mid-cycle.
+    // `force` bypasses this gate for cleanup of dead/stranded campaigns , 
+    // level credit safety is preserved by checkAndFinalizeHandshake honoring
+    // each side's hadMissSinceStart (S8-G1). Mirrors completeHostedApp.
+    let forcedUnfinishedCount = 0;
+    let forcedRequiredDays = 0;
+    if (existingApp.appType === "HANDSHAKE" && !isForce) {
+      const requiredDays = existingApp.totalDay || 16;
+      const activeTesters = await prismaClient.testerRelation.findMany({
+        where: {
+          dashboardAndHubId: hubId,
+          isActive: true,
+          status: "IN_PROGRESS",
+        },
+        select: { id: true, daysCompleted: true },
+      });
+      const unfinished = activeTesters.filter(
+        (rel) => (rel.daysCompleted || 0) < requiredDays,
+      );
+      if (unfinished.length > 0) {
+        return sendError(
+          res,
+          409,
+          `${unfinished.length} tester(s) have not completed all ${requiredDays} days yet`,
+        );
+      }
+    } else if (existingApp.appType === "HANDSHAKE" && isForce) {
+      forcedRequiredDays = existingApp.totalDay || 16;
+      const activeTesters = await prismaClient.testerRelation.findMany({
+        where: {
+          dashboardAndHubId: hubId,
+          isActive: true,
+          status: "IN_PROGRESS",
+        },
+        select: { id: true, daysCompleted: true },
+      });
+      forcedUnfinishedCount = activeTesters.filter(
+        (rel) => (rel.daysCompleted || 0) < forcedRequiredDays,
+      ).length;
     }
 
     const updatedApp = await prismaClient.$transaction(async (tx) => {
@@ -3848,13 +3892,169 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
         },
       });
 
+      // Activity audit row ,  mirror completeHostedApp.
+      await tx.userActivity.create({
+        data: {
+          userId: req.userId || "",
+          dashboardAndHubId: app.id,
+          androidAppId: app.androidApp.id,
+          actionType: "COMPLETE_TEST",
+          description:
+            `Administration marked the testing for ${app.androidApp.appName} as completed` +
+            (forcedUnfinishedCount > 0
+              ? ` (FORCED ,  ${forcedUnfinishedCount} tester(s) did not complete all ${forcedRequiredDays} days)`
+              : ""),
+          ipAddress: req.userIpAddress,
+          userAgent: req.userAgent,
+          status: "SUCCESS",
+        },
+      });
+
+      return app;
+    });
+
+    // HANDSHAKE: finalize any active links attached to this campaign so both
+    // users' `handshakeCompletedCount` increments (subject to S8-G1
+    // `hadMissSinceStart` gate inside checkAndFinalizeHandshake) and so
+    // upsertTesterRelation can re-handshake in the future. Dynamic import to
+    // avoid module-init cycle (lib/handshake imports this controller).
+    if (existingApp.appType === "HANDSHAKE") {
+      const links = await prismaClient.handshakeLink.findMany({
+        where: {
+          status: "ACTIVE",
+          OR: [
+            { relationA: { dashboardAndHubId: hubId } },
+            { relationB: { dashboardAndHubId: hubId } },
+          ],
+        },
+      });
+      if (links.length > 0) {
+        const { checkAndFinalizeHandshake } = await import("@/lib/handshake");
+        for (const link of links) {
+          await checkAndFinalizeHandshake(link.id);
+        }
+      }
+    }
+
+    return sendSuccess(
+      res,
+      updatedApp as any,
+      "App status updated to COMPLETED successfully",
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+/**
+ * Admin-only: reset a COMPLETED campaign back to active testing.
+ *
+ * Status-only reset per spec choice: re-stamps dates and reactivates stuck
+ * testerRelations so daily verification works again, but preserves
+ * `daysCompleted` and `dailyVerifications` rows as audit trail. HandshakeLink
+ * status is kept COMPLETED so re-running this campaign doesn't double-credit
+ * level-up (the link's hadMissSinceStart-gated `incrementHandshakeCompletion`
+ * only ran once when it finalized).
+ *
+ * HANDSHAKE -> TESTING_ACTIVE; PAID/FREE -> IN_TESTING.
+ */
+export const adminRestartApp = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id } = payload;
+
+    if (!id) {
+      return sendError(res, 400, "App ID is required");
+    }
+
+    const hubId = typeof id === "string" ? parseInt(id) : id;
+
+    const existingApp = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: hubId },
+      include: { androidApp: true },
+    });
+
+    if (!existingApp) {
+      return sendError(res, 404, "App not found");
+    }
+
+    if (existingApp.status !== "COMPLETED") {
+      return sendError(
+        res,
+        409,
+        `Only COMPLETED apps can be restarted (current status: ${existingApp.status})`,
+      );
+    }
+
+    const isHandshake = existingApp.appType === "HANDSHAKE";
+    const activatedStatus = isHandshake ? "TESTING_ACTIVE" : "IN_TESTING";
+    const totalDay = existingApp.totalDay || 16;
+    const now = new Date();
+
+    const updatedApp = await prismaClient.$transaction(async (tx) => {
+      const app = await tx.dashboardAndHub.update({
+        where: { id: hubId },
+        data: {
+          status: activatedStatus,
+          testingStartDate: now,
+          testingEndDate: new Date(now.getTime() + totalDay * 24 * 60 * 60 * 1000),
+          currentDay: 1,
+        },
+        include: { androidApp: true },
+      });
+
+      // Reactivate any COMPLETED tester relations back to IN_PROGRESS so
+      // daily verification can resume. Preserve daysCompleted (audit) and
+      // dailyVerifications rows; reset per-cycle hadMissSinceStart since this
+      // is a fresh cycle.
+      await tx.testerRelation.updateMany({
+        where: {
+          dashboardAndHubId: hubId,
+          status: "COMPLETED",
+        },
+        data: {
+          status: "IN_PROGRESS",
+          completedAt: null,
+          hadMissSinceStart: false,
+        },
+      });
+
+      // Audit row
+      await tx.userActivity.create({
+        data: {
+          userId: req.userId || "",
+          dashboardAndHubId: app.id,
+          androidAppId: app.androidApp.id,
+          actionType: "RESTART_TEST",
+          description: `Administration restarted the testing for ${app.androidApp.appName}`,
+          ipAddress: req.userIpAddress,
+          userAgent: req.userAgent,
+          status: "SUCCESS",
+        },
+      });
+
+      // Notify owner
+      await tx.notification.create({
+        data: {
+          title: "Testing Restarted",
+          description: `Administration has restarted the testing phase for your project "${app.androidApp.appName}". The campaign is now active again.`,
+          type: "OTHER",
+          userId: app.appOwnerId,
+          isActive: true,
+        },
+      });
+
       return app;
     });
 
     return sendSuccess(
       res,
       updatedApp as any,
-      "App status updated to COMPLETED successfully",
+      "App testing restarted successfully",
     );
   } catch (error) {
     return sendError(
