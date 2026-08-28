@@ -129,11 +129,455 @@ const LANDING_STAT_CARDS = [
    } catch (error) {
      return sendError(
        res,
-       500,
-       error instanceof Error ? error.message : "Internal Server Error",
-     );
-   }
- };
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+// ==================== HANDSHAKE ADMIN ACTIONS (Spec §42) ====================
+
+interface ReplaceTesterPayload {
+  testerRelationId: number;
+  reason?: string;
+}
+
+/**
+ * Spec §42: admin replaces a failing tester. Per locked decision, this does
+ * NOT auto-assign a replacement; admin must follow up with
+ * `assignProfessionalTester` or `forceHandshake`.
+ */
+export const adminReplaceTester = async (req: Request, res: Response) => {
+  try {
+    const adminId = req?.userId;
+    if (!adminId) return sendError(res, 401, "Unauthorized");
+
+    const body: ReplaceTesterPayload = req.body?.payload ?? req.body;
+    const testerRelationId = parseInt(
+      String(body?.testerRelationId || ""),
+      10,
+    );
+    const reason = String(body?.reason || "").trim();
+
+    if (!testerRelationId || isNaN(testerRelationId)) {
+      return sendError(res, 400, "testerRelationId is required");
+    }
+
+    // P2.7: full cleanup via shared helper ,  cancels ACTIVE links,
+    // decrements counters, frees the innocent partner (the old copy only
+    // flipped the status and left slots occupied + sweeps punishing).
+    const { adminTerminateRelation } = await import("@/lib/handshake");
+    const outcome = await adminTerminateRelation({
+      relationId: testerRelationId,
+      adminId,
+      terminalStatus: "REPLACED",
+      reason: reason || "Admin replaced",
+    });
+
+    return sendSuccess(
+      res,
+      {
+        testerRelationId,
+        freedCampaignIds: outcome.freedCampaignIds,
+        partnersReleased: outcome.partnerUserIds.length,
+        nextStep:
+          "Admin must manually fill the slot via assignProfessionalTester or forceHandshake.",
+      },
+      "Tester replaced ,  slot is now open",
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message === "__RELATION_NOT_FOUND__") {
+      return sendError(res, 404, "Tester relation not found");
+    }
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+interface RemoveTesterPayload {
+  testerRelationId: number;
+  reason?: string;
+}
+
+/**
+ * Spec §42: admin force-removes a tester (REPLACED status).
+ */
+export const adminRemoveTester = async (req: Request, res: Response) => {
+  try {
+    const adminId = req?.userId;
+    if (!adminId) return sendError(res, 401, "Unauthorized");
+
+    const body: RemoveTesterPayload = req.body?.payload ?? req.body;
+    const testerRelationId = parseInt(
+      String(body?.testerRelationId || ""),
+      10,
+    );
+    const reason = String(body?.reason || "").trim();
+
+    if (!testerRelationId || isNaN(testerRelationId)) {
+      return sendError(res, 400, "testerRelationId is required");
+    }
+
+    // P2.7: full cleanup via shared helper (see adminReplaceTester).
+    const { adminTerminateRelation } = await import("@/lib/handshake");
+    const outcome = await adminTerminateRelation({
+      relationId: testerRelationId,
+      adminId,
+      terminalStatus: "REMOVED",
+      reason: reason || "Admin removed",
+    });
+
+    return sendSuccess(
+      res,
+      {
+        testerRelationId,
+        freedCampaignIds: outcome.freedCampaignIds,
+        partnersReleased: outcome.partnerUserIds.length,
+      },
+      "Tester removed",
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message === "__RELATION_NOT_FOUND__") {
+      return sendError(res, 404, "Tester relation not found");
+    }
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+interface ForceHandshakePayload {
+  userAId: string;
+  userBId: string;
+  appAId: number;
+  appBId: number;
+}
+
+/**
+ * Spec §42: admin forces two developers into a handshake, bypassing
+ * the normal mutual-matching flow.
+ */
+export const adminForceHandshake = async (req: Request, res: Response) => {
+  try {
+    const adminId = req?.userId;
+    if (!adminId) return sendError(res, 401, "Unauthorized");
+
+    const body: ForceHandshakePayload = req.body?.payload ?? req.body;
+    const userAId = String(body?.userAId || "");
+    const userBId = String(body?.userBId || "");
+    const appAId = parseInt(String(body?.appAId || ""), 10);
+    const appBId = parseInt(String(body?.appBId || ""), 10);
+    if (!userAId || !userBId || !appAId || !appBId) {
+      return sendError(
+        res,
+        400,
+        "userAId, userBId, appAId, appBId are required",
+      );
+    }
+
+    // H-B8 (S4c-5): Relations must be IN_PROGRESS (not PENDING) and both
+    // campaigns must transition to TESTING_ACTIVE so daily verification can
+    // proceed. The 24h wait is bypassed because admin force-initiated.
+    // S5b-5: dedup + capacity validation before creating anything.
+    // S7-7: ownership + distinctness + type validation (mirrors the
+    // handshakeMonitoring copy).
+    if (userAId === userBId) {
+      return sendError(res, 400, "userAId and userBId must be different users");
+    }
+    if (appAId === appBId) {
+      return sendError(res, 400, "appAId and appBId must be different campaigns");
+    }
+
+    const existingPairs = await prismaClient.testerRelation.findMany({
+      where: {
+        OR: [
+          { testerId: userBId, dashboardAndHubId: appAId },
+          { testerId: userAId, dashboardAndHubId: appBId },
+        ],
+      },
+      select: { testerId: true, dashboardAndHubId: true, status: true },
+    });
+    const activeConflict = existingPairs.some(
+      (r) => !["REMOVED", "REPLACED", "DROPPED"].includes(r.status),
+    );
+    if (activeConflict) {
+      return sendError(
+        res,
+        409,
+        "One of these users already has an active relation with the target campaign",
+      );
+    }
+
+    const campaigns = await prismaClient.dashboardAndHub.findMany({
+      where: { id: { in: [appAId, appBId] } },
+      select: {
+        id: true,
+        status: true,
+        currentTester: true,
+        totalTester: true,
+        appOwnerId: true,
+        appType: true,
+      },
+    });
+    if (campaigns.length !== 2) {
+      return sendError(res, 404, "One or both campaigns were not found");
+    }
+    const campaignA = campaigns.find((c) => c.id === appAId)!;
+    const campaignB = campaigns.find((c) => c.id === appBId)!;
+    if (campaignA.appOwnerId !== userAId) {
+      return sendError(
+        res,
+        400,
+        `Campaign ${appAId} is not owned by ${userAId} ,  check that userA/appA and userB/appB are correctly paired`,
+      );
+    }
+    if (campaignB.appOwnerId !== userBId) {
+      return sendError(
+        res,
+        400,
+        `Campaign ${appBId} is not owned by ${userBId} ,  check that userA/appA and userB/appB are correctly paired`,
+      );
+    }
+    for (const c of campaigns) {
+      if (c.appType !== "HANDSHAKE") {
+        return sendError(
+          res,
+          400,
+          `Force-handshake only applies to HANDSHAKE campaigns (campaign ${c.id} is ${c.appType})`,
+        );
+      }
+      if (
+        c.status === "COMPLETED" ||
+        c.currentTester >= c.totalTester
+      ) {
+        return sendError(
+          res,
+          409,
+          `Campaign ${c.id} has no free capacity (currentTester=${c.currentTester}, totalTester=${c.totalTester})`,
+        );
+      }
+    }
+
+    const now = new Date();
+    const result = await prismaClient.$transaction(async (tx) => {
+      // P2.8: route both creates through the shared upsert helper ,  a
+      // REPLACED/REMOVED/DROPPED leftover row previously hit the unique
+      // constraint as a raw P2002, breaking the replace→force workflow.
+      const { upsertTesterRelation } = await import("@/lib/handshake");
+      const relationA = await upsertTesterRelation(tx, {
+        testerId: userBId,
+        hubId: appAId,
+        reactivateStatus: "IN_PROGRESS",
+        assignmentSource: "ADMIN_ASSIGNED",
+      });
+      const relationB = await upsertTesterRelation(tx, {
+        testerId: userAId,
+        hubId: appBId,
+        reactivateStatus: "IN_PROGRESS",
+        assignmentSource: "ADMIN_ASSIGNED",
+      });
+      const link = await tx.handshakeLink.create({
+        data: {
+          relationAId: relationA.id,
+          relationBId: relationB.id,
+          status: "ACTIVE",
+        },
+      });
+
+      // Transition both campaigns to TESTING_ACTIVE.
+      const apps = await tx.dashboardAndHub.findMany({
+        where: { id: { in: [appAId, appBId] } },
+        select: { id: true, totalDay: true, status: true },
+      });
+      for (const app of apps) {
+        if (app.status === "REMOVED" || app.status === "COMPLETED") continue;
+
+        // S6-4: increment occupancy so capacity checks / dashboards stay
+        // truthful (previously the forced tester was invisible to counters,
+        // letting normal accepts overfill). Race-safe guard included.
+        await tx.dashboardAndHub.updateMany({
+          where: {
+            id: app.id,
+            currentTester: { lt: 2147483647 },
+          },
+          data: { currentTester: { increment: 1 } },
+        });
+
+        const totalDay = app.totalDay || 16;
+        const testingEndDate = new Date(
+          now.getTime() + totalDay * 24 * 60 * 60 * 1000,
+        );
+        await tx.dashboardAndHub.update({
+          where: { id: app.id },
+          data: {
+            status: "TESTING_ACTIVE",
+            testingStartDate: now,
+            testingEndDate,
+            currentDay: 1,
+          },
+        });
+      }
+
+      return { relationA, relationB, link };
+    });
+
+    return sendSuccess(
+      res,
+      result as any,
+      "Handshake forced by admin",
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+interface AssignProfessionalTesterPayload {
+  campaignId: number;
+  professionalUserId?: string | null;
+  feeINR?: number | null;
+}
+
+/**
+ * Spec §42, §44: admin assigns a professional tester to a campaign slot.
+ * v1 stub: no payout logic ,  fee is platform revenue.
+ */
+export const adminAssignProfessionalTester = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const adminId = req?.userId;
+    if (!adminId) return sendError(res, 401, "Unauthorized");
+
+    const body: AssignProfessionalTesterPayload = req.body?.payload ?? req.body;
+    const campaignId = parseInt(String(body?.campaignId || ""), 10);
+    const professionalUserId = body?.professionalUserId
+      ? String(body.professionalUserId)
+      : null;
+    const feeINR =
+      body?.feeINR !== undefined && body.feeINR !== null
+        ? Math.max(0, parseInt(String(body.feeINR), 10))
+        : 0;
+
+    if (!campaignId) {
+      return sendError(res, 400, "campaignId is required");
+    }
+
+    const campaign = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: campaignId },
+    });
+    if (!campaign) return sendError(res, 404, "Campaign not found");
+
+    const created = await prismaClient.professionalTesterAssignment.create({
+      data: {
+        campaignId,
+        assignedByAdminId: adminId,
+        professionalUserId,
+        status: professionalUserId ? "FILLED" : "OPEN",
+        filledAt: professionalUserId ? new Date() : null,
+        feeINR,
+        notes: "Assigned by admin",
+      },
+    });
+
+    return sendSuccess(
+      res,
+      created,
+      professionalUserId
+        ? "Professional tester filled directly"
+        : "Professional tester slot opened",
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+/**
+ * Spec §42: admin awards the optional Elite Badge (visual only).
+ */
+export const adminAwardEliteBadge = async (req: Request, res: Response) => {
+  try {
+    const adminId = req?.userId;
+    if (!adminId) return sendError(res, 401, "Unauthorized");
+
+    const userId = String(req?.body?.payload?.userId || "");
+    const reason = req?.body?.payload?.reason
+      ? String(req.body.payload.reason)
+      : null;
+    if (!userId) return sendError(res, 400, "userId is required");
+
+    const target = await prismaClient.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!target) return sendError(res, 404, "User not found");
+
+    await prismaClient.user.update({
+      where: { id: userId },
+      data: {
+        eliteBadge: true,
+        eliteBadgeAwardedAt: new Date(),
+        eliteBadgeAwardedBy: adminId,
+        eliteBadgeReason: reason,
+      },
+    });
+
+    return sendSuccess(res, { userId, eliteBadge: true }, "Elite Badge awarded");
+  } catch (error) {
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+/**
+ * Spec §42: admin revokes the Elite Badge.
+ */
+export const adminRevokeEliteBadge = async (req: Request, res: Response) => {
+  try {
+    const adminId = req?.userId;
+    if (!adminId) return sendError(res, 401, "Unauthorized");
+
+    const userId = String(req?.body?.payload?.userId || "");
+    const reason = req?.body?.payload?.reason
+      ? String(req.body.payload.reason)
+      : null;
+    if (!userId) return sendError(res, 400, "userId is required");
+
+    await prismaClient.user.update({
+      where: { id: userId },
+      data: {
+        eliteBadge: false,
+        eliteBadgeAwardedAt: null,
+        eliteBadgeAwardedBy: null,
+        eliteBadgeReason: reason,
+      },
+    });
+
+    return sendSuccess(res, { userId, eliteBadge: false }, "Elite Badge revoked");
+  } catch (error) {
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
 
 // ==================== PERMISSION MATRIX (super_admin only) ====================
 
@@ -356,6 +800,9 @@ export const getSubmittedApps = async (req: Request, res: Response) => {
 export const acceptApp = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
+    // S9: `rewardPoints` accepted-but-ignored for backward compatibility with
+    // older admin clients; the points column no longer exists. PAID apps use
+    // `rewardPoints` as the per-tester money payout (stored rewardMoney).
     const { id, totalTester, totalDay, minimumAndroidVersion, rewardPoints } =
       payload;
     if (!id) {
@@ -380,7 +827,11 @@ export const acceptApp = async (req: Request, res: Response) => {
     if (minimumAndroidVersion === undefined) {
       return sendError(res, 400, "Minimum Android Version is required");
     }
-    if (rewardPoints === undefined || parseFloat(rewardPoints) < 0) {
+    // S9: payout is only meaningful for PAID apps now.
+    if (
+      existingApp.appType === "PAID" &&
+      (rewardPoints === undefined || parseFloat(rewardPoints) < 0)
+    ) {
       return sendError(
         res,
         400,
@@ -402,19 +853,9 @@ export const acceptApp = async (req: Request, res: Response) => {
     if (totalDay !== undefined) dataToUpdate.totalDay = parseInt(totalDay);
     if (minimumAndroidVersion !== undefined)
       dataToUpdate.minimumAndroidVersion = parseFloat(minimumAndroidVersion);
-    if (rewardPoints !== undefined) {
-      if (existingApp.appType === "PAID") {
-        // Persist rewardMoney as the actual money payout per tester
-        dataToUpdate.rewardMoney = parseFloat(rewardPoints);
-        dataToUpdate.rewardPoints = 0; // reset points for paid apps
-      } else if (existingApp.appType === "HANDSHAKE") {
-        // Handshake testing has no payout - points are always zero
-        dataToUpdate.rewardPoints = 0;
-        dataToUpdate.rewardMoney = 0;
-      } else {
-        dataToUpdate.rewardPoints = parseFloat(rewardPoints);
-        dataToUpdate.rewardMoney = 0;
-      }
+    if (existingApp.appType === "PAID" && rewardPoints !== undefined) {
+      // Persist rewardMoney as the actual money payout per tester
+      dataToUpdate.rewardMoney = parseFloat(rewardPoints);
     }
 
     const updatedApp = await prismaClient.dashboardAndHub.update({
@@ -452,16 +893,71 @@ export const updateProjectStatus = async (req: Request, res: Response) => {
       return sendError(res, 404, "App not found");
     }
 
+    // P2.10: allow-list target statuses per appType. Arbitrary strings used
+    // to be written raw (Prisma 500s), and moving a HANDSHAKE campaign to
+    // IN_TESTING stranded it in a state no cron repairs while daily
+    // verification required TESTING_ACTIVE.
+    const isHandshake = app.appType === "HANDSHAKE";
+    const ALLOWED = isHandshake
+      ? [
+          "IN_REVIEW",
+          "AVAILABLE",
+          "WAITING_FOR_PARTNERS",
+          "TESTING_ACTIVE",
+          "SUSPENDED",
+          "UNDER_ADMIN_REVIEW",
+          "ON_HOLD",
+          "COMPLETED",
+          "REMOVED",
+        ]
+      : [
+          "IN_REVIEW",
+          "DRAFT",
+          "AVAILABLE",
+          "IN_TESTING",
+          "COMPLETED",
+          "ON_HOLD",
+          "REQUESTED",
+          "SUSPENDED",
+        ];
+    if (!ALLOWED.includes(status)) {
+      return sendError(
+        res,
+        400,
+        `Status "${status}" is not allowed for ${isHandshake ? "HANDSHAKE" : app.appType} campaigns. Allowed: ${ALLOWED.join(", ")}`,
+      );
+    }
+
     const updateData: any = {
       status: status,
       ...(status === "IN_REVIEW" ? { statusDetails: Prisma.DbNull } : {}),
     };
 
-    if (status === "IN_TESTING" && !app.testingStartDate) {
-      const now = new Date();
+    const now = new Date();
+    if (isHandshake && status === "TESTING_ACTIVE") {
+      // Stamp the dates the handshake lifecycle depends on (verification
+      // day gate + penalty sweep read testingStartDate).
+      if (!app.testingStartDate) {
+        updateData.testingStartDate = now;
+      }
+      updateData.testingEndDate = new Date(
+        new Date(updateData.testingStartDate || now).getTime() +
+          (app.totalDay || 16) * 24 * 60 * 60 * 1000,
+      );
+    } else if (!isHandshake && status === "IN_TESTING" && !app.testingStartDate) {
       updateData.testingStartDate = now;
       updateData.testingEndDate = new Date(
-        now.getTime() + (app.totalDay || 14) * 24 * 60 * 60 * 1000
+        now.getTime() + (app.totalDay || 14) * 24 * 60 * 60 * 1000,
+      );
+    }
+    if (
+      isHandshake &&
+      status === "WAITING_FOR_PARTNERS" &&
+      !app.testingStartEligibleAt
+    ) {
+      updateData.waitingPeriodStartedAt = now;
+      updateData.testingStartEligibleAt = new Date(
+        now.getTime() + 24 * 60 * 60 * 1000,
       );
     }
 
@@ -1017,13 +1513,17 @@ export const getFeedbackCounts = async (req: Request, res: Response) => {
          ];
        }
  
-       if (status && status !== "All") {
-         if (status === "Active") {
-           where.userDetail = { banned: false };
-         } else if (status === "Banned") {
-           where.userDetail = { banned: true };
-         }
-       }
+        if (status && status !== "All") {
+          if (status === "Active") {
+            where.userDetail = { banned: false };
+            where.isActive = true;
+          } else if (status === "Banned") {
+            where.userDetail = { banned: true };
+            where.isActive = true;
+          } else if (status === "Deactivated") {
+            where.isActive = false;
+          }
+        }
  
        let users;
        if (role && role !== "All") {
@@ -1080,13 +1580,19 @@ export const getFeedbackCounts = async (req: Request, res: Response) => {
              .filter(Boolean)
              .sort((a: any, b: any) => (b?.getTime() || 0) - (a?.getTime() || 0))[0] || null;
  
-         return {
-           id: user.id,
-           name: user.name,
-           email: user.email,
-           image: user.image,
-           role: user.userDetail?.role?.name || "User",
-           status: user.userDetail?.banned ? "Banned" : "Active",
+          return {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            image: user.image,
+            role: user.userDetail?.role?.name || "User",
+            isActive: user.isActive,
+            deactivatedAt: user.deactivatedAt?.toISOString() || null,
+            status: !user.isActive
+              ? "Deactivated"
+              : user.userDetail?.banned
+                ? "Banned"
+                : "Active",
            availability: user.userDetail?.availability || "AVAILABLE",
            testingPaths: user.userDetail?.profile_type || [],
            device:
@@ -1163,15 +1669,16 @@ export const getUserById = async (req: Request, res: Response) => {
     }
 
     const userId = id as string;
-    const [creditPoints, debitPoints, creditPackages, debitPackages] =
+    // S9: points aggregates removed , money (amount) and packages remain.
+    const [creditMoney, debitMoney, creditPackages, debitPackages] =
       await Promise.all([
         prismaClient.userTransaction.aggregate({
-          where: { userId, status: "CREDIT", points: { gt: 0 } },
-          _sum: { points: true },
+          where: { userId, status: "CREDIT", amount: { gt: 0 } },
+          _sum: { amount: true },
         }),
         prismaClient.userTransaction.aggregate({
-          where: { userId, status: "DEBIT", points: { gt: 0 } },
-          _sum: { points: true },
+          where: { userId, status: "DEBIT", amount: { gt: 0 } },
+          _sum: { amount: true },
         }),
         prismaClient.userTransaction.aggregate({
           where: { userId, status: "CREDIT", package: { gt: 0 } },
@@ -1191,7 +1698,13 @@ export const getUserById = async (req: Request, res: Response) => {
       emailVerified: user.emailVerified,
       authType: user.userDetail?.auth_type || "EMAIL_PASSWORD",
       role: user.userDetail?.role?.name || "User",
-      status: user.userDetail?.banned ? "Banned" : "Active",
+      isActive: user.isActive,
+      deactivatedAt: user.deactivatedAt?.toISOString() || null,
+      status: !user.isActive
+        ? "Deactivated"
+        : user.userDetail?.banned
+          ? "Banned"
+          : "Active",
       banReason: user.userDetail?.ban_reason || "",
       phone: user.userDetail?.phone || null,
       availability: user.userDetail?.availability || "AVAILABLE",
@@ -1230,8 +1743,8 @@ export const getUserById = async (req: Request, res: Response) => {
       testerOsVersions: [],
       wallet: user.wallet,
       walletStats: {
-        pointsEarned: creditPoints._sum?.points || 0,
-        pointsSpent: debitPoints._sum?.points || 0,
+        moneyEarned: creditMoney._sum?.amount || 0,
+        moneySpent: debitMoney._sum?.amount || 0,
         packagesPurchased: creditPackages._sum?.package || 0,
         packagesUsed: debitPackages._sum?.package || 0,
       },
@@ -1307,6 +1820,86 @@ export const updateUserStatus = async (req: Request, res: Response) => {
       res,
       updatedUser as any,
       "User status updated successfully",
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+/**
+ * Admin control over the soft-deactivation flag (User.isActive) that gates
+ * login. Distinct from ban (userDetail.banned): deactivated users can
+ * self-reactivate later; banned accounts cannot.
+ */
+export const updateUserActiveStatus = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id, isActive } = payload;
+
+    if (!id || typeof isActive !== "boolean") {
+      return sendError(res, 400, "User ID and isActive (boolean) are required");
+    }
+
+    // Prevention: admin cannot change their own active status from here
+    if (id === req.userId) {
+      return sendError(
+        res,
+        400,
+        "You cannot change your own account's active status",
+      );
+    }
+
+    const targetUser = await prismaClient.user.findUnique({
+      where: { id },
+      include: { userDetail: { include: { role: { select: { name: true } } } } },
+    });
+
+    if (!targetUser) {
+      return sendError(res, 404, "User not found");
+    }
+
+    const targetRole = targetUser.userDetail?.role?.name;
+
+    if (targetRole === "super_admin" && req.role !== "super_admin") {
+      return sendError(
+        res,
+        403,
+        "Only Super Admins can modify Super Admin accounts",
+      );
+    }
+
+    // Safety: super_admin accounts cannot be deactivated (mirrors
+    // toggleMyActiveStatus protection)
+    if (!isActive && targetRole === "super_admin") {
+      return sendError(
+        res,
+        403,
+        "Super Admin accounts cannot be deactivated for safety and security reasons",
+      );
+    }
+
+    const updated = await prismaClient.user.update({
+      where: { id },
+      data: {
+        isActive,
+        deactivatedAt: isActive ? null : new Date(),
+      },
+    });
+
+    return sendSuccess(
+      res,
+      {
+        id: updated.id,
+        isActive: updated.isActive,
+        deactivatedAt: updated.deactivatedAt?.toISOString() ?? null,
+      },
+      isActive
+        ? "Account reactivated successfully"
+        : "Account deactivated successfully",
     );
   } catch (error) {
     return sendError(
@@ -1445,24 +2038,24 @@ export const updateUserWallet = async (req: Request, res: Response) => {
     }
 
     const { payload } = req.body;
-    const { id, totalPoints, totalPackages } = payload;
+    // S9: totalPoints removed from the wallet , packages only.
+    const { id, totalPackages } = payload;
 
     if (!id) {
       return sendError(res, 400, "User ID is required");
     }
 
-    if (totalPoints === undefined || totalPackages === undefined) {
-      return sendError(res, 400, "totalPoints and totalPackages are required");
+    if (totalPackages === undefined) {
+      return sendError(res, 400, "totalPackages is required");
     }
 
-    const points = Number(totalPoints);
     const packages = Number(totalPackages);
 
-    if (isNaN(points) || isNaN(packages)) {
-      return sendError(res, 400, "totalPoints and totalPackages must be valid numbers");
+    if (isNaN(packages)) {
+      return sendError(res, 400, "totalPackages must be a valid number");
     }
 
-    if (points < 0 || packages < 0) {
+    if (packages < 0) {
       return sendError(res, 400, "Values cannot be negative");
     }
 
@@ -1470,12 +2063,10 @@ export const updateUserWallet = async (req: Request, res: Response) => {
       where: { userId: id },
       create: {
         userId: id,
-        totalPoints: points,
         totalPackages: packages,
         balanceMoney: 0,
       },
       update: {
-        totalPoints: points,
         totalPackages: packages,
       },
     });
@@ -1493,21 +2084,22 @@ export const updateUserWallet = async (req: Request, res: Response) => {
 export const giftPointsAndPackages = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
+    // S9: points gifting removed , packages only (legacy `points` param
+    // accepted-but-ignored for old clients).
     const { id, points, packages } = payload;
 
     if (!id) {
       return sendError(res, 400, "User ID is required");
     }
 
-    if ((!points || points <= 0) && (!packages || packages <= 0)) {
-      return sendError(res, 400, "At least one of points or packages must be a positive number");
+    if (!packages || packages <= 0) {
+      return sendError(res, 400, "Packages must be a positive number");
     }
 
-    const giftPoints = points ? Math.max(0, Number(points)) : 0;
-    const giftPackages = packages ? Math.max(0, Number(packages)) : 0;
+    const giftPackages = Math.max(0, Number(packages));
 
-    if (isNaN(giftPoints) || isNaN(giftPackages)) {
-      return sendError(res, 400, "Points and packages must be valid numbers");
+    if (isNaN(giftPackages)) {
+      return sendError(res, 400, "Packages must be a valid number");
     }
 
     const result = await prismaClient.$transaction(async (tx) => {
@@ -1515,52 +2107,32 @@ export const giftPointsAndPackages = async (req: Request, res: Response) => {
         where: { userId: id },
         create: {
           userId: id,
-          totalPoints: giftPoints,
           totalPackages: giftPackages,
           balanceMoney: 0,
         },
         update: {
-          totalPoints: giftPoints > 0 ? { increment: giftPoints } : undefined,
           totalPackages: giftPackages > 0 ? { increment: giftPackages } : undefined,
         },
       });
 
-      if (giftPoints > 0) {
-        await tx.userTransaction.create({
-          data: {
-            userId: id,
-            userWalletId: wallet.id,
-            points: giftPoints,
-            transactionType: "GIFT",
-            status: "CREDIT",
-            paymentMethod: "POINTS",
-          },
-        });
-      }
+      await tx.userTransaction.create({
+        data: {
+          userId: id,
+          userWalletId: wallet.id,
+          package: giftPackages,
+          transactionType: "GIFT",
+          status: "CREDIT",
+          paymentMethod: "PACKAGE",
+        },
+      });
 
-      if (giftPackages > 0) {
-        await tx.userTransaction.create({
-          data: {
-            userId: id,
-            userWalletId: wallet.id,
-            package: giftPackages,
-            transactionType: "GIFT",
-            status: "CREDIT",
-            paymentMethod: "PACKAGE",
-          },
-        });
-      }
-
-      const descriptionParts: string[] = [];
-      if (giftPoints > 0) descriptionParts.push(`${giftPoints} points`);
-      if (giftPackages > 0) descriptionParts.push(`${giftPackages} packages`);
-      const giftDescription = `You have been gifted ${descriptionParts.join(" and ")}!`;
+      const giftDescription = `You have been gifted ${giftPackages} packages!`;
 
       await tx.notification.create({
         data: {
           title: "Gift Received!",
           description: giftDescription,
-          type: giftPoints > 0 ? "POINTS_AWARDED" : "OTHER",
+          type: "OTHER",
           userId: id,
           isActive: true,
         },
@@ -1682,7 +2254,7 @@ export const createUser = async (req: Request, res: Response) => {
 
     await prismaClient.userWallet.upsert({
       where: { userId },
-      create: { userId, totalPoints: 0, totalPackages: 0, balanceMoney: 0 },
+      create: { userId, totalPackages: 0, balanceMoney: 0 },
       update: {},
     });
 
@@ -1876,6 +2448,12 @@ export const getUserCounts = async (req: Request, res: Response) => {
       where: { banned: true },
     });
     formattedCounts["Banned"] = bannedCount;
+
+    // Get deactivated (soft-deactivated accounts) count
+    const deactivatedCount = await prismaClient.user.count({
+      where: { isActive: false },
+    });
+    formattedCounts["Deactivated"] = deactivatedCount;
 
     return sendSuccess(
       res,
@@ -2755,7 +3333,7 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
       dashboardAndHubId: parseInt(id),
       status: "IN_PROGRESS" as const,
       isActive: true,
-      assignmentSource: (isFreeApp ? "ADMIN_ASSIGNED" : "SELF_JOIN") as any,
+      assignmentSource: "ADMIN_ASSIGNED" as any,
     }));
 
     await prismaClient.testerRelation.createMany({
@@ -2766,12 +3344,12 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
     const newCurrentTester = app.currentTester + newTesterIds.length;
     let newStatus = app.status;
 
-    // Move to IN_TESTING only if the required number of testers is reached
-    if (
-      app.status === "AVAILABLE" &&
-      newCurrentTester >= (app.totalTester || 0)
-    ) {
-      newStatus = "IN_TESTING";
+    // S7-1: HANDSHAKE campaigns live in TESTING_ACTIVE (the verification
+    // gate requires it); FREE/PAID keep legacy IN_TESTING as their
+    // active state. Mirrors `startTestingHubApp` (hub.controller.ts:3006).
+    const reachedCapacity = newCurrentTester >= (app.totalTester || 0);
+    if (app.status === "AVAILABLE" && reachedCapacity) {
+      newStatus = app.appType === "HANDSHAKE" ? "TESTING_ACTIVE" : "IN_TESTING";
     }
 
     const updateData: any = {
@@ -2779,8 +3357,14 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
       status: newStatus,
     };
 
-    // Set testing dates when moving to IN_TESTING
-    if (newStatus === "IN_TESTING" && !app.testingStartDate) {
+    // Set testingStartDate / testingEndDate when transitioning into either
+    // active-testing state for the first time. Without testingStartDate
+    // getSingleHubAppDetails can't compute currentDay, and the daily
+    // verification UI reads out of sync with the API.
+    if (
+      (newStatus === "IN_TESTING" || newStatus === "TESTING_ACTIVE") &&
+      !app.testingStartDate
+    ) {
       const now = new Date();
       updateData.testingStartDate = now;
       updateData.testingEndDate = new Date(
@@ -2874,9 +3458,13 @@ export const unassignTesterFromApp = async (req: Request, res: Response) => {
     const newCurrentTester = Math.max(0, app.currentTester - 1);
     let newStatus = app.status;
 
-    // If testers are left but below required, move from IN_TESTING back to AVAILABLE
+    // If testers are left but below required, drop from either active-
+    // testing state (IN_TESTING for FREE/PAID, TESTING_ACTIVE for
+    // HANDSHAKE) back to AVAILABLE. Without TESTING_ACTIVE in the
+    // check, a HANDSHAKE campaign unassigned below capacity would stay
+    // stuck in TESTING_ACTIVE even though currentTester < totalTester.
     if (
-      app.status === "IN_TESTING" &&
+      (app.status === "IN_TESTING" || app.status === "TESTING_ACTIVE") &&
       newCurrentTester < (app.totalTester || 0)
     ) {
       newStatus = "AVAILABLE";
@@ -3154,13 +3742,14 @@ export const updateDailyVerificationStatus = async (
 export const adminCompleteApp = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
-    const { id } = payload; // id is DashboardAndHub ID
+    const { id, force } = payload; // id is DashboardAndHub ID; force bypasses HANDSHAKE per-tester gate
 
     if (!id) {
       return sendError(res, 400, "App ID is required");
     }
 
     const hubId = typeof id === "string" ? parseInt(id) : id;
+    const isForce = force === true;
 
     const existingApp = await prismaClient.dashboardAndHub.findUnique({
       where: { id: hubId },
@@ -3173,6 +3762,49 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
 
     if (existingApp.status === "COMPLETED") {
       return sendSuccess(res, existingApp as any, "App is already completed");
+    }
+
+    // HANDSHAKE gate: if any active testers exist, every one of them must
+    // have served `totalDay` days. Admin can force-complete from any state
+    // (no status pre-check), but cannot strand in-progress testers mid-cycle.
+    // `force` bypasses this gate for cleanup of dead/stranded campaigns , 
+    // level credit safety is preserved by checkAndFinalizeHandshake honoring
+    // each side's hadMissSinceStart (S8-G1). Mirrors completeHostedApp.
+    let forcedUnfinishedCount = 0;
+    let forcedRequiredDays = 0;
+    if (existingApp.appType === "HANDSHAKE" && !isForce) {
+      const requiredDays = existingApp.totalDay || 16;
+      const activeTesters = await prismaClient.testerRelation.findMany({
+        where: {
+          dashboardAndHubId: hubId,
+          isActive: true,
+          status: "IN_PROGRESS",
+        },
+        select: { id: true, daysCompleted: true },
+      });
+      const unfinished = activeTesters.filter(
+        (rel) => (rel.daysCompleted || 0) < requiredDays,
+      );
+      if (unfinished.length > 0) {
+        return sendError(
+          res,
+          409,
+          `${unfinished.length} tester(s) have not completed all ${requiredDays} days yet`,
+        );
+      }
+    } else if (existingApp.appType === "HANDSHAKE" && isForce) {
+      forcedRequiredDays = existingApp.totalDay || 16;
+      const activeTesters = await prismaClient.testerRelation.findMany({
+        where: {
+          dashboardAndHubId: hubId,
+          isActive: true,
+          status: "IN_PROGRESS",
+        },
+        select: { id: true, daysCompleted: true },
+      });
+      forcedUnfinishedCount = activeTesters.filter(
+        (rel) => (rel.daysCompleted || 0) < forcedRequiredDays,
+      ).length;
     }
 
     const updatedApp = await prismaClient.$transaction(async (tx) => {
@@ -3194,36 +3826,22 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
         },
       });
 
+      // S9: points economy removed , only PAID apps pay money rewards.
       const isPaidApp = app.appType === "PAID";
-      const rewardAmount =
-        app.appType === "HANDSHAKE"
-          ? 0
-          : isPaidApp
-            ? app.rewardMoney || 0
-            : app.rewardPoints || 0;
+      const rewardAmount = isPaidApp ? app.rewardMoney || 0 : 0;
 
       if (rewardAmount > 0 && testersToReward.length > 0) {
         for (const rel of testersToReward) {
-          // Skip admin-assigned testers on free apps ,  they earn nothing on-platform
-          if (!isPaidApp && rel.assignmentSource === "ADMIN_ASSIGNED") continue;
-          const createData: any = {
-            userId: rel.testerId,
-            totalPackages: 0,
-          };
-          const updateData: any = {};
-
-          if (isPaidApp) {
-            createData.balanceMoney = rewardAmount;
-            updateData.balanceMoney = { increment: rewardAmount };
-          } else {
-            createData.totalPoints = rewardAmount;
-            updateData.totalPoints = { increment: rewardAmount };
-          }
-
           const wallet = await tx.userWallet.upsert({
             where: { userId: rel.testerId },
-            create: createData,
-            update: updateData,
+            create: {
+              userId: rel.testerId,
+              totalPackages: 0,
+              balanceMoney: rewardAmount,
+            },
+            update: {
+              balanceMoney: { increment: rewardAmount },
+            },
           });
 
           await tx.userTransaction.create({
@@ -3232,7 +3850,7 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
               userWalletId: wallet.id,
               dashboardAndHubId: hubId,
               action: "TESTING",
-              points: rewardAmount, // Using points field generically for the transaction amount
+              amount: rewardAmount,
               transactionType: "EARNING",
               status: "CREDIT",
             },
@@ -3241,11 +3859,9 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
           // Notify Tester
           await tx.notification.create({
             data: {
-              title: isPaidApp ? "Payment Received!" : "Points Awarded!",
-              description: isPaidApp
-                ? `You've earned ₹${rewardAmount} for completing the testing of "${app.androidApp.appName}".`
-                : `You've earned ${rewardAmount} points for completing the testing of "${app.androidApp.appName}".`,
-              type: "POINTS_AWARDED",
+              title: "Payment Received!",
+              description: `You've earned ₹${rewardAmount} for completing the testing of "${app.androidApp.appName}".`,
+              type: "OTHER",
               userId: rel.testerId,
               isActive: true,
             },
@@ -3276,13 +3892,169 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
         },
       });
 
+      // Activity audit row ,  mirror completeHostedApp.
+      await tx.userActivity.create({
+        data: {
+          userId: req.userId || "",
+          dashboardAndHubId: app.id,
+          androidAppId: app.androidApp.id,
+          actionType: "COMPLETE_TEST",
+          description:
+            `Administration marked the testing for ${app.androidApp.appName} as completed` +
+            (forcedUnfinishedCount > 0
+              ? ` (FORCED ,  ${forcedUnfinishedCount} tester(s) did not complete all ${forcedRequiredDays} days)`
+              : ""),
+          ipAddress: req.userIpAddress,
+          userAgent: req.userAgent,
+          status: "SUCCESS",
+        },
+      });
+
+      return app;
+    });
+
+    // HANDSHAKE: finalize any active links attached to this campaign so both
+    // users' `handshakeCompletedCount` increments (subject to S8-G1
+    // `hadMissSinceStart` gate inside checkAndFinalizeHandshake) and so
+    // upsertTesterRelation can re-handshake in the future. Dynamic import to
+    // avoid module-init cycle (lib/handshake imports this controller).
+    if (existingApp.appType === "HANDSHAKE") {
+      const links = await prismaClient.handshakeLink.findMany({
+        where: {
+          status: "ACTIVE",
+          OR: [
+            { relationA: { dashboardAndHubId: hubId } },
+            { relationB: { dashboardAndHubId: hubId } },
+          ],
+        },
+      });
+      if (links.length > 0) {
+        const { checkAndFinalizeHandshake } = await import("@/lib/handshake");
+        for (const link of links) {
+          await checkAndFinalizeHandshake(link.id);
+        }
+      }
+    }
+
+    return sendSuccess(
+      res,
+      updatedApp as any,
+      "App status updated to COMPLETED successfully",
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+    );
+  }
+};
+
+/**
+ * Admin-only: reset a COMPLETED campaign back to active testing.
+ *
+ * Status-only reset per spec choice: re-stamps dates and reactivates stuck
+ * testerRelations so daily verification works again, but preserves
+ * `daysCompleted` and `dailyVerifications` rows as audit trail. HandshakeLink
+ * status is kept COMPLETED so re-running this campaign doesn't double-credit
+ * level-up (the link's hadMissSinceStart-gated `incrementHandshakeCompletion`
+ * only ran once when it finalized).
+ *
+ * HANDSHAKE -> TESTING_ACTIVE; PAID/FREE -> IN_TESTING.
+ */
+export const adminRestartApp = async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body;
+    const { id } = payload;
+
+    if (!id) {
+      return sendError(res, 400, "App ID is required");
+    }
+
+    const hubId = typeof id === "string" ? parseInt(id) : id;
+
+    const existingApp = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: hubId },
+      include: { androidApp: true },
+    });
+
+    if (!existingApp) {
+      return sendError(res, 404, "App not found");
+    }
+
+    if (existingApp.status !== "COMPLETED") {
+      return sendError(
+        res,
+        409,
+        `Only COMPLETED apps can be restarted (current status: ${existingApp.status})`,
+      );
+    }
+
+    const isHandshake = existingApp.appType === "HANDSHAKE";
+    const activatedStatus = isHandshake ? "TESTING_ACTIVE" : "IN_TESTING";
+    const totalDay = existingApp.totalDay || 16;
+    const now = new Date();
+
+    const updatedApp = await prismaClient.$transaction(async (tx) => {
+      const app = await tx.dashboardAndHub.update({
+        where: { id: hubId },
+        data: {
+          status: activatedStatus,
+          testingStartDate: now,
+          testingEndDate: new Date(now.getTime() + totalDay * 24 * 60 * 60 * 1000),
+          currentDay: 1,
+        },
+        include: { androidApp: true },
+      });
+
+      // Reactivate any COMPLETED tester relations back to IN_PROGRESS so
+      // daily verification can resume. Preserve daysCompleted (audit) and
+      // dailyVerifications rows; reset per-cycle hadMissSinceStart since this
+      // is a fresh cycle.
+      await tx.testerRelation.updateMany({
+        where: {
+          dashboardAndHubId: hubId,
+          status: "COMPLETED",
+        },
+        data: {
+          status: "IN_PROGRESS",
+          completedAt: null,
+          hadMissSinceStart: false,
+        },
+      });
+
+      // Audit row
+      await tx.userActivity.create({
+        data: {
+          userId: req.userId || "",
+          dashboardAndHubId: app.id,
+          androidAppId: app.androidApp.id,
+          actionType: "RESTART_TEST",
+          description: `Administration restarted the testing for ${app.androidApp.appName}`,
+          ipAddress: req.userIpAddress,
+          userAgent: req.userAgent,
+          status: "SUCCESS",
+        },
+      });
+
+      // Notify owner
+      await tx.notification.create({
+        data: {
+          title: "Testing Restarted",
+          description: `Administration has restarted the testing phase for your project "${app.androidApp.appName}". The campaign is now active again.`,
+          type: "OTHER",
+          userId: app.appOwnerId,
+          isActive: true,
+        },
+      });
+
       return app;
     });
 
     return sendSuccess(
       res,
       updatedApp as any,
-      "App status updated to COMPLETED successfully",
+      "App testing restarted successfully",
     );
   } catch (error) {
     return sendError(
@@ -4753,8 +5525,12 @@ export const updatePaidSubmission = async (req: Request, res: Response) => {
       return sendError(res, 404, "Submission not found");
     }
 
-    if (existing.appType !== "PAID") {
-      return sendError(res, 400, "This endpoint is only for PAID submissions");
+    if (existing.appType !== "PAID" && existing.appType !== "HANDSHAKE") {
+      return sendError(
+        res,
+        400,
+        "This endpoint is only for PAID or HANDSHAKE submissions",
+      );
     }
 
     const hubData: Record<string, unknown> = {};
@@ -5089,16 +5865,12 @@ export const getTesterActivity = async (req: Request, res: Response) => {
           tr.daysCompleted < (tr.dashboardAndHub?.totalDay || 0),
       ).length;
 
-      const [feedbackCount, totalEarnings, totalPointsEarned, recentActivities] =
+      const [feedbackCount, totalEarnings, recentActivities] =
         await Promise.all([
           prismaClient.feedback.count({ where: { testerId } }),
           prismaClient.userTransaction.aggregate({
-            where: { userId: testerId, status: "CREDIT", transactionType: "EARNING", action: "TESTING" },
-            _sum: { points: true },
-          }),
-          prismaClient.userTransaction.aggregate({
             where: { userId: testerId, status: "CREDIT", transactionType: "EARNING" },
-            _sum: { points: true },
+            _sum: { amount: true },
           }),
           prismaClient.userActivity.findMany({
             where: { userId: testerId },
@@ -5153,8 +5925,7 @@ export const getTesterActivity = async (req: Request, res: Response) => {
         remainingTests,
         totalVerifications: user.testerRelations.reduce((acc, tr) => acc + tr.dailyVerifications.length, 0),
         totalFeedback: feedbackCount,
-        totalEarnings: totalEarnings._sum?.points || 0,
-        totalPointsEarned: totalPointsEarned._sum?.points || 0,
+        totalEarnings: totalEarnings._sum?.amount || 0,
         lastActivityAt: lastActivityAt?.toISOString() || null,
         availability: user.userDetail?.availability || "AVAILABLE",
       };
@@ -5182,7 +5953,11 @@ export const getTesterActivity = async (req: Request, res: Response) => {
           experience: user.userDetail?.experience_level,
           country: user.userDetail?.country,
           role: user.userDetail?.role?.name,
-          status: user.userDetail?.banned ? "Banned" : "Active",
+          status: !user.isActive
+            ? "Deactivated"
+            : user.userDetail?.banned
+              ? "Banned"
+              : "Active",
         },
         summary,
         apps,

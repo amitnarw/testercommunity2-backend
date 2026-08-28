@@ -14,9 +14,14 @@ import adminFinanceRouter from "./adminFinance.route";
 import declarationRouter from "./declaration.route";
 import faqRouter from "./faq.route";
 import guideRouter from "./guide.route";
-import subscriptionRouter from "./subscription.route";
 import mailRouter from "./mail.route";
 import appChatRouter from "./appChat.route";
+import handshakeRequestRouter from "./handshakeRequest.route";
+import eliteBadgeRouter from "./eliteBadge.route";
+import penaltyRouter from "./penalty.route";
+import addonRouter from "./addon.route";
+import levelRouter from "./level.route";
+import handshakeMonitoringRouter from "./handshakeMonitoring.route";
 
 const router = Router();
 
@@ -24,6 +29,7 @@ router.use("/auth", authRouter);
 router.use("/user", userRouter);
 router.use("/admin/mail", mailRouter);
 router.use("/admin", adminRouter);
+router.use("/admin/handshake-monitoring", handshakeMonitoringRouter);
 router.use("/dashboard", dashboardRouter);
 router.use("/hub", hubRouter);
 router.use("/R2", r2Router);
@@ -36,7 +42,11 @@ router.use("/admin/finance", adminFinanceRouter);
 router.use("/declaration", declarationRouter);
 router.use("/faq", faqRouter);
 router.use("/blog", guideRouter);
-router.use("/subscription", subscriptionRouter);
 router.use("/app-chat", appChatRouter);
+router.use("/handshake-requests", handshakeRequestRouter);
+router.use("/elite-badge", eliteBadgeRouter);
+router.use("/penalty", penaltyRouter);
+router.use("/addons", addonRouter);
+router.use("/level", levelRouter);
 
 export default router;

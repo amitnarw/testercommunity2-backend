@@ -7,7 +7,6 @@ import DeviceDetector from "device-detector-js";
 import geoip from "geoip-lite";
 import { auth } from "@/lib/auth";
 import { fromNodeHeaders } from "better-auth/node";
-import { isRazorpayConfigured, getRazorpayInstance } from "@/lib/razorpay";
 import { verifyPassword } from "@/utils/passwordUtils";
 import logger from "@/utils/logger";
 
@@ -717,6 +716,11 @@ export const getUserTransactions = async (req: Request, res: Response) => {
       let amount = "";
       let change = "";
       let changeType = txn.status === "CREDIT" ? "positive" : "negative";
+      // S9-F5: pre-migration rows whose `amount` holds a POINTS value (not
+      // money) must not render with a ₹ prefix.
+      const isLegacyPointsRow = txn.paymentMethod === "POINTS";
+      const fmtAmount = (n: number) =>
+        isLegacyPointsRow ? `${n} (legacy pts)` : `₹${n}`;
 
       switch (txn.transactionType) {
         case "PURCHASE":
@@ -733,44 +737,44 @@ export const getUserTransactions = async (req: Request, res: Response) => {
                 : "Submitted (Promo)";
               amount = "0 (Promo)";
               change = "0 (Promo)";
-            } else if (pm === "PACKAGE" || (!pm && txn.package && (txn.package > 0 || !txn.points))) {
+            } else if (pm === "PACKAGE" || (!pm && txn.package && (txn.package > 0 || !txn.amount))) {
               description = txn.dashboardAndHub?.androidApp?.appName 
                 ? `Submitted "${txn.dashboardAndHub.androidApp.appName}"` 
                 : "Package Used";
               amount = `-${txn.package || 0} Package`;
               change = `-${txn.package || 0} Package`;
             } else {
-              // POINTS (default for hub/free apps)
-              description = txn.dashboardAndHub?.androidApp?.appName 
-                ? `Submitted "${txn.dashboardAndHub.androidApp.appName}"` 
-                : "Points Used";
-              amount = `-${txn.points || 0} Points`;
-              change = `-${txn.points || 0} Points`;
+              // S9: money-denominated legacy rows (amount holds ₹ value)
+              description = txn.dashboardAndHub?.androidApp?.appName
+                ? `Submitted "${txn.dashboardAndHub.androidApp.appName}"`
+                : "Submission";
+              amount = `-${fmtAmount(txn.amount || 0)}`;
+              change = `-${fmtAmount(txn.amount || 0)}`;
             }
           }
           break;
         case "EARNING":
           description = txn.dashboardAndHub?.androidApp?.appName
             ? `Completed test for "${txn.dashboardAndHub.androidApp.appName}"`
-            : "Points Earned";
-          amount = `+${txn.points || 0} Points`;
-          change = `+${txn.points || 0} Points`;
+            : "Earning";
+          amount = `+${fmtAmount(txn.amount || 0)}`;
+          change = `+${fmtAmount(txn.amount || 0)}`;
           break;
         case "BONUS":
           description = "Bonus Reward";
-          amount = `+${txn.points || 0} Points`;
-          change = `+${txn.points || 0} Points`;
+          amount = `+${fmtAmount(txn.amount || 0)}`;
+          change = `+${fmtAmount(txn.amount || 0)}`;
           break;
         case "WITHDRAWAL":
           description = "Withdrawal";
-          amount = `-${txn.points || 0} Points`;
-          change = `-${txn.points || 0} Points`;
+          amount = `-${fmtAmount(txn.amount || 0)}`;
+          change = `-${fmtAmount(txn.amount || 0)}`;
           break;
         case "REFUND":
           if (txn.razorpayPaymentId && refundLookup.has(txn.razorpayPaymentId)) {
             const refundInfo = refundLookup.get(txn.razorpayPaymentId)!;
             const refundedInr = refundInfo.amount / 100;
-            description = `Refund — ₹${refundedInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} returned to your original payment method`;
+            description = `Refund ,  ₹${refundedInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} returned to your original payment method`;
             amount = `₹${refundedInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
             change = `-${txn.package || 0} Packages`;
           } else {
@@ -782,10 +786,10 @@ export const getUserTransactions = async (req: Request, res: Response) => {
         default:
           description = "Transaction";
           if (txn.status === "CREDIT") {
-            amount = txn.points ? `+${txn.points} Points` : `+${txn.package} Packages`;
+            amount = txn.amount ? `+${txn.amount} Points` : `+${txn.package} Packages`;
             change = amount;
           } else {
-            amount = txn.points ? `-${txn.points} Points` : `-${txn.package} Packages`;
+            amount = txn.amount ? `-${txn.amount} Points` : `-${txn.package} Packages`;
             change = amount;
           }
       }
@@ -797,13 +801,11 @@ export const getUserTransactions = async (req: Request, res: Response) => {
           typeLabel = "Package Purchase";
         } else if (txn.paymentMethod === "PROMO_FREE") {
           typeLabel = "Promo Used";
-        } else if (txn.paymentMethod === "POINTS" || (txn.points && txn.points > 0)) {
-          typeLabel = "Points Used";
         } else {
           typeLabel = "Package Used";
         }
       } else if (txn.transactionType === "EARNING") {
-        typeLabel = "Points Earned";
+        typeLabel = "Earning";
       } else if (txn.transactionType === "BONUS") {
         typeLabel = "Bonus";
       } else if (txn.transactionType === "WITHDRAWAL") {
@@ -823,7 +825,7 @@ export const getUserTransactions = async (req: Request, res: Response) => {
         changeType,
         transactionType: txn.transactionType,
         action: txn.action,
-        points: txn.points,
+        points: txn.amount,
         package: txn.package,
         paymentMethod: txn.paymentMethod,
       };
@@ -972,7 +974,9 @@ export const checkEmailStatus = async (req: Request, res: Response) => {
 
 /**
  * Toggle the current user's active status (soft deactivation / reactivation).
- * When deactivating, any active Handshake subscription is cancelled on Razorpay.
+ * Handshake subscriptions are now deprecated; legacy rows are marked deprecated
+ * rather than actively cancelled here. Admins should handle historical refunds
+ * via the Razorpay dashboard.
  */
 export const toggleMyActiveStatus = async (req: Request, res: Response) => {
   try {
@@ -1004,33 +1008,6 @@ export const toggleMyActiveStatus = async (req: Request, res: Response) => {
         403,
         "Super Admin accounts cannot be deactivated for safety and security reasons",
       );
-    }
-
-    if (!isActive) {
-      const activeSubs = await prismaClient.handshakeSubscription.findMany({
-        where: {
-          userId,
-          status: { in: ["ACTIVE", "AUTHENTICATED", "PENDING", "CREATED"] },
-        },
-      });
-
-      for (const sub of activeSubs) {
-        if (isRazorpayConfigured()) {
-          try {
-            const razorpay = getRazorpayInstance();
-            await razorpay.subscriptions.cancel(sub.razorpaySubscriptionId, false);
-          } catch (cancelError) {
-            logger.warn(
-              "Razorpay subscription cancel failed during deactivation:",
-              cancelError,
-            );
-          }
-        }
-        await prismaClient.handshakeSubscription.update({
-          where: { id: sub.id },
-          data: { status: "CANCELLED" },
-        });
-      }
     }
 
     const updated = await prismaClient.user.update({

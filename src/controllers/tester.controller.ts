@@ -95,8 +95,6 @@ export const getTesterProjects = async (req: Request, res: Response) => {
         currentDay: project.currentDay,
         totalTester: project.totalTester,
         currentTester: project.currentTester,
-        rewardPoints: project.rewardPoints,
-        costPoints: project.costPoints,
         rewardMoney: project.rewardMoney,
         costMoney: project.costMoney,
         instructionsForTester: project.instructionsForTester,
@@ -321,7 +319,8 @@ export const getTesterEarningHistory = async (req: Request, res: Response) => {
       id: tx.id,
       date: tx.createdAt,
       project: tx.dashboardAndHub?.androidApp?.appName ?? ", ",
-      amount: tx.points ?? 0,
+      // S9 economy removal: legacy points field maps to generic amount.
+      amount: tx.amount ?? 0,
       status: tx.status, // CREDIT | DEBIT | HOLD
       action: tx.action,
     }));

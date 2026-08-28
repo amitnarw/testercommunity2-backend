@@ -11,7 +11,6 @@ import {
   refundPayment,
   type RazorpayWebhookEvent,
 } from "@/lib/razorpay";
-import { processSubscriptionWebhook } from "@/controllers/subscription.controller";
 import { sendEmail } from "@/services/resend";
 import { paymentReceiptEmailHtml, EMAIL_BRAND } from "@/services/email-templates";
 import crypto from "crypto";
@@ -191,25 +190,7 @@ export const getBillingHistory = async (req: Request, res: Response) => {
       take: 50,
     });
 
-    // Get subscription payments
-    const subscriptionPayments = await prismaClient?.payment?.findMany({
-      where: {
-        userId,
-        paymentType: "SUBSCRIPTION",
-        status: "CAPTURED",
-      },
-      include: {
-        handshakeSubscription: {
-          select: { id: true, status: true, razorpayPlanId: true },
-        },
-        invoice: {
-          select: { id: true, invoice_number: true },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    });
-
+    // Build one-time order billing history
     const orderHistory = orders.map((order) => ({
       id: order.id.toString(),
       type: "ONE_TIME",
@@ -225,23 +206,8 @@ export const getBillingHistory = async (req: Request, res: Response) => {
       paymentMethod: order.payments[0]?.method || null,
     }));
 
-    const subHistory = subscriptionPayments.map((p) => ({
-      id: p.id.toString(),
-      type: "SUBSCRIPTION",
-      invoiceId: p.invoice?.invoice_number || null,
-      razorpayPaymentId: p.razorpayPaymentId,
-      date: p.createdAt.toISOString(),
-      amount: p.amount / 100,
-      currency: p.currency,
-      status: "Paid",
-      plan: "Handshake Testing Subscription",
-      paymentMethod: p.method || null,
-      subscriptionId: p.handshakeSubscription?.id || null,
-      subscriptionStatus: p.handshakeSubscription?.status || null,
-    }));
-
     // Merge and sort by date descending
-    const billingHistory = [...orderHistory, ...subHistory]
+    const billingHistory = orderHistory
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 50);
 
@@ -969,15 +935,9 @@ export const handleWebhook = async (req: Request, res: Response) => {
       return res.status(200).json({ status: "processed" });
     }
 
-    // Handle subscription events
-    if (event.event.startsWith("subscription.")) {
-      await processSubscriptionWebhook(event as any);
-      await prismaClient.webhookEventLog.update({
-        where: { eventId },
-        data: { processed: true, processedAt: new Date() },
-      });
-      return res.status(200).json({ status: "processed" });
-    }
+    // Note: Subscription webhook events were historically handled here but the
+    // Handshake Subscription system has been removed. Subscription.* events
+    // are now ignored.
 
     // Handle refund events (covers admin dashboard-initiated refunds)
     if (event.event.startsWith("refund.")) {
@@ -1032,7 +992,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
         return res.status(200).json({ status: "ok" });
       }
 
-      // Refund created or processed — record it and update wallet
+      // Refund created or processed ,  record it and update wallet
       const isProcessed = refundStatus === "processed" || event.event === "refund.processed";
       const newAmountRefunded = (payment.amountRefunded || 0) + refundAmount;
       const isFullRefund = newAmountRefunded >= payment.amount - 1;
@@ -1164,10 +1124,8 @@ export const initiateRefund = async (req: Request, res: Response) => {
       return sendError(res, 404, "Payment not found");
     }
 
-    // Subscription payments cannot be refunded (only cancelled)
-    if (payment.paymentType === "SUBSCRIPTION") {
-      return sendError(res, 400, "Subscription payments cannot be refunded. Only cancellation is supported.");
-    }
+    // Legacy subscription payments (handshake_subscription deprecated) are now
+// treated as ordinary captured payments and can be refunded via this path.
 
     const refundUserId = payment.userId || payment.order?.userId;
     if (refundUserId !== userId && !isAdmin) {

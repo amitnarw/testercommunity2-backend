@@ -269,8 +269,8 @@ async function seedDashboardMock() {
   // Update wallet so stats show a non-zero balance
   await prisma.userWallet.upsert({
     where: { userId: tester.id },
-    update: { totalPoints: 1240, totalPackages: 6 },
-    create: { userId: tester.id, totalPoints: 1240, totalPackages: 6 },
+    update: { totalPackages: 6 },
+    create: { userId: tester.id, totalPackages: 6 },
   });
 
   logger.info("✅ Dashboard mock data seeded!");

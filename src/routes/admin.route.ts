@@ -19,6 +19,7 @@ import {
   getAllUsers,
   getUserById,
   updateUserStatus,
+  updateUserActiveStatus,
   updateUserRole,
   updateUserProfile,
   updateUserWallet,
@@ -58,6 +59,7 @@ import {
   deletePromoCode,
   updateDailyVerificationStatus,
   adminCompleteApp,
+  adminRestartApp,
   getLogs,
   getLogContent,
   deleteLog,
@@ -193,6 +195,7 @@ router.get("/users/notifications/:id", checkAuthorization({ module: "users", act
 router.get("/users/:id", checkAuthorization({ module: "users", action: "canReadSingle" }), getUserById);
 router.post("/users", checkAuthorization({ module: "users", action: "canCreate" }), decryptPayload, createUser);
 router.post("/users/update-status", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserStatus);
+router.post("/users/update-active-status", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserActiveStatus);
 router.post("/users/update-role", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserRole);
 router.post("/users/update-profile", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, updateUserProfile);
 router.post("/users/convert-auth-type", checkAuthorization({ module: "users", action: "canUpdate" }), decryptPayload, convertUserAuthType);
@@ -307,6 +310,7 @@ router.post(
   updateDailyVerificationStatus,
 );
 router.post("/admin-complete-app", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, adminCompleteApp);
+router.post("/admin-restart-app", checkAuthorization({ module: "submissions", action: "canUpdate" }), decryptPayload, adminRestartApp);
 
 // Admin Declaration (PAID apps)
 router.get("/declarations/:appId", checkAuthorization({ module: "submissions", action: "canReadSingle" }), getAdminDeclaration);
@@ -332,5 +336,58 @@ router.post("/support/conversations/:id/close", checkAuthorization({ module: "su
 router.get("/support/agent-statuses", checkAuthorization({ module: "support", action: "canReadList" }), getAgentStatus);
 router.post("/support/agents/status", checkAuthorization({ module: "support", action: "canUpdate" }), decryptPayload, setMyStatus);
 router.get("/support/stats", checkAuthorization({ module: "support", action: "canReadList" }), getSupportStats);
+
+// Handshake Admin Actions (Spec §42)
+import {
+  adminReplaceTester as _adminReplaceTester,
+  adminRemoveTester as _adminRemoveTester,
+  adminForceHandshake as _adminForceHandshake,
+  adminAssignProfessionalTester as _adminAssignProfessionalTester,
+  adminAwardEliteBadge as _adminAwardEliteBadge,
+  adminRevokeEliteBadge as _adminRevokeEliteBadge,
+} from "@/controllers/admin.controller";
+
+router.post(
+  "/handshake/replace-tester",
+  checkAuthentication,
+  checkAuthorization({ module: "submissions", action: "canUpdate" }),
+  decryptPayload,
+  _adminReplaceTester,
+);
+router.post(
+  "/handshake/remove-tester",
+  checkAuthentication,
+  checkAuthorization({ module: "submissions", action: "canUpdate" }),
+  decryptPayload,
+  _adminRemoveTester,
+);
+router.post(
+  "/handshake/force-handshake",
+  checkAuthentication,
+  checkAuthorization({ module: "submissions", action: "canUpdate" }),
+  decryptPayload,
+  _adminForceHandshake,
+);
+router.post(
+  "/handshake/assign-professional-tester",
+  checkAuthentication,
+  checkAuthorization({ module: "submissions", action: "canUpdate" }),
+  decryptPayload,
+  _adminAssignProfessionalTester,
+);
+router.post(
+  "/handshake/award-elite-badge",
+  checkAuthentication,
+  checkAuthorization({ module: "users", action: "canUpdate" }),
+  decryptPayload,
+  _adminAwardEliteBadge,
+);
+router.post(
+  "/handshake/revoke-elite-badge",
+  checkAuthentication,
+  checkAuthorization({ module: "users", action: "canUpdate" }),
+  decryptPayload,
+  _adminRevokeEliteBadge,
+);
 
 export default router;
