@@ -6,6 +6,9 @@ import {
   awardEliteBadge,
   revokeEliteBadge,
   getUserEliteBadge,
+  searchEliteBadgeUsers,
+  listEliteBadgeHolders,
+  listEliteBadgeActivity,
 } from "@/controllers/eliteBadge.controller";
 
 const router = Router();
@@ -23,6 +26,24 @@ router.post(
   checkAuthorization({ module: "users", action: "canUpdate" }),
   decryptPayload,
   revokeEliteBadge,
+);
+router.get(
+  "/admin/user-search",
+  checkAuthentication,
+  checkAuthorization({ module: "users", action: "canReadList" }),
+  searchEliteBadgeUsers,
+);
+router.get(
+  "/admin/holders",
+  checkAuthentication,
+  checkAuthorization({ module: "users", action: "canReadList" }),
+  listEliteBadgeHolders,
+);
+router.get(
+  "/admin/activity",
+  checkAuthentication,
+  checkAuthorization({ module: "users", action: "canReadList" }),
+  listEliteBadgeActivity,
 );
 router.get("/user/:userId", getUserEliteBadge);
 

@@ -87,6 +87,32 @@ export const sendHandshakeRequest = async (req: Request, res: Response) => {
       );
     }
 
+    // S13: block the exact reverse of an already-pending request. If the
+    // target developer already sent me a request asking to test my offered
+    // app, the right action is to accept/reject that incoming request from
+    // the inbox — not to send a reverse request for the same pair of apps.
+    // The in-transaction reciprocal lookup below still handles the true
+    // race where both sides hit this guard at the same instant.
+    if (offeredAppId) {
+      const exactReverse = await prismaClient.handshakeRequest.findFirst({
+        where: {
+          fromUserId: toUserId,
+          toUserId: fromUserId,
+          requestedAppId: offeredAppId,
+          offeredAppId: requestedAppId,
+          status: "PENDING",
+        },
+        select: { id: true, status: true },
+      });
+      if (exactReverse) {
+        return sendError(
+          res,
+          409,
+          "This developer already sent you a handshake request for these apps. Please accept or reject it from your incoming requests.",
+        );
+      }
+    }
+
     const targetApp = await prismaClient.dashboardAndHub.findUnique({
       where: { id: requestedAppId },
       select: {

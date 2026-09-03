@@ -330,9 +330,10 @@ export const addHubApp = async (req: Request, res: Response) => {
       statusDetails: JSON.parse(JSON.stringify(dashboardAndHub?.statusDetails)),
     };
 
-    // Create a chat for every submitted app so the Testing Manager is
-    // available immediately, including while the app is under review.
-    if (dashboardAndHubResult) {
+    // Create a chat for every Pro (PAID) submitted app so the Testing
+    // Manager is available immediately, including while the app is under
+    // review. Handshake/Free apps do not get an auto-created chat.
+    if (dashboardAndHubResult && dashboardAndHubResult.appType === "PAID") {
       try {
         const { createAppChatIfNotExists } = await import("@/lib/appChat");
         const appName = androidAppData?.appName || "Untitled App";
@@ -665,6 +666,16 @@ export const getHubApps = async (req: Request, res: Response) => {
           status: "PENDING",
         },
       };
+      // Hide campaigns the other developer has already offered me in an
+      // incoming pending request. The receiver should accept/reject the
+      // existing request rather than send a reverse request for the same
+      // offered app.
+      whereCond.handshakeRequestsAsOffer = {
+        none: {
+          toUserId: req?.userId,
+          status: "PENDING",
+        },
+      };
     } else if (type === "REQUESTED") {
       whereCond.testerRelations = {
         some: {
@@ -965,6 +976,15 @@ export const getAppsCount = async (req: Request, res: Response) => {
         handshakeRequestsAsTarget: {
           none: {
             fromUserId: req.userId,
+            status: "PENDING",
+          },
+        },
+        // S13: also exclude apps offered to me in an incoming pending
+        // request — the receiver should accept/reject it, not send a
+        // reverse request for the same offered app.
+        handshakeRequestsAsOffer: {
+          none: {
+            toUserId: req.userId,
             status: "PENDING",
           },
         },
