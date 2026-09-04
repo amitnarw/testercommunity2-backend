@@ -90,7 +90,7 @@ export const sendHandshakeRequest = async (req: Request, res: Response) => {
     // S13: block the exact reverse of an already-pending request. If the
     // target developer already sent me a request asking to test my offered
     // app, the right action is to accept/reject that incoming request from
-    // the inbox — not to send a reverse request for the same pair of apps.
+    // the inbox ,  not to send a reverse request for the same pair of apps.
     // The in-transaction reciprocal lookup below still handles the true
     // race where both sides hit this guard at the same instant.
     if (offeredAppId) {
