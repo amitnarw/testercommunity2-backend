@@ -50,6 +50,7 @@ async function seedRolesModulesPermissions() {
     "iar",
     "tester_activity",
     "mail",
+    "app_chat",
   ];
   for (const moduleName of modules) {
     await prisma.module.upsert({

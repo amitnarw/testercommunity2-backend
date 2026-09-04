@@ -419,7 +419,10 @@ export const getAppChatsAdmin = async (req: Request, res: Response) => {
     const limit = Number(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const whereClause: any = {};
+    const whereClause: any = {
+      type: "LIVE_CHAT",
+      appDashboardAndHub: { appType: "PAID" as const },
+    };
     if (status && status !== "ALL") {
       if (status === "COMPLETED") {
         whereClause.status = "CLOSED";
@@ -565,5 +568,93 @@ export const backfillAppChatsAdmin = async (req: Request, res: Response) => {
   } catch (error) {
     logger.error("Error backfilling app chats:", error);
     return sendError(res, 500, "Failed to backfill app chats");
+  }
+};
+
+export const getAppChatsCount = async (_req: Request, res: Response) => {
+  try {
+    const baseWhere = {
+      type: "LIVE_CHAT" as const,
+      appDashboardAndHub: { appType: "PAID" as const },
+    };
+
+    const [pending, open, inProgress, completed, deleted] = await Promise.all([
+      prismaClient.conversation.count({
+        where: { ...baseWhere, status: "WAITING_AGENT" },
+      }),
+      prismaClient.conversation.count({
+        where: { ...baseWhere, status: "OPEN" },
+      }),
+      prismaClient.conversation.count({
+        where: { ...baseWhere, status: "IN_PROGRESS" },
+      }),
+      prismaClient.conversation.count({
+        where: { ...baseWhere, status: "CLOSED" },
+      }),
+      prismaClient.conversation.count({
+        where: {
+          ...baseWhere,
+          dashboardAndHubId: null,
+        },
+      }),
+    ]);
+
+    const all = pending + open + inProgress + completed + deleted;
+
+    return sendSuccess(
+      res,
+      {
+        all,
+        pending,
+        open,
+        inProgress,
+        completed,
+        deleted,
+      } as any,
+      "App chat counts fetched successfully",
+    );
+  } catch (error) {
+    logger.error("Error fetching app chats count:", error);
+    return sendError(res, 500, "Failed to fetch app chats count");
+  }
+};
+
+export const getAppChatsTotalUnread = async (req: Request, res: Response) => {
+  try {
+    if (!req.isAdmin) {
+      return sendError(res, 403, "Only admins can fetch total unread");
+    }
+
+    const conversations = await prismaClient.conversation.findMany({
+      where: {
+        type: "LIVE_CHAT",
+        appDashboardAndHub: { appType: "PAID" as const },
+      },
+      select: {
+        id: true,
+        userId: true,
+        agentLastReadAt: true,
+        messages: {
+          select: { id: true, senderId: true, createdAt: true },
+        },
+      },
+    });
+
+    let totalUnread = 0;
+    for (const conv of conversations) {
+      const ownerId = conv.userId;
+      const readAt = conv.agentLastReadAt;
+      const unread = conv.messages.filter((m) => {
+        if (m.senderId !== ownerId) return false;
+        if (!readAt) return true;
+        return new Date(m.createdAt) > new Date(readAt);
+      }).length;
+      totalUnread += unread;
+    }
+
+    return sendSuccess(res, { totalUnread } as any, "App chats total unread fetched successfully");
+  } catch (error) {
+    logger.error("Error fetching app chats total unread:", error);
+    return sendError(res, 500, "Failed to fetch app chats total unread");
   }
 };

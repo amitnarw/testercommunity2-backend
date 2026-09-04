@@ -64,8 +64,27 @@ model User {
    addOnPurchases             AddOnPurchase[]
    assignedMails              AdminMail[]                 @relation("AssignedMailUser")
    mailUser                   AdminMail[]                 @relation("MailUser")
+   eliteBadgeAuditLogs        EliteBadgeAuditLog[]        @relation("EliteBadgeAuditLogUser")
+   eliteBadgeAdminLogs        EliteBadgeAuditLog[]        @relation("EliteBadgeAuditLogAdmin")
 
    @@map("user")
+}
+
+model EliteBadgeAuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  adminId   String
+  action    String
+  reason    String?
+  createdAt DateTime @default(now())
+  user      User     @relation("EliteBadgeAuditLogUser", fields: [userId], references: [id], onDelete: Cascade)
+  admin     User     @relation("EliteBadgeAuditLogAdmin", fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([adminId])
+  @@index([createdAt])
+  @@index([action])
+  @@map("elite_badge_audit_log")
 }
 
 model UserDetail {
