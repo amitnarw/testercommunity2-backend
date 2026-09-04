@@ -980,7 +980,7 @@ export const getAppsCount = async (req: Request, res: Response) => {
           },
         },
         // S13: also exclude apps offered to me in an incoming pending
-        // request — the receiver should accept/reject it, not send a
+        // request ,  the receiver should accept/reject it, not send a
         // reverse request for the same offered app.
         handshakeRequestsAsOffer: {
           none: {
