@@ -791,6 +791,8 @@ model ControlRoom {
   landingStatValues         Json?
   landingStatIcons          Json?
   alexSystemPrompt          String?
+  proTestingVideoUrl        String?
+  handshakeVideoUrl         String?
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @default(now()) @updatedAt
 

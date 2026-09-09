@@ -107,7 +107,10 @@ const LANDING_STAT_CARDS = [
    try {
      const response = await prismaClient?.controlRoom?.findFirst({ orderBy: { id: 'asc' } });
      if (!response) {
-       return sendSuccess(res, {}, "ok");
+       return sendSuccess(res, {
+         proTestingVideoUrl: "https://www.youtube-nocookie.com/embed/jibAmGjSEiE",
+         handshakeVideoUrl: "https://www.youtube-nocookie.com/embed/9V6kyq8z4UQ",
+       } as unknown as JSONValue, "ok");
      }
      const responseData = {
         countriesSupported: response.countriesSupported ?? 10,
@@ -124,6 +127,10 @@ const LANDING_STAT_CARDS = [
         landingStatDescriptions: mergeStatField("description", response.landingStatDescriptions),
         landingStatValues: mergeStatField("value", response.landingStatValues),
         landingStatIcons: mergeStatField("icon", response.landingStatIcons),
+        proTestingVideoUrl:
+          response.proTestingVideoUrl ?? "https://www.youtube-nocookie.com/embed/jibAmGjSEiE",
+        handshakeVideoUrl:
+          response.handshakeVideoUrl ?? "https://www.youtube-nocookie.com/embed/9V6kyq8z4UQ",
       };
     return sendSuccess(res, responseData as unknown as JSONValue, "ok");
    } catch (error) {
