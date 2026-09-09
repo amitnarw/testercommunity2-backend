@@ -366,6 +366,7 @@ export const updateControlRoom = async (req: Request, res: Response) => {
        "landingStatTitles", "landingStatDescriptions", "landingStatValues",
        "landingStatIcons",
        "alexSystemPrompt",
+       "proTestingVideoUrl", "handshakeVideoUrl",
      ];
    const LANDING_STAT_IDS = [
      "countriesSupported", "bugsFound", "proAppsTested",
@@ -407,7 +408,29 @@ export const updateControlRoom = async (req: Request, res: Response) => {
    const data: Record<string, any> = {};
    for (const field of allowedFields) {
      if (payload[field] !== undefined) {
-       if (field === "landingStatTitles") {
+       if (field === "proTestingVideoUrl" || field === "handshakeVideoUrl") {
+         const raw = payload[field];
+         if (raw === null) {
+           data[field] = null;
+         } else if (typeof raw === "string") {
+           const trimmed = raw.trim();
+           if (trimmed === "") {
+             data[field] = null;
+           } else {
+             try {
+               const parsed = new URL(trimmed);
+               if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+                 return sendError(res, 400, `${field} must be an http(s) URL`);
+               }
+               data[field] = parsed.toString();
+             } catch {
+               return sendError(res, 400, `${field} must be a valid URL`);
+             }
+           }
+         } else {
+           return sendError(res, 400, `${field} must be a string`);
+         }
+       } else if (field === "landingStatTitles") {
          const sanitized = sanitizeStatArray("title", payload[field]);
          if (sanitized === null) continue;
          if (sanitized.length === 0) {
