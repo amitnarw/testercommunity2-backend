@@ -547,12 +547,12 @@ model DashboardAndHub {
 
 model AndroidApp {
   id                Int              @id @default(autoincrement())
-  appName           String           @unique
-  appLogoUrl        String           @unique
+  appName           String
+  appLogoUrl        String
   appScreenshotUrl1 String
   appScreenshotUrl2 String
   appCategoryId     Int
-  packageName       String           @unique
+  packageName       String
   description       String?
   isActive          Boolean          @default(true)
   createdAt         DateTime         @default(now())
@@ -564,6 +564,10 @@ model AndroidApp {
   reviews           Review[]
   activities        UserActivity[]
 
+  // Same app may exist in multiple testing types (e.g. Pro + Handshake).
+  // Per-type duplicate checks live in controllers.
+  @@index([appName])
+  @@index([packageName])
   @@map("android_app")
 }
 

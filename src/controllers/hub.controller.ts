@@ -220,32 +220,44 @@ export const addHubApp = async (req: Request, res: Response) => {
       );
     }
 
-    const existingApp = await prismaClient.androidApp.findFirst({
+    const existingPackageName = extractPackageName(app_url);
+    const duplicateCampaign = await prismaClient.dashboardAndHub.findFirst({
       where: {
-        OR: [
-          { appName: app_name },
-          { appLogoUrl: app_logo_url },
-          { packageName: extractPackageName(app_url) || "" },
-        ],
+        appType,
+        status: { not: "DRAFT" },
+        androidApp: {
+          OR: [
+            { appName: app_name },
+            { appLogoUrl: app_logo_url },
+            ...(existingPackageName
+              ? [{ packageName: existingPackageName }]
+              : []),
+          ],
+        },
       },
+      include: { androidApp: true },
     });
 
-    if (existingApp) {
-      if (existingApp.appName === app_name) {
+    if (duplicateCampaign) {
+      if (duplicateCampaign.androidApp.appName === app_name) {
         return sendError(
           res,
           400,
-          "An app with this name already exists. Please use different name",
+          "An app with this name already exists in this testing type. Please use a different name",
         );
       }
-      if (existingApp.appLogoUrl === app_logo_url) {
+      if (duplicateCampaign.androidApp.appLogoUrl === app_logo_url) {
         return sendError(
           res,
           400,
-          "An app with this logo already exists. Please use different logo",
+          "An app with this logo already exists in this testing type. Please use a different logo",
         );
       }
-      return sendError(res, 400, "This app has already been submitted");
+      return sendError(
+        res,
+        400,
+        "This app has already been submitted in this testing type",
+      );
     }
 
     const package_name = extractPackageName(app_url);
@@ -477,25 +489,42 @@ export const resubmitHubApp = async (req: Request, res: Response) => {
 
     const package_name = extractPackageName(app_url);
 
-    const conflictApp = await prismaClient.androidApp.findFirst({
+    const conflictCampaign = await prismaClient.dashboardAndHub.findFirst({
       where: {
-        id: { not: hubApp.appId },
-        OR: [
-          { appName: app_name },
-          { appLogoUrl: app_logo_url },
-          { packageName: package_name || "" },
-        ],
+        id: { not: hubApp.id },
+        appType: hubApp.appType,
+        status: { not: "DRAFT" },
+        androidApp: {
+          OR: [
+            { appName: app_name },
+            { appLogoUrl: app_logo_url },
+            ...(package_name ? [{ packageName: package_name }] : []),
+          ],
+        },
       },
+      include: { androidApp: true },
     });
 
-    if (conflictApp) {
-      if (conflictApp.appName === app_name) {
-        return sendError(res, 400, "An app with this name already exists.");
+    if (conflictCampaign) {
+      if (conflictCampaign.androidApp.appName === app_name) {
+        return sendError(
+          res,
+          400,
+          "An app with this name already exists in this testing type.",
+        );
       }
-      if (conflictApp.appLogoUrl === app_logo_url) {
-        return sendError(res, 400, "An app with this logo already exists.");
+      if (conflictCampaign.androidApp.appLogoUrl === app_logo_url) {
+        return sendError(
+          res,
+          400,
+          "An app with this logo already exists in this testing type.",
+        );
       }
-      return sendError(res, 400, "This app has already been submitted by someone else.");
+      return sendError(
+        res,
+        400,
+        "This app has already been submitted in this testing type by someone else.",
+      );
     }
 
     const result = await prismaClient.$transaction(async (tx) => {

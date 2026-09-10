@@ -97,6 +97,45 @@ export const addDashboardAppSubmit = async (req: Request, res: Response) => {
     const package_name = extractPackageName(testingUrl);
     const { draftId } = payload;
 
+    if (!draftId) {
+      const duplicateCampaign = await prismaClient.dashboardAndHub.findFirst({
+        where: {
+          appType: "PAID",
+          status: { not: "DRAFT" },
+          androidApp: {
+            OR: [
+              { appName },
+              { appLogoUrl: logoUrl },
+              ...(package_name ? [{ packageName: package_name }] : []),
+            ],
+          },
+        },
+        include: { androidApp: true },
+      });
+
+      if (duplicateCampaign) {
+        if (duplicateCampaign.androidApp.appName === appName) {
+          return sendError(
+            res,
+            400,
+            "An app with this name already exists in Pro Testing. Please use a different name or update the existing one.",
+          );
+        }
+        if (duplicateCampaign.androidApp.appLogoUrl === logoUrl) {
+          return sendError(
+            res,
+            400,
+            "An app with this logo already exists in Pro Testing. Please use a different logo or update the existing one.",
+          );
+        }
+        return sendError(
+          res,
+          400,
+          "This app has already been submitted in Pro Testing. Please check your existing submissions.",
+        );
+      }
+    }
+
     let costMoney = 999;
 
     const { androidAppData, dashboardAndHub } = await prismaClient.$transaction(
@@ -223,9 +262,9 @@ export const addDashboardAppSubmit = async (req: Request, res: Response) => {
       const fieldName = fieldMatch ? fieldMatch[1] : 'record';
       
       if (fieldName === 'appName') {
-        friendlyMessage = "An app with this name already exists in your account. Please use a different app name or update the existing one.";
+        friendlyMessage = "An app with this name already exists in Pro Testing. Please use a different app name or update the existing one.";
       } else if (fieldName === 'packageName') {
-        friendlyMessage = "This app has already been added. Please check your existing submissions.";
+        friendlyMessage = "This app has already been submitted in Pro Testing. Please check your existing submissions.";
       } else {
         friendlyMessage = `This ${fieldName} is already in use. Please use a different one.`;
       }
@@ -380,9 +419,9 @@ export const addDashboardAppDraft = async (req: Request, res: Response) => {
       const fieldName = fieldMatch ? fieldMatch[1] : 'record';
       let friendlyMessage;
       if (fieldName === 'appName') {
-        friendlyMessage = "An app with this name already exists in your account. Please use a different app name or update the existing one.";
+        friendlyMessage = "An app with this name already exists in Pro Testing. Please use a different app name or update the existing one.";
       } else if (fieldName === 'packageName') {
-        friendlyMessage = "This app has already been added. Please check your existing submissions.";
+        friendlyMessage = "This app has already been submitted in Pro Testing. Please check your existing submissions.";
       } else {
         friendlyMessage = `This ${fieldName} is already in use. Please use a different one.`;
       }
