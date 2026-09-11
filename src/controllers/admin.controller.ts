@@ -170,7 +170,7 @@ export const adminReplaceTester = async (req: Request, res: Response) => {
       return sendError(res, 400, "testerRelationId is required");
     }
 
-    // P2.7: full cleanup via shared helper ,  cancels ACTIVE links,
+    // P2.7: full cleanup via shared helper — cancels ACTIVE links,
     // decrements counters, frees the innocent partner (the old copy only
     // flipped the status and left slots occupied + sweeps punishing).
     const { adminTerminateRelation } = await import("@/lib/handshake");
@@ -190,7 +190,7 @@ export const adminReplaceTester = async (req: Request, res: Response) => {
         nextStep:
           "Admin must manually fill the slot via assignProfessionalTester or forceHandshake.",
       },
-      "Tester replaced ,  slot is now open",
+      "Tester replaced — slot is now open",
     );
   } catch (error) {
     if (error instanceof Error && error.message === "__RELATION_NOT_FOUND__") {
@@ -340,14 +340,14 @@ export const adminForceHandshake = async (req: Request, res: Response) => {
       return sendError(
         res,
         400,
-        `Campaign ${appAId} is not owned by ${userAId} ,  check that userA/appA and userB/appB are correctly paired`,
+        `Campaign ${appAId} is not owned by ${userAId} — check that userA/appA and userB/appB are correctly paired`,
       );
     }
     if (campaignB.appOwnerId !== userBId) {
       return sendError(
         res,
         400,
-        `Campaign ${appBId} is not owned by ${userBId} ,  check that userA/appA and userB/appB are correctly paired`,
+        `Campaign ${appBId} is not owned by ${userBId} — check that userA/appA and userB/appB are correctly paired`,
       );
     }
     for (const c of campaigns) {
@@ -372,7 +372,7 @@ export const adminForceHandshake = async (req: Request, res: Response) => {
 
     const now = new Date();
     const result = await prismaClient.$transaction(async (tx) => {
-      // P2.8: route both creates through the shared upsert helper ,  a
+      // P2.8: route both creates through the shared upsert helper — a
       // REPLACED/REMOVED/DROPPED leftover row previously hit the unique
       // constraint as a raw P2002, breaking the replace→force workflow.
       const { upsertTesterRelation } = await import("@/lib/handshake");
@@ -455,7 +455,7 @@ interface AssignProfessionalTesterPayload {
 
 /**
  * Spec §42, §44: admin assigns a professional tester to a campaign slot.
- * v1 stub: no payout logic ,  fee is platform revenue.
+ * v1 stub: no payout logic — fee is platform revenue.
  */
 export const adminAssignProfessionalTester = async (
   req: Request,
@@ -853,6 +853,9 @@ export const acceptApp = async (req: Request, res: Response) => {
       dataToUpdate.status = "AVAILABLE";
       // Clear rejection details if moving out of rejected status
       dataToUpdate.statusDetails = Prisma.DbNull;
+      // Stamp approval time — drives the spec's 24h recruiting window for
+      // HANDSHAKE campaigns (unfilled after 24h → admin review).
+      dataToUpdate.approvedAt = new Date();
     }
 
     if (totalTester !== undefined)
@@ -879,6 +882,93 @@ export const acceptApp = async (req: Request, res: Response) => {
     );
   }
 };
+
+/**
+ * Fresh-cycle reset for a HANDSHAKE campaign entering a new testing cycle.
+ * Shared by adminRestartApp and manual TESTING_ACTIVE entries.
+ *
+ * - COMPLETED/PENALIZED tester relations → IN_PROGRESS with daysCompleted: 0,
+ *   completedAt/hadMissSinceStart cleared
+ * - Old-cycle `dailyTesterVerification` + `missedDay` rows deleted (they
+ *   belong to the previous cycle; the caller preserves the restart event in
+ *   its audit row). Without this, preserved counters make
+ *   `submitDailyVerification` compute nextDay > totalDay (permanent 400) and
+ *   list/progress surfaces render the previous cycle's progress as current.
+ * - Open penalty tasks (PENDING/IN_PROGRESS) sourced from this campaign →
+ *   EXPIRED so the new cycle starts unblocked
+ * - REPLACED/REJECTED/DROPPED relations are untouched; HandshakeLink rows
+ *   are untouched (kept COMPLETED so level credit can't double-run)
+ *
+ * Returns the number of reactivated relations.
+ */
+async function resetHandshakeCycleState(
+  tx: Prisma.TransactionClient,
+  hubId: number,
+): Promise<number> {
+  // Include IN_PROGRESS so a stale mid-cycle relation (e.g. SUSPENDED
+  // → AVAILABLE re-approval → manual TESTING_ACTIVE with a fresh
+  // testingStartDate) doesn't carry old daysCompleted / proofs into the
+  // new cycle. REPLACED/REJECTED/DROPPED are untouched (terminal).
+  const reactivated = await tx.testerRelation.findMany({
+    where: {
+      dashboardAndHubId: hubId,
+      status: { in: ["COMPLETED", "PENALIZED", "IN_PROGRESS"] },
+    },
+    select: { id: true },
+  });
+  const reactivatedIds = reactivated.map((r) => r.id);
+
+  await tx.testerRelation.updateMany({
+    where: {
+      dashboardAndHubId: hubId,
+      status: { in: ["COMPLETED", "PENALIZED", "IN_PROGRESS"] },
+    },
+    data: {
+      status: "IN_PROGRESS",
+      completedAt: null,
+      hadMissSinceStart: false,
+      daysCompleted: 0,
+    },
+  });
+
+  if (reactivatedIds.length > 0) {
+    await tx.dailyTesterVerification.deleteMany({
+      where: { testerRelationId: { in: reactivatedIds } },
+    });
+    await tx.missedDay.deleteMany({
+      where: { testerRelationId: { in: reactivatedIds } },
+    });
+  }
+
+  // R4: reset the day-sweep cursor on surviving ACTIVE links touching this
+  // campaign so the new cycle starts cleanly from day 1. Without this, a
+  // stale-high cursor (from a previous cycle) skips early-cycle misses even
+  // though every relation counter, proof, and missed-day was just reset.
+  await tx.handshakeLink.updateMany({
+    where: {
+      status: "ACTIVE",
+      OR: [
+        {
+          relationA: { dashboardAndHubId: hubId },
+        },
+        {
+          relationB: { dashboardAndHubId: hubId },
+        },
+      ],
+    },
+    data: { lastProcessedDay: 0 },
+  });
+
+  await tx.penaltyTask.updateMany({
+    where: {
+      sourceCampaignId: hubId,
+      status: { in: ["PENDING", "IN_PROGRESS"] },
+    },
+    data: { status: "EXPIRED" },
+  });
+
+  return reactivatedIds.length;
+}
 
 export const updateProjectStatus = async (req: Request, res: Response) => {
   try {
@@ -935,22 +1025,61 @@ export const updateProjectStatus = async (req: Request, res: Response) => {
       );
     }
 
+    const now = new Date();
+
     const updateData: any = {
       status: status,
       ...(status === "IN_REVIEW" ? { statusDetails: Prisma.DbNull } : {}),
     };
 
-    const now = new Date();
+    // Re-entering AVAILABLE restarts the spec's 24h recruiting window;
+    // otherwise the recruiting-expiry cron would immediately re-expire a
+    // re-approved campaign on its stale approvedAt.
+    if (isHandshake && status === "AVAILABLE" && app.status !== "AVAILABLE") {
+      updateData.approvedAt = now;
+      updateData.escalatedToAdminAt = null;
+    }
+
+    // Manual entry into TESTING_ACTIVE from a pre-active state starts a new
+    // testing cycle: always re-stamp the lifecycle dates (a stale prior-cycle
+    // testingStartDate would make the penalty sweep backfill every day as
+    // missed) and reset per-cycle tester state via the shared helper.
+    //
+    // SUSPENDED/ON_HOLD -> TESTING_ACTIVE: fresh-start ONLY when the previous
+    // cycle is actually over (some relation COMPLETED, or testingEndDate
+    // has passed). Mid-cycle pauses resume with the existing dates so
+    // partners keep their progress and aren't reset to day 1.
+    const previousCycleOver =
+      (app.testingEndDate
+        ? new Date(app.testingEndDate).getTime() < now.getTime()
+        : false);
+    const handshakeFreshStart =
+      isHandshake &&
+      status === "TESTING_ACTIVE" &&
+      app.status !== "TESTING_ACTIVE" &&
+      ([
+        "IN_REVIEW",
+        "AVAILABLE",
+        "WAITING_FOR_PARTNERS",
+        "UNDER_ADMIN_REVIEW",
+        "COMPLETED",
+        "REMOVED",
+      ].includes(app.status) ||
+        previousCycleOver);
     if (isHandshake && status === "TESTING_ACTIVE") {
       // Stamp the dates the handshake lifecycle depends on (verification
       // day gate + penalty sweep read testingStartDate).
-      if (!app.testingStartDate) {
-        updateData.testingStartDate = now;
-      }
+      updateData.testingStartDate = handshakeFreshStart
+        ? now
+        : app.testingStartDate || now;
       updateData.testingEndDate = new Date(
         new Date(updateData.testingStartDate || now).getTime() +
           (app.totalDay || 16) * 24 * 60 * 60 * 1000,
       );
+      if (handshakeFreshStart) {
+        updateData.currentDay = 1;
+        updateData.escalatedToAdminAt = null;
+      }
     } else if (!isHandshake && status === "IN_TESTING" && !app.testingStartDate) {
       updateData.testingStartDate = now;
       updateData.testingEndDate = new Date(
@@ -968,10 +1097,68 @@ export const updateProjectStatus = async (req: Request, res: Response) => {
       );
     }
 
-    const updatedApp = await prismaClient.dashboardAndHub.update({
-      where: { id: parseInt(id) },
-      data: updateData,
-    });
+    // Suspend / put-on-hold: advance every ACTIVE HandshakeLink's cursor
+    // (lastProcessedDay) for this campaign's relations to the campaign's
+    // current day so paused days aren't backfilled as missed when the
+    // campaign resumes. Mirrors the fresh-start reset for the cycle cursor
+    // (audit E5). Also applies on the inverse move (suspend→resume path
+    // from a previously active TESTING_ACTIVE) for symmetry — the cursor
+    // stays correct because lastProcessedDay is now >= current day.
+    const pauseStatuses = new Set(["SUSPENDED", "ON_HOLD"]);
+    const wasPaused =
+      app.status !== null && pauseStatuses.has(app.status as string);
+    const isPausedNow = pauseStatuses.has(status as string);
+    const shouldSyncPauseCursor = isHandshake && wasPaused !== isPausedNow;
+
+    const updatedApp = handshakeFreshStart
+      ? await prismaClient.$transaction(async (tx) => {
+          const updated = await tx.dashboardAndHub.update({
+            where: { id: parseInt(id) },
+            data: updateData,
+          });
+          await resetHandshakeCycleState(tx, parseInt(id));
+          return updated;
+        })
+      : await prismaClient.$transaction(async (tx) => {
+          const updated = await tx.dashboardAndHub.update({
+            where: { id: parseInt(id) },
+            data: updateData,
+          });
+          if (shouldSyncPauseCursor) {
+            const currentDay = app.testingStartDate
+              ? Math.floor(
+                  (now.getTime() -
+                    new Date(app.testingStartDate).getTime()) /
+                    (24 * 60 * 60 * 1000),
+                ) + 1
+              : app.currentDay || 0;
+            if (currentDay > 0) {
+              const activeRelations = await tx.testerRelation.findMany({
+                where: {
+                  dashboardAndHubId: parseInt(id),
+                  status: { in: ["IN_PROGRESS", "PENALIZED", "COMPLETED"] },
+                },
+                select: { id: true },
+              });
+              const relationIds = activeRelations.map((r) => r.id);
+              if (relationIds.length > 0) {
+                await tx.handshakeLink.updateMany({
+                  where: {
+                    status: "ACTIVE",
+                    OR: [
+                      { relationAId: { in: relationIds } },
+                      { relationBId: { in: relationIds } },
+                    ],
+                  },
+                  data: {
+                    lastProcessedDay: Math.max(currentDay - 1, 0),
+                  },
+                });
+              }
+            }
+          }
+          return updated;
+        });
 
     return sendSuccess(
       res,
@@ -3899,7 +4086,7 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
         },
       });
 
-      // Activity audit row ,  mirror completeHostedApp.
+      // Activity audit row — mirror completeHostedApp.
       await tx.userActivity.create({
         data: {
           userId: req.userId || "",
@@ -3909,7 +4096,7 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
           description:
             `Administration marked the testing for ${app.androidApp.appName} as completed` +
             (forcedUnfinishedCount > 0
-              ? ` (FORCED ,  ${forcedUnfinishedCount} tester(s) did not complete all ${forcedRequiredDays} days)`
+              ? ` (FORCED — ${forcedUnfinishedCount} tester(s) did not complete all ${forcedRequiredDays} days)`
               : ""),
           ipAddress: req.userIpAddress,
           userAgent: req.userAgent,
@@ -3959,16 +4146,19 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
 
 /**
  * Admin-only: reset a COMPLETED campaign back to active testing.
- *
- * Status-only reset per spec choice: re-stamps dates and reactivates stuck
- * testerRelations so daily verification works again, but preserves
- * `daysCompleted` and `dailyVerifications` rows as audit trail. HandshakeLink
- * status is kept COMPLETED so re-running this campaign doesn't double-credit
- * level-up (the link's hadMissSinceStart-gated `incrementHandshakeCompletion`
- * only ran once when it finalized).
- *
- * HANDSHAKE -> TESTING_ACTIVE; PAID/FREE -> IN_TESTING.
- */
+  *
+  * Fresh-cycle reset: re-stamps dates, clears `escalatedToAdminAt`, and resets
+  * per-cycle tester state (COMPLETED and PENALIZED relations back to
+  * IN_PROGRESS with `daysCompleted: 0`, deleting `dailyVerifications` and
+  * `missedDay` rows) so daily verification starts cleanly from day 1.
+  * HandshakeLink status is kept COMPLETED so re-running this campaign doesn't
+  * double-credit level-up (the link's hadMissSinceStart-gated
+  * `incrementHandshakeCompletion` only ran once when it finalized). Open
+  * penalty tasks sourced from this campaign are expired so the new cycle
+  * starts unblocked. REPLACED/REJECTED/DROPPED relations are untouched.
+  *
+  * HANDSHAKE -> TESTING_ACTIVE; PAID/FREE -> IN_TESTING.
+  */
 export const adminRestartApp = async (req: Request, res: Response) => {
   try {
     const { payload } = req.body;
@@ -4010,25 +4200,13 @@ export const adminRestartApp = async (req: Request, res: Response) => {
           testingStartDate: now,
           testingEndDate: new Date(now.getTime() + totalDay * 24 * 60 * 60 * 1000),
           currentDay: 1,
+          escalatedToAdminAt: null,
         },
         include: { androidApp: true },
       });
 
-      // Reactivate any COMPLETED tester relations back to IN_PROGRESS so
-      // daily verification can resume. Preserve daysCompleted (audit) and
-      // dailyVerifications rows; reset per-cycle hadMissSinceStart since this
-      // is a fresh cycle.
-      await tx.testerRelation.updateMany({
-        where: {
-          dashboardAndHubId: hubId,
-          status: "COMPLETED",
-        },
-        data: {
-          status: "IN_PROGRESS",
-          completedAt: null,
-          hadMissSinceStart: false,
-        },
-      });
+      // Fresh-cycle reset shared with manual TESTING_ACTIVE entries.
+      await resetHandshakeCycleState(tx, hubId);
 
       // Audit row
       await tx.userActivity.create({
@@ -5543,9 +5721,32 @@ export const updatePaidSubmission = async (req: Request, res: Response) => {
     const hubData: Record<string, unknown> = {};
     const androidData: Record<string, unknown> = {};
 
-    // DashboardAndHub fields
-    if (payload.totalTester !== undefined) hubData.totalTester = parseInt(payload.totalTester);
-    if (payload.totalDay !== undefined) hubData.totalDay = parseInt(payload.totalDay);
+    // DashboardAndHub fields. R5i: reject zero/negative totalTester — a
+    // zero-cap campaign stays AVAILABLE forever (recruiting cron skips
+    // 0>=0; no handshake path can seat a tester) and is invisible to no
+    // one but is unjoinable. Negative is meaningless.
+    if (payload.totalTester !== undefined) {
+      const parsedTester = parseInt(payload.totalTester);
+      if (!Number.isFinite(parsedTester) || parsedTester <= 0) {
+        return sendError(
+          res,
+          400,
+          "totalTester must be a positive integer",
+        );
+      }
+      hubData.totalTester = parsedTester;
+    }
+    if (payload.totalDay !== undefined) {
+      const parsedDay = parseInt(payload.totalDay);
+      if (!Number.isFinite(parsedDay) || parsedDay <= 0) {
+        return sendError(
+          res,
+          400,
+          "totalDay must be a positive integer",
+        );
+      }
+      hubData.totalDay = parsedDay;
+    }
     if (payload.minimumAndroidVersion !== undefined) hubData.minimumAndroidVersion = parseFloat(payload.minimumAndroidVersion);
     if (payload.rewardMoney !== undefined) hubData.rewardMoney = parseFloat(payload.rewardMoney);
     if (payload.costMoney !== undefined) hubData.costMoney = parseFloat(payload.costMoney);

@@ -99,7 +99,7 @@ export const deleteFunction = async ({ url }: { url: string }) => {
 
 export const deleteFileFromR2 = async (req: Request, res: Response) => {
   try {
-    // S5c-6: route declares /delete-r2-file/:key ,  read `key` (the old code
+    // S5c-6: route declares /delete-r2-file/:key — read `key` (the old code
     // read a nonexistent `url` param, so the guard passed and every delete
     // failed with Key=undefined).
     const key = String(req?.params?.key || "");
@@ -147,7 +147,7 @@ export const deleteFileFromR2 = async (req: Request, res: Response) => {
  */
 export const uploadFileToR2 = async (req: Request, res: Response) => {
   try {
-    // S5c-5: fail fast when R2 public base URL is not configured ,  a missing
+    // S5c-5: fail fast when R2 public base URL is not configured — a missing
     // base would otherwise persist a malformed relative "/key" as proofImageUrl.
     const baseUrl = (process.env.R2_MEDIA_BASE_URL || "").replace(/\/$/, "");
     if (!baseUrl) {
@@ -162,7 +162,7 @@ export const uploadFileToR2 = async (req: Request, res: Response) => {
       | { originalname: string; mimetype: string; size: number; buffer: Buffer }
       | undefined;
     const rawType = String((req.body && req.body.type) || "uploads");
-    // S5c-5: sanitize the key prefix ,  user input must not pollute arbitrary
+    // S5c-5: sanitize the key prefix — user input must not pollute arbitrary
     // object-key namespaces.
     const type = /^[a-zA-Z0-9_-]{1,32}$/.test(rawType) ? rawType : "uploads";
 

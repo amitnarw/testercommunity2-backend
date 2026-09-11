@@ -100,12 +100,74 @@ export const getWaitingCampaigns = async (req: Request, res: Response) => {
             id: true,
             status: true,
             tester: { select: { id: true, name: true } },
+            // Partner readiness for the admin waiting view: traverse the
+            // ACTIVE link to the partner's own campaign so admins can see
+            // WHO is unready and force-handshake THEIR campaign (it has
+            // free capacity — the waiting campaign itself is full).
+            handshakeLinkAsA: {
+              select: {
+                status: true,
+                relationB: {
+                  select: {
+                    dashboardAndHub: {
+                      select: { id: true, status: true },
+                    },
+                  },
+                },
+              },
+            },
+            handshakeLinkAsB: {
+              select: {
+                status: true,
+                relationA: {
+                  select: {
+                    dashboardAndHub: {
+                      select: { id: true, status: true },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
       },
     });
 
-    return sendSuccess(res, { items: items as any }, "ok");
+    // Collapse each tester's ACTIVE link into partner readiness + the
+    // partner's campaign id, so the admin panel can link directly to the
+    // unready partner's campaign for force-handshake.
+    const mapped = items.map((item: any) => ({
+      ...item,
+      testerRelations: (item.testerRelations || []).map((r: any) => {
+        const link =
+          [r.handshakeLinkAsA, r.handshakeLinkAsB].find(
+            (l: any) => l?.status === "ACTIVE",
+          ) ?? null;
+        const partnerCampaign =
+          link &&
+          (r.handshakeLinkAsA?.status === "ACTIVE"
+            ? r.handshakeLinkAsA?.relationB?.dashboardAndHub
+            : r.handshakeLinkAsB?.relationA?.dashboardAndHub);
+        const partnerReadiness: "READY" | "FINDING" | null = !link
+          ? null
+          : partnerCampaign &&
+              [
+                "WAITING_FOR_PARTNERS",
+                "TESTING_ACTIVE",
+                "COMPLETED",
+              ].includes(partnerCampaign.status)
+            ? "READY"
+            : "FINDING";
+        const { handshakeLinkAsA, handshakeLinkAsB, ...rest } = r;
+        return {
+          ...rest,
+          partnerReadiness,
+          partnerCampaignId: partnerCampaign?.id ?? null,
+        };
+      }),
+    }));
+
+    return sendSuccess(res, { items: mapped as any }, "ok");
   } catch (error) {
     return sendError(
       res,
@@ -140,7 +202,15 @@ export const getPenalizedUsers = async (req: Request, res: Response) => {
             assignedAt: true,
             deadline: true,
             status: true,
+            taskAppId: true,
+            penaltyStartAt: true,
             sourceCampaign: {
+              select: {
+                id: true,
+                androidApp: { select: { appName: true } },
+              },
+            },
+            taskApp: {
               select: {
                 id: true,
                 androidApp: { select: { appName: true } },
@@ -226,7 +296,7 @@ export const adminReplaceTester = async (req: Request, res: Response) => {
     });
     if (!relation) return sendError(res, 404, "Tester relation not found");
 
-    // P2.7: full cleanup via shared helper ,  cancels ACTIVE links,
+    // P2.7: full cleanup via shared helper — cancels ACTIVE links,
     // decrements counters, frees the innocent partner (the old copy only
     // flipped the status and left slots occupied + sweeps punishing).
     const { adminTerminateRelation } = await import("@/lib/handshake");
@@ -246,7 +316,7 @@ export const adminReplaceTester = async (req: Request, res: Response) => {
         nextStep:
           "Admin must manually fill the slot via assignProfessionalTester or forceHandshake.",
       },
-      "Tester replaced ,  slot is now open",
+      "Tester replaced — slot is now open",
     );
   } catch (error) {
     const auditLogPayloadFail: AuditLogPayload = {
@@ -351,14 +421,14 @@ export const adminForceHandshake = async (req: Request, res: Response) => {
       return sendError(
         res,
         400,
-        `Campaign ${appAId} is not owned by ${userAId} ,  check that userA/appA and userB/appB are correctly paired`,
+        `Campaign ${appAId} is not owned by ${userAId} — check that userA/appA and userB/appB are correctly paired`,
       );
     }
     if (campaignB.appOwnerId !== userBId) {
       return sendError(
         res,
         400,
-        `Campaign ${appBId} is not owned by ${userBId} ,  check that userA/appA and userB/appB are correctly paired`,
+        `Campaign ${appBId} is not owned by ${userBId} — check that userA/appA and userB/appB are correctly paired`,
       );
     }
     for (const c of campaigns) {
@@ -383,7 +453,7 @@ export const adminForceHandshake = async (req: Request, res: Response) => {
 
     const now = new Date();
     const result = await prismaClient.$transaction(async (tx) => {
-      // P2.8: route both creates through the shared upsert helper ,  a
+      // P2.8: route both creates through the shared upsert helper — a
       // REPLACED/REMOVED/DROPPED leftover row (e.g. from a prior
       // replace-tester) previously hit the unique constraint as a raw P2002,
       // breaking the exact replace→force workflow this tool advertises.

@@ -49,7 +49,7 @@ model User {
   playStoreDeclarations      PlayStoreDeclaration[]
   immediateAttentionItems    ImmediateAttention[]
   handshakeSubscriptions     HandshakeSubscription[]
-  handshakeLevel             Int                         @default(1)
+   handshakeLevel             Int                         @default(0)
    handshakeCompletedCount    Int                         @default(0)
    isActive                   Boolean                     @default(true)
    deactivatedAt              DateTime?
@@ -240,6 +240,11 @@ model HandshakeRequest {
 /// A penalty task assigned to a user who failed to complete required testing.
 /// Completion unblocks normal platform access. Multiple tasks may be assigned
 /// based on missed-day count (1 miss -> 1 task, 2 miss -> 2 tasks).
+///
+/// Spec penalty model: an admin assigns an app (taskAppId); the user then
+/// tests it for `penaltyDaysRequired` days with a daily proof
+/// (PenaltyDailyProof). Completing today's proof unlocks platform access
+/// for that day; missing 3 penalty days removes the user's own campaign.
 model PenaltyTask {
   id                Int                 @id @default(autoincrement())
   userId            String
@@ -251,6 +256,11 @@ model PenaltyTask {
   deadline          DateTime
   status            PenaltyTaskStatus   @default(PENDING)
   taskAppId         Int?
+  /// Start of the 16-day penalty testing window (set when an admin assigns
+  /// the app). Null = awaiting admin assignment.
+  penaltyStartAt    DateTime?
+  /// Days of penalty-app testing required (spec: 16).
+  penaltyDaysRequired Int               @default(16)
   proofImageUrl     String?
   verifiedByAdminId String?
   createdAt         DateTime            @default(now())
@@ -259,9 +269,28 @@ model PenaltyTask {
   sourceRelation    TesterRelation?     @relation(fields: [sourceRelationId], references: [id], onDelete: SetNull)
   sourceCampaign    DashboardAndHub?    @relation("PenaltyTaskSourceCampaign", fields: [sourceCampaignId], references: [id], onDelete: SetNull)
   taskApp           DashboardAndHub?    @relation("PenaltyTaskTaskApp", fields: [taskAppId], references: [id], onDelete: SetNull)
+  dailyProofs       PenaltyDailyProof[]
 
   @@index([userId, status])
   @@map("penalty_task")
+}
+
+/// Daily check-in proofs for penalty-app testing. One row per
+/// (task, dayNumber); day 1 opens at the task's penaltyStartAt.
+model PenaltyDailyProof {
+  id            Int                @id @default(autoincrement())
+  penaltyTaskId Int
+  dayNumber     Int
+  proofImageUrl String
+  status        VerificationStatus @default(VERIFIED)
+  verifiedAt    DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  penaltyTask   PenaltyTask        @relation(fields: [penaltyTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([penaltyTaskId, dayNumber])
+  @@index([penaltyTaskId])
+  @@map("penalty_daily_proof")
 }
 
 /// Records each calendar day a tester missed on a given testing relation.
@@ -515,6 +544,7 @@ model DashboardAndHub {
   testingStartEligibleAt   DateTime?
   waitingPeriodStartedAt   DateTime?
   escalatedToAdminAt       DateTime?
+  approvedAt               DateTime?
   activeTestersOverride    Int?
   bugCountOverride         Int?
   completedTestersOverride Int?

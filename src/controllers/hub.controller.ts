@@ -26,7 +26,7 @@ export const getHubStats = async (req: Request, res: Response) => {
     const { getAvailableSlots, getActiveHandshakeCount } = await import(
       "@/lib/handshake"
     );
-    const level = response?.handshakeLevel || 1;
+    const level = response?.handshakeLevel ?? 0;
     const slots = getAvailableSlots(level);
     const activeHandshakes = await getActiveHandshakeCount(userId);
 
@@ -161,11 +161,12 @@ export const addHubApp = async (req: Request, res: Response) => {
     const isHandshake = appType === "HANDSHAKE";
     const isPaid = appType === "PAID";
 
-    // P1.5: server-side penalty gate (spec §30) ,  penalized users may not
+    // P1.5: server-side penalty gate (spec §30) —  penalized users may not
     // publish new handshake campaigns until they serve their tasks.
     if (isHandshake) {
-      const { getActivePenaltyCount } = await import("@/lib/handshake");
-      if ((await getActivePenaltyCount(req.userId!)) > 0) {
+      const { getPenaltyBlockState } = await import("@/lib/handshake");
+      const { blocked, openCount } = await getPenaltyBlockState(req.userId!);
+      if (blocked) {
         return sendError(
           res,
           423,
@@ -174,28 +175,24 @@ export const addHubApp = async (req: Request, res: Response) => {
           undefined,
           {
             blocked: true,
-            reason: "Active penalty ,  see /handshake-testing/penalty",
+            reason: "Active penalty —  see /handshake-testing/penalty",
+            penaltyCount: openCount,
           },
         );
       }
     }
 
     // Spec §5.1: handshake apps only require App Name, Icon, Link.
-    // All other fields (description, screenshots) are optional for HANDSHAKE.
+    // All other fields (description, screenshots, category, minimum Android
+    // version) are optional for HANDSHAKE — category defaults to "Other"
+    // and minimum Android version to 8.0 below.
     // Spec §23: testing period defaults to 16 days for handshake.
     if (isHandshake) {
-      if (
-        !app_name ||
-        !app_url ||
-        !app_logo_url ||
-        !category_id ||
-        minimum_android_version === undefined ||
-        minimum_android_version === null
-      ) {
+      if (!app_name || !app_url || !app_logo_url) {
         return sendError(
           res,
           400,
-          "For Handshake apps, app_name, app_url, app_logo_url, category_id, minimum_android_version are required",
+          "For Handshake apps, app_name, app_url, app_logo_url are required",
         );
       }
     } else if (
@@ -264,10 +261,24 @@ export const addHubApp = async (req: Request, res: Response) => {
 
     // S9: the legacy points economy (points cost validation, promo-discounted
     // points pricing, wallet balance gate, and the points debit) has been
-    // removed , the platform runs on HANDSHAKE barter + Pro packages/money.
+    // removed — the platform runs on HANDSHAKE barter + Pro packages/money.
 
     const { androidAppData, dashboardAndHub } = await prismaClient.$transaction(
       async (tx) => {
+        // Spec §5.1: category optional for HANDSHAKE — default to "Other".
+        let resolvedCategoryId = Number(category_id);
+        if (isHandshake && !category_id) {
+          const otherCategory = await tx?.appCategory?.findFirst({
+            where: { name: "Other" },
+            select: { id: true },
+          });
+          if (!otherCategory) {
+            throw new Error(
+              "No category provided and no default 'Other' category exists",
+            );
+          }
+          resolvedCategoryId = otherCategory.id;
+        }
         const androidAppData = await tx?.androidApp?.create({
           data: {
             appName: app_name,
@@ -279,13 +290,13 @@ export const addHubApp = async (req: Request, res: Response) => {
             appScreenshotUrl2: isHandshake
               ? (app_screenshot_url_2 || "")
               : app_screenshot_url_2,
-            appCategoryId: Number(category_id),
+            appCategoryId: resolvedCategoryId,
             packageName: package_name || "",
             description: isHandshake ? (app_description || "") : app_description,
           },
         });
 
-        // Spec v2: handshake campaigns are FIXED at 14 testers x 16 days.
+        // Spec: handshake campaigns are FIXED at 16 testers x 16 days.
         // Client-sent values are ignored; admins can adjust post-approval.
         let resolvedTotalDays =
           total_days !== undefined && total_days !== null
@@ -296,7 +307,7 @@ export const addHubApp = async (req: Request, res: Response) => {
             ? Number(total_tester)
             : 0;
         if (isHandshake) {
-          resolvedTotalTester = 14;
+          resolvedTotalTester = 16;
           resolvedTotalDays = 16;
         }
 
@@ -311,7 +322,15 @@ export const addHubApp = async (req: Request, res: Response) => {
             totalDay: resolvedTotalDays,
             instructionsForTester: instruction_for_tester,
             // averageTimeTesting
-            minimumAndroidVersion: minimum_android_version,
+            // Spec §5.1: minimum Android version optional for HANDSHAKE
+            // (defaults to 8.0).
+            minimumAndroidVersion:
+              minimum_android_version !== undefined &&
+              minimum_android_version !== null
+                ? minimum_android_version
+                : isHandshake
+                  ? 8.0
+                  : minimum_android_version,
             status: "IN_REVIEW",
           },
         });
@@ -390,7 +409,7 @@ export const getHubSubmittedApp = async (req: Request, res: Response) => {
     }
 
     // P2.9: the owner-facing "testing" bucket must include the full v2
-    // lifecycle ,  WAITING_FOR_PARTNERS (24h window) and TESTING_ACTIVE
+    // lifecycle —  WAITING_FOR_PARTNERS (24h window) and TESTING_ACTIVE
     // campaigns were previously invisible in every tab of My Submissions,
     // leaving owners without UI access to testers/chat/completion.
     const statusFilter =
@@ -528,14 +547,43 @@ export const resubmitHubApp = async (req: Request, res: Response) => {
     }
 
     const result = await prismaClient.$transaction(async (tx) => {
+      // Mirror the create-side handshake optional defaults so an edit with
+      // empty category/minAndroid doesn't 400/500 with an FK violation or
+      // null write. (Spec §5.1: handshake apps need only name/icon/link.)
+      const isHandshake = hubApp.appType === "HANDSHAKE";
+      let resolvedCategoryId = Number(category_id);
+      if (isHandshake && !category_id) {
+        const otherCategory = await tx.appCategory.findFirst({
+          where: { name: "Other" },
+          select: { id: true },
+        });
+        if (!otherCategory) {
+          throw new Error(
+            "No category provided and no default 'Other' category exists",
+          );
+        }
+        resolvedCategoryId = otherCategory.id;
+      }
+      const resolvedMinAndroid =
+        minimum_android_version !== undefined &&
+        minimum_android_version !== null
+          ? minimum_android_version
+          : isHandshake
+            ? 8.0
+            : minimum_android_version;
+
       await tx.androidApp.update({
         where: { id: hubApp.appId },
         data: {
           appName: app_name,
           appLogoUrl: app_logo_url,
-          appScreenshotUrl1: app_screenshot_url_1,
-          appScreenshotUrl2: app_screenshot_url_2,
-          appCategoryId: Number(category_id),
+          appScreenshotUrl1: isHandshake
+            ? (app_screenshot_url_1 || "")
+            : app_screenshot_url_1,
+          appScreenshotUrl2: isHandshake
+            ? (app_screenshot_url_2 || "")
+            : app_screenshot_url_2,
+          appCategoryId: resolvedCategoryId,
           packageName: package_name || "",
           description: app_description,
         },
@@ -545,7 +593,7 @@ export const resubmitHubApp = async (req: Request, res: Response) => {
         where: { id: Number(appId) },
         data: {
           instructionsForTester: instruction_for_tester,
-          minimumAndroidVersion: minimum_android_version,
+          minimumAndroidVersion: resolvedMinAndroid,
           status: "IN_REVIEW",
           statusDetails: Prisma.DbNull,
         },
@@ -659,6 +707,43 @@ export const getSubmittedAppsCount = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Compute the daysCompleted for the CURRENT handshake cycle only.
+ *
+ * Why this exists: `TesterRelation` rows are unique per (tester, campaign)
+ * and get reused across cycles. Fresh restarts (adminRestartApp and manual
+ * TESTING_ACTIVE entries) reset per-cycle state via resetHandshakeCycleState,
+ * but legacy rows and manual admin edits can still carry previous-cycle
+ * `daysCompleted`/`dailyVerifications`. Counting proofs with
+ * `verifiedAt >= testingStartDate` gives the true current-cycle count
+ * regardless of what the raw row value says.
+ *
+ * Pre-start states (campaign AVAILABLE / WAITING_FOR_PARTNERS) have no
+ * current-cycle progress by definition, so we always return 0 there.
+ * When `testingStartDate` is missing on an active campaign we fall back to
+ * the stored `daysCompleted` (legacy / edge cases).
+ */
+function currentCycleDays(
+  storedDaysCompleted: number,
+  verifications: { verifiedAt: Date | null }[] | undefined,
+  campaignStatus: string,
+  testingStartDate: Date | string | null | undefined,
+): number {
+  if (campaignStatus === "AVAILABLE" || campaignStatus === "WAITING_FOR_PARTNERS") {
+    return 0;
+  }
+  if (!testingStartDate) {
+    return storedDaysCompleted;
+  }
+  const start = new Date(testingStartDate).getTime();
+  let count = 0;
+  for (const v of verifications || []) {
+    if (!v.verifiedAt) continue;
+    if (new Date(v.verifiedAt).getTime() >= start) count += 1;
+  }
+  return count;
+}
+
 export const getHubApps = async (req: Request, res: Response) => {
   try {
     const { type } = req?.params;
@@ -676,7 +761,7 @@ export const getHubApps = async (req: Request, res: Response) => {
 
     if (type === "AVAILABLE") {
       whereCond.status = "AVAILABLE";
-      // P2.6: exclude only ACTIVE participations ,  campaigns where the user
+      // P2.6: exclude only ACTIVE participations —  campaigns where the user
       // has a COMPLETED/REJECTED/REPLACED/DROPPED history stay discoverable
       // so spec §11 re-handshake-after-completion works from the Available
       // tab (previously `none: { testerId }` hid them forever).
@@ -688,20 +773,13 @@ export const getHubApps = async (req: Request, res: Response) => {
       };
       // S8-G3: hide campaigns I've sent a still-pending request for, so the
       // next handshake goes to a fresh developer (spec: "their campaign will
-      // be hidden from the handshake page").
+      // be hidden from the handshake page"). This is the only filter on
+      // incoming/offered requests we keep — campaigns that already sent ME
+      // an incoming request (handshakeRequestsAsOffer) stay visible per
+      // spec so they can be boosted to the top of the list.
       whereCond.handshakeRequestsAsTarget = {
         none: {
           fromUserId: req?.userId,
-          status: "PENDING",
-        },
-      };
-      // Hide campaigns the other developer has already offered me in an
-      // incoming pending request. The receiver should accept/reject the
-      // existing request rather than send a reverse request for the same
-      // offered app.
-      whereCond.handshakeRequestsAsOffer = {
-        none: {
-          toUserId: req?.userId,
           status: "PENDING",
         },
       };
@@ -731,9 +809,9 @@ export const getHubApps = async (req: Request, res: Response) => {
     } else if (type === "IN_TESTING") {
       // Active testing: User is IN_PROGRESS and App is in an active-testing
       // state. S7-5: HANDSHAKE campaigns live in TESTING_ACTIVE while legacy
-      // FREE/PAID use IN_TESTING , include both so the hub Running tab shows
+      // FREE/PAID use IN_TESTING — include both so the hub Running tab shows
       // every active campaign.
-      // S12: WAITING_FOR_PARTNERS (24h pre-start window) also belongs here , it
+      // S12: WAITING_FOR_PARTNERS (24h pre-start window) also belongs here — it
       // was previously invisible in the list while getAppsCount already
       // counted it, so the Running badge said N with an empty list.
       whereCond.status = {
@@ -756,8 +834,28 @@ export const getHubApps = async (req: Request, res: Response) => {
       return sendSuccess(res, [], "ok");
     }
 
+    // Spec: the Available tab shows oldest campaigns on top.
+    const orderByClause =
+      type === "AVAILABLE" ? { createdAt: "asc" as const } : undefined;
+
+    // Spec: "If anyone have sent me handshake request their campaign will
+    // show on top". Collect the offered campaigns of my incoming PENDING
+    // requests so the mapper can boost them above the rest (still
+    // oldest-first within each group).
+    let boostedCampaignIds = new Set<number>();
+    if (type === "AVAILABLE") {
+      const incoming = await prismaClient.handshakeRequest.findMany({
+        where: { toUserId: req?.userId, status: "PENDING" },
+        select: { offeredAppId: true },
+      });
+      for (const r of incoming) {
+        if (r.offeredAppId) boostedCampaignIds.add(r.offeredAppId);
+      }
+    }
+
     const hubApps = await prismaClient?.dashboardAndHub?.findMany({
       where: whereCond,
+      orderBy: orderByClause,
       include: {
         androidApp: {
           include: {
@@ -781,8 +879,11 @@ export const getHubApps = async (req: Request, res: Response) => {
           },
           include: {
             // S12: today's-proof indicator for the Running card.
+            // verifiedAt added so the mapper can filter to current-cycle
+            // verifications only (adminRestartApp preserves old-cycle rows
+            // as audit trail).
             dailyVerifications: {
-              select: { dayNumber: true, status: true },
+              select: { dayNumber: true, status: true, verifiedAt: true },
             },
             // S12: the exact 1:1 partner side of this handshake. relationA/
             // relationB are @unique on HandshakeLink so traversing the link
@@ -798,6 +899,9 @@ export const getHubApps = async (req: Request, res: Response) => {
                     id: true,
                     status: true,
                     daysCompleted: true,
+                    dailyVerifications: {
+                      select: { verifiedAt: true },
+                    },
                     tester: {
                       select: {
                         id: true,
@@ -833,6 +937,9 @@ export const getHubApps = async (req: Request, res: Response) => {
                     id: true,
                     status: true,
                     daysCompleted: true,
+                    dailyVerifications: {
+                      select: { verifiedAt: true },
+                    },
                     tester: {
                       select: {
                         id: true,
@@ -893,7 +1000,14 @@ export const getHubApps = async (req: Request, res: Response) => {
          if (rStatus === "REJECTED" && relation.statusDetails) {
            statusDetails = relation.statusDetails;
          }
-       }
+        }
+
+        // Waiting states (testing cannot have started yet, so any daysCompleted
+        // on the relation is stale audit-trail data from adminRestartApp). The
+        // mapper below zeroes it out so the Running card doesn't render a
+        // previous cycle's progress as current.
+        const isWaiting =
+          status === "ACCEPTED" || status === "WAITING_FOR_PARTNERS";
 
         // Convert Date objects to ISO strings for JSON serialization
         return {
@@ -908,12 +1022,63 @@ export const getHubApps = async (req: Request, res: Response) => {
             item.testerRelations?.map((relation) => {
               // S12: collapse the two mutually-exclusive link includes into a
               // single clean `handshakePair` for the frontend.
+              //
+              // Prefer an ACTIVE link. The relation row is unique per
+              // (tester, campaign) and gets reused across cycles; an old
+              // COMPLETED HandshakeLink from a previous cycle can still be
+              // attached (adminRestartApp preserves it as audit trail).
+              // Surface the pair only for the ACTIVE link so stale partner
+              // data doesn't leak into the Running card.
               const linkA = relation.handshakeLinkAsA;
               const linkB = relation.handshakeLinkAsB;
-              const link = linkA ?? linkB;
-              const partnerRelation = linkA ? linkA.relationB : linkB?.relationA;
+              const link =
+                [linkA, linkB].find((l) => l?.status === "ACTIVE") ?? null;
+              const partnerRelation = link
+                ? linkA?.status === "ACTIVE"
+                  ? linkA.relationB
+                  : linkB?.relationA
+                : null;
               const { handshakeLinkAsA, handshakeLinkAsB, ...restRelation } =
                 relation;
+
+              // Current-cycle days for the viewer. AdminRestartApp preserves
+              // `daysCompleted` and `dailyVerifications` as audit trail, so
+              // the raw row reflects a previous cycle. For an active campaign
+              // the current cycle starts at `testingStartDate` (re-stamped by
+              // adminRestartApp), so we count proofs with verifiedAt >=
+              // testingStartDate. Pre-start states and missing start date
+              // are handled in `currentCycleDays`.
+              const ownDays = currentCycleDays(
+                relation.daysCompleted,
+                relation.dailyVerifications,
+                item.status,
+                item.testingStartDate,
+              );
+              const ownCycleVerifications =
+                isWaiting || !item.testingStartDate
+                  ? []
+                  : (relation.dailyVerifications || []).filter(
+                      (v) =>
+                        v.verifiedAt &&
+                        new Date(v.verifiedAt).getTime() >=
+                          new Date(item.testingStartDate!).getTime(),
+                    );
+
+              // Current-cycle days for the partner side, same logic. The
+              // partner relation row carries the same stale-from-reopen
+              // values, so apply the same computation using the partner
+              // campaign's status and testingStartDate.
+              const partnerCampaign = partnerRelation?.dashboardAndHub ?? null;
+              const partnerDays =
+                partnerRelation && partnerCampaign
+                  ? currentCycleDays(
+                      partnerRelation.daysCompleted,
+                      partnerRelation.dailyVerifications,
+                      partnerCampaign.status,
+                      partnerCampaign.testingStartDate,
+                    )
+                  : 0;
+
               return {
                 ...restRelation,
                 createdAt: relation.createdAt?.toISOString() || null,
@@ -922,6 +1087,15 @@ export const getHubApps = async (req: Request, res: Response) => {
                 statusDetails: relation.statusDetails
                   ? JSON.parse(JSON.stringify(relation.statusDetails))
                   : null,
+                // Always display the current-cycle value. While waiting,
+                // currentCycleDays returns 0; while active, it counts
+                // verifiedAt >= testingStartDate. Pre-restart rows that
+                // happened before the new cycle start are excluded.
+                daysCompleted: ownDays,
+                dailyVerifications: ownCycleVerifications,
+                hadMissSinceStart: isWaiting
+                  ? false
+                  : relation.hadMissSinceStart,
                 handshakePair: link
                   ? {
                       linkId: link.id,
@@ -930,7 +1104,7 @@ export const getHubApps = async (req: Request, res: Response) => {
                         ? {
                             id: partnerRelation.id,
                             status: partnerRelation.status,
-                            daysCompleted: partnerRelation.daysCompleted,
+                            daysCompleted: partnerDays,
                             tester: partnerRelation.tester,
                             campaign: partnerRelation.dashboardAndHub
                               ? {
@@ -957,6 +1131,20 @@ export const getHubApps = async (req: Request, res: Response) => {
             }) || [],
         };
      });
+
+    // Spec ordering for the Available tab: campaigns whose owner sent me a
+    // PENDING handshake request first, then everything else — oldest first
+    // within each group (base query is already createdAt asc).
+    if (type === "AVAILABLE" && boostedCampaignIds.size > 0 && result) {
+      result.sort((a: any, b: any) => {
+        const ab = boostedCampaignIds.has(a.id) ? 0 : 1;
+        const bb = boostedCampaignIds.has(b.id) ? 0 : 1;
+        if (ab !== bb) return ab - bb;
+        return (
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+      });
+    }
 
     return sendSuccess(res, result, "ok");
   } catch (error) {
@@ -1008,15 +1196,10 @@ export const getAppsCount = async (req: Request, res: Response) => {
             status: "PENDING",
           },
         },
-        // S13: also exclude apps offered to me in an incoming pending
-        // request ,  the receiver should accept/reject it, not send a
-        // reverse request for the same offered app.
-        handshakeRequestsAsOffer: {
-          none: {
-            toUserId: req.userId,
-            status: "PENDING",
-          },
-        },
+        // Do NOT hide campaigns offered to me in an incoming pending
+        // request —  the spec says those campaigns show on top of the list
+        // (they sent me a request first). They stay visible in the
+        // AVAILABLE bucket and get boosted in the post-query sort.
       },
     });
 
@@ -1143,7 +1326,7 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
             },
           },
         },
-        // P1.4: project only public fields ,  full User scalars (email etc.)
+        // P1.4: project only public fields —  full User scalars (email etc.)
         // must not leak to every viewer of the campaign detail.
         appOwner: {
           select: {
@@ -1178,6 +1361,34 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
             dailyVerifications: true,
             daysCompleted: true,
             lastActivityAt: true,
+            // Partner-readiness for the owner waiting view: traverse the
+            // ACTIVE link to the partner's own campaign status.
+            handshakeLinkAsA: {
+              select: {
+                id: true,
+                status: true,
+                relationB: {
+                  select: {
+                    dashboardAndHub: {
+                      select: { id: true, status: true },
+                    },
+                  },
+                },
+              },
+            },
+            handshakeLinkAsB: {
+              select: {
+                id: true,
+                status: true,
+                relationA: {
+                  select: {
+                    dashboardAndHub: {
+                      select: { id: true, status: true },
+                    },
+                  },
+                },
+              },
+            },
             offeredApp: {
               include: {
                 androidApp: true,
@@ -1233,7 +1444,7 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
       testerRelations:
         hubAppDetails?.testerRelations &&
         hubAppDetails?.testerRelations?.length > 0
-          ? hubAppDetails?.testerRelations?.map((item) => {
+          ? hubAppDetails?.testerRelations?.map((item: any) => {
               const parsed = JSON.parse(
                 JSON.stringify(item?.statusDetails),
               ) as Record<string, unknown> | null;
@@ -1243,11 +1454,39 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
               if (parsed?.video) {
                 parsed.video = normalizeR2Url(parsed.video as string);
               }
+              // Partner readiness for the owner waiting view (spec: "Ready"
+              // = the partner's own campaign has filled; "Finding testers"
+              // = still assembling). Same ACTIVE-link + readiness rule as
+              // the cron transition (Job C) and the getHubApps mapper. Null
+              // when there is no ACTIVE link (legacy fills) so the UI falls
+              // back to raw relation status.
+              const ownLink =
+                [item?.handshakeLinkAsA, item?.handshakeLinkAsB].find(
+                  (l: any) => l?.status === "ACTIVE",
+                ) ?? null;
+              const partnerCampaignStatus =
+                ownLink &&
+                (item?.handshakeLinkAsA?.status === "ACTIVE"
+                  ? item?.handshakeLinkAsA?.relationB?.dashboardAndHub?.status
+                  : item?.handshakeLinkAsB?.relationA?.dashboardAndHub
+                      ?.status);
+              const partnerReadiness: "READY" | "FINDING" | null = !ownLink
+                ? null
+                : partnerCampaignStatus &&
+                    [
+                      "WAITING_FOR_PARTNERS",
+                      "TESTING_ACTIVE",
+                      "COMPLETED",
+                    ].includes(partnerCampaignStatus)
+                  ? "READY"
+                  : "FINDING";
+              const { handshakeLinkAsA, handshakeLinkAsB, ...restItem } = item;
               return {
-                ...item,
+                ...restItem,
                 statusDetails: parsed,
+                partnerReadiness,
                 dailyVerifications: item?.dailyVerifications?.map(
-                  (item2) => ({
+                  (item2: any) => ({
                     ...item2,
                     metaData: JSON.parse(JSON.stringify(item2?.metaData)),
                   }),
@@ -1404,6 +1643,10 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
                 fromUser: pendingIncomingRequest.fromUser,
               }
             : null,
+          // R5g: myPendingOutgoingRequest is irrelevant when an ACTIVE link
+          // already exists between viewer and owner — accepting would 409.
+          // The frontend hides the pending card when linkStatus === "ACTIVE"
+          // but we also null it here for clarity.
           myPendingOutgoingRequest: myPendingOutgoingRequest
             ? {
                 id: myPendingOutgoingRequest.id,
@@ -1468,23 +1711,52 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
           },
         });
         if (link) {
-          const { processStagedPenalty } = await import("@/lib/handshake");
+          const { processStagedPenalty, getPenaltyBlockState } = await import(
+            "@/lib/handshake"
+          );
           await processStagedPenalty(link.id);
           const isA = link.relationAId === myRelation.id;
           const partnerRelation = isA ? link.relationB : link.relationA;
-          const activePenalties = await prismaClient.penaltyTask.count({
-            where: {
-              userId: req.userId,
-              status: { in: ["PENDING", "IN_PROGRESS"] },
-            },
-          });
+          const { blocked: penaltyBlocked, openCount: penaltyOpenCount } =
+            await getPenaltyBlockState(req.userId!);
           result.handshake = {
+            ...(result.handshake || {}),
             linkId: link.id,
-            isBlocked: activePenalties > 0,
-            penaltyCount: activePenalties,
+            linkStatus: "ACTIVE",
+            isBlocked: penaltyBlocked,
+            penaltyCount: penaltyOpenCount,
             partnerApp: partnerRelation.dashboardAndHub?.androidApp,
             partnerOwner: partnerRelation.dashboardAndHub?.appOwner,
+            // R5g: when an ACTIVE link already exists the viewer is
+            // mid-handshake; any pending incoming request from the owner
+            // would conflict (Accept → 409 __ALREADY_PARTICIPATING__).
+            // Suppress the pendingIncomingRequest in this branch so the
+            // frontend doesn't render an Accept/Reject card alongside
+            // ActiveHandshakeCard.
+            pendingIncomingRequest: null,
           };
+        } else {
+          // Spec: animated celebration when the handshake COMPLETES from
+          // both sides. Surface the most recent COMPLETED link so the
+          // detail page can celebrate once (tracked client-side).
+          const completedLink = await prismaClient.handshakeLink.findFirst({
+            where: {
+              status: "COMPLETED",
+              OR: [
+                { relationAId: myRelation.id },
+                { relationBId: myRelation.id },
+              ],
+            },
+            orderBy: { updatedAt: "desc" },
+            select: { id: true, updatedAt: true },
+          });
+          if (completedLink) {
+            result.handshake = {
+              ...(result.handshake || {}),
+              completedLinkId: completedLink.id,
+              completedAt: completedLink.updatedAt?.toISOString() || null,
+            };
+          }
         }
       }
     }
@@ -1578,11 +1850,12 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
 
     const isHandshake = checkTester.appType === "HANDSHAKE";
 
-    // P1.5: server-side penalty gate (spec §30) ,  penalized users may not
+    // P1.5: server-side penalty gate (spec §30) —  penalized users may not
     // join new handshake campaigns until they serve their tasks.
     if (isHandshake) {
-      const { getActivePenaltyCount } = await import("@/lib/handshake");
-      if ((await getActivePenaltyCount(req.userId!)) > 0) {
+      const { getPenaltyBlockState } = await import("@/lib/handshake");
+      const { blocked, openCount } = await getPenaltyBlockState(req.userId!);
+      if (blocked) {
         return sendError(
           res,
           423,
@@ -1591,7 +1864,8 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
           undefined,
           {
             blocked: true,
-            reason: "Active penalty ,  see /handshake-testing/penalty",
+            reason: "Active penalty —  see /handshake-testing/penalty",
+            penaltyCount: openCount,
           },
         );
       }
@@ -1652,7 +1926,7 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
         where: { id: req.userId! },
         select: { handshakeLevel: true },
       });
-      const level = user?.handshakeLevel || 1;
+      const level = user?.handshakeLevel ?? 0;
       const slots = getAvailableSlots(level);
       const activeCount = await getActiveHandshakeCount(req.userId!);
       if (activeCount >= slots) {
@@ -1668,7 +1942,7 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
     }
 
     await prismaClient.$transaction(async (tx) => {
-      // P2.12: re-check the requester's slot cap INSIDE the tx ,  the
+      // P2.12: re-check the requester's slot cap INSIDE the tx —  the
       // pre-tx check alone raced concurrent mutual matches and could push a
       // user past their level cap.
       if (isHandshake) {
@@ -1679,7 +1953,7 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
           where: { id: req.userId! },
           select: { handshakeLevel: true },
         });
-        const level = user?.handshakeLevel || 1;
+      const level = user?.handshakeLevel ?? 0;
         const slots = getAvailableSlots(level);
         const activeCount = await getActiveHandshakeCount(req.userId!);
         if (activeCount >= slots) {
@@ -1856,7 +2130,7 @@ export const acceptSubmittedHubAppTestingRequest = async (
         where: { id: checkTester.appOwnerId },
         select: { handshakeLevel: true },
       });
-      const ownerLevel = ownerUser?.handshakeLevel || 1;
+      const ownerLevel = ownerUser?.handshakeLevel ?? 0;
       const ownerSlots = getAvailableSlots(ownerLevel);
       const ownerActive = await getActiveHandshakeCount(checkTester.appOwnerId);
       if (ownerActive >= ownerSlots) {
@@ -1883,7 +2157,7 @@ export const acceptSubmittedHubAppTestingRequest = async (
           where: { id: tester_id },
           select: { handshakeLevel: true },
         });
-        const reqLevel = reqUser?.handshakeLevel || 1;
+        const reqLevel = reqUser?.handshakeLevel ?? 0;
         const reqSlots = getAvailableSlots(reqLevel);
         const reqActive = await getActiveHandshakeCount(tester_id);
         if (reqActive >= reqSlots) {
@@ -1963,7 +2237,7 @@ export const acceptSubmittedHubAppTestingRequest = async (
                 ),
               },
             });
-            // S8-G4: campaign is full , cancel other pending requests that
+            // S8-G4: campaign is full — cancel other pending requests that
             // were still targeting it so requesters pick a fresh partner.
             await cancelPendingRequestsForCampaign(tx, offeredApp.id, now);
           } else {
@@ -2041,7 +2315,7 @@ export const acceptSubmittedHubAppTestingRequest = async (
               ),
             },
           });
-          // S8-G4: campaign is full , cancel other pending requests that
+          // S8-G4: campaign is full — cancel other pending requests that
           // were still targeting it so requesters pick a fresh partner.
           await cancelPendingRequestsForCampaign(tx, Number(hub_id), now);
         } else {
@@ -2287,7 +2561,7 @@ export const addHubAppFeedback = async (req: Request, res: Response) => {
     const checkApp = await prismaClient?.dashboardAndHub?.findFirst({
       where: {
         id: Number(hub_id),
-        // P2.11: accept both active-testing states ,  HANDSHAKE campaigns
+        // P2.11: accept both active-testing states —  HANDSHAKE campaigns
         // live in TESTING_ACTIVE (never IN_TESTING), so the old exact-match
         // gate made feedback impossible for the entire handshake flow.
         status: { in: ["IN_TESTING", "TESTING_ACTIVE"] },
@@ -2577,6 +2851,12 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       },
       include: {
         dashboardAndHub: true,
+        // S12: cycle-aware nextDay derivation (see step 2 below) needs to
+        // count current-cycle proofs; carry verifiedAt + status so the
+        // gateway rejects stale (pre-restart) rows automatically.
+        dailyVerifications: {
+          select: { dayNumber: true, status: true, verifiedAt: true },
+        },
       },
     });
 
@@ -2623,13 +2903,10 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
         await processStagedPenalty(link.id);
       }
       // Block submission if user has an active penalty that prevents normal testing.
-      const activePenalties = await prismaClient.penaltyTask.count({
-        where: {
-          userId,
-          status: { in: ["PENDING", "IN_PROGRESS"] },
-        },
-      });
-      if (activePenalties > 0) {
+      const { getPenaltyBlockState } = await import("@/lib/handshake");
+      const { blocked: penaltyBlocked, openCount: penaltyOpenCount } =
+        await getPenaltyBlockState(userId!);
+      if (penaltyBlocked) {
         return sendError(
           res,
           423,
@@ -2638,16 +2915,40 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
           undefined,
           {
             blocked: true,
-            reason: "Active penalty ,  see /handshake-testing/penalty",
-            penaltyCount: activePenalties,
+            reason: "Active penalty —  see /handshake-testing/penalty",
+            penaltyCount: penaltyOpenCount,
           },
         );
       }
     }
 
-    // 2. Determine Day Number
-    const nextDay = relation.daysCompleted + 1;
+    // 2. Determine Day Number — cycle-aware.
+    //
+    // The raw `daysCompleted` column can be stale across cycles (admin restart,
+    // re-handshake after completion, suspended→re-approved). Always trust
+    // current-cycle proofs (`verifiedAt >= testingStartDate`) when the
+    // campaign has a testing start date; fall back to the stored counter
+    // only when no start date exists yet (legacy). Same rule as the display
+    // helper `currentCycleDays` so submission agrees with what's rendered.
     const totalDaysRequired = relation.dashboardAndHub?.totalDay || 16;
+    const testingStartDate = relation.dashboardAndHub?.testingStartDate;
+    const ownDailyVerifications = (relation as any).dailyVerifications as
+      | { verifiedAt: Date | string | null; status: string }[]
+      | undefined;
+    const cycleProofCount =
+      testingStartDate && ownDailyVerifications
+        ? ownDailyVerifications.filter(
+            (v) =>
+              v?.verifiedAt &&
+              new Date(v.verifiedAt).getTime() >=
+                new Date(testingStartDate).getTime() &&
+              v.status !== "REJECTED",
+          ).length
+        : null;
+    const nextDay =
+      cycleProofCount !== null
+        ? cycleProofCount + 1
+        : relation.daysCompleted + 1;
     const completedNow = nextDay >= totalDaysRequired;
 
     if (nextDay > totalDaysRequired) {
@@ -2658,7 +2959,7 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       );
     }
 
-    // P2.4: per-day time gate ,  day N only opens after testingStartDate +
+    // P2.4: per-day time gate —  day N only opens after testingStartDate +
     // (N-1) calendar days. Without this the whole 16 day cycle (and with it
     // the hadMiss/level rules) could be completed in minutes.
     if (
@@ -2680,15 +2981,51 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       }
     }
 
-    // 3. Duplicate Check
-    const existing = await prismaClient.dailyTesterVerification.findFirst({
-      where: {
-        testerRelationId: relation.id,
-        dayNumber: nextDay,
-      },
-    });
+    // 3. Duplicate Check — cycle-aware.
+    //
+    // The unique constraint is (testerRelationId, dayNumber). For handshake
+    // campaigns with a start date we scope to the current cycle
+    // (verifiedAt >= testingStartDate); REJECTED rows in-cycle are NOT
+    // duplicates — they are REJECTED proofs awaiting resubmission (the
+    // user's nextDay regressed to the rejected day). For non-handshake (no
+    // start date) the raw dayNumber check is fine.
+    const cycleStartMs = testingStartDate
+      ? new Date(testingStartDate).getTime()
+      : null;
+    const ownVerifications = (relation as any).dailyVerifications as
+      | { id: number; dayNumber: number; status: string; verifiedAt: Date | string | null }[]
+      | undefined;
+    const existingVerifiedCycleProof = cycleStartMs
+      ? ownVerifications?.find(
+          (v) =>
+            v?.dayNumber === nextDay &&
+            v?.verifiedAt &&
+            new Date(v.verifiedAt).getTime() >= cycleStartMs &&
+            v.status === "VERIFIED",
+        )
+      : null;
+    const existingRejectedCycleProof = cycleStartMs
+      ? ownVerifications?.find(
+          (v) =>
+            v?.dayNumber === nextDay &&
+            v?.verifiedAt &&
+            new Date(v.verifiedAt).getTime() >= cycleStartMs &&
+            v.status === "REJECTED",
+        )
+      : null;
+    const existingLegacyRaw = cycleStartMs
+      ? null
+      : await prismaClient.dailyTesterVerification.findFirst({
+          where: {
+            testerRelationId: relation.id,
+            dayNumber: nextDay,
+          },
+        });
 
-    if (existing) {
+    // A REJECTED row in the current cycle is NOT a duplicate — the user
+    // is resubmitting after an admin rejected the previous proof. Fall
+    // through to update it.
+    if (existingVerifiedCycleProof || existingLegacyRaw) {
       return sendError(
         res,
         409,
@@ -2696,22 +3033,60 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       );
     }
 
-    // 4. Create & Update
+    // 4. Create OR replace a previously-rejected proof.
+    //
+    // R1 (audit E-D1): an admin REJECTED a daily proof but
+    // daysCompleted was not decremented, so cycleProofCount regressed to
+    // the rejected day. The unique constraint blocks a re-create on the
+    // same dayNumber. Resolution: when we find an in-cycle REJECTED row
+    // for the target dayNumber, UPDATE it in place (new image, new
+    // verifiedAt, VERIFIED) instead of failing with P2002.
     await prismaClient.$transaction(async (tx) => {
-      await tx.dailyTesterVerification.create({
-        data: {
-          testerRelationId: relation.id,
-          dayNumber: nextDay,
-          proofImageUrl: normalizeR2Url(proofImage),
-          status: "VERIFIED", // Auto-approved as requested
-          verifiedAt: new Date(),
-          metaData:
-            JSON.stringify({
+      if (existingRejectedCycleProof) {
+        // R1 race guard: claim the REJECTED row atomically. The pre-tx
+        // existence check happened outside the transaction, so two
+        // concurrent resubmits of the same rejected day could both pass
+        // it. Without this guard, both would `update` the same row
+        // (UPDATE never throws P2002) and BOTH would proceed to
+        // `daysCompleted: { increment: 1 }`, double-counting one day.
+        // updateMany with a status predicate makes the claim exclusive:
+        // the loser sees count === 0 and we surface a friendly 409
+        // (handled in the catch block) instead of silently double-charging.
+        // Also clears the stale rejectionReason so the now-VERIFIED row
+        // doesn't carry a contradictory admin note forward.
+        const claimed = await tx.dailyTesterVerification.updateMany({
+          where: { id: existingRejectedCycleProof.id, status: "REJECTED" },
+          data: {
+            proofImageUrl: normalizeR2Url(proofImage),
+            status: "VERIFIED",
+            rejectionReason: null,
+            verifiedAt: new Date(),
+            metaData: JSON.stringify({
               ...metaData,
               ipAddress: req?.userIpAddress,
-            }) || JSON.stringify({ ipAddress: req?.userIpAddress }),
-        },
-      });
+              resubmittedAt: new Date().toISOString(),
+            }),
+          },
+        });
+        if (claimed.count === 0) {
+          throw new Error("__DUPLICATE_DAY__");
+        }
+      } else {
+        await tx.dailyTesterVerification.create({
+          data: {
+            testerRelationId: relation.id,
+            dayNumber: nextDay,
+            proofImageUrl: normalizeR2Url(proofImage),
+            status: "VERIFIED", // Auto-approved as requested
+            verifiedAt: new Date(),
+            metaData:
+              JSON.stringify({
+                ...metaData,
+                ipAddress: req?.userIpAddress,
+              }) || JSON.stringify({ ipAddress: req?.userIpAddress }),
+          },
+        });
+      }
 
       let newStatus = relation.status;
       let completedAt = relation.completedAt;
@@ -2724,7 +3099,7 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
         await tx.notification.create({
           data: {
             title: "Tester Completed!",
-            description: `A tester has completed the full 14-day testing period for your app.`,
+            description: `A tester has completed the full 16-day testing period for your app.`,
             type: "TEST_COMPLETED",
             userId: relation.dashboardAndHub?.appOwnerId || "",
             isActive: true,
@@ -2750,7 +3125,7 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
           actionType: "COMPLETE_TEST",
           description:
             newStatus === "COMPLETED"
-              ? "Completed full 14-day testing period"
+              ? "Completed full 16-day testing period"
               : `Completed daily testing verification for Day ${nextDay}`,
           status: "SUCCESS",
         },
@@ -2780,6 +3155,26 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       "Daily verification submitted successfully.",
     );
   } catch (error) {
+    // R1 race guard: a concurrent resubmit just claimed the rejected row.
+    if (error instanceof Error && error.message === "__DUPLICATE_DAY__") {
+      return sendError(
+        res,
+        409,
+        "Verification for this day was just submitted. Refresh to see the latest state.",
+      );
+    }
+    // P2002 = unique constraint on (testerRelationId, dayNumber). Two
+    // concurrent first-time submissions raced past the pre-tx duplicate
+    // check. Roll back the entire tx (no double-increment) and surface a
+    // friendly 409 instead of a 400 with the raw Prisma message — same
+    // pattern as penalty.controller.ts:458.
+    if (error && (error as any)?.code === "P2002") {
+      return sendError(
+        res,
+        409,
+        "Verification for this day was already submitted.",
+      );
+    }
     const auditLogPayloadFail: AuditLogPayload = {
       actorId: req?.userId || "",
       actorRole: req?.role as string,
@@ -2872,7 +3267,7 @@ export const completeHostedApp = async (req: Request, res: Response) => {
         },
       });
 
-      // S9: the legacy points-reward loop has been removed , the platform
+      // S9: the legacy points-reward loop has been removed — the platform
       // has no points economy. Handshake testing is pure barter; Pro apps
       // pay money rewards via the admin completion flow.
 
@@ -3049,7 +3444,7 @@ export const startTestingHubApp = async (req: Request, res: Response) => {
     }
 
     const now = new Date();
-    // S7-1: keep statuses consistent per vertical ,  HANDSHAKE active state is
+    // S7-1: keep statuses consistent per vertical —  HANDSHAKE active state is
     // TESTING_ACTIVE (its verification gate requires it); FREE/PAID stay on
     // legacy IN_TESTING.
     const activatedStatus = app.appType === "HANDSHAKE" ? "TESTING_ACTIVE" : "IN_TESTING";

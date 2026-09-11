@@ -24,7 +24,7 @@ router.post(
   uploadFileToR2,
 );
 
-// P1.3: the public DELETE /delete-r2-file/:key route was removed ,  any
+// P1.3: the public DELETE /delete-r2-file/:key route was removed — any
 // authenticated user could delete arbitrary bucket objects (keys leak via
 // media URLs in API responses). Server-side cleanup keeps using the
 // internal deleteFunction({url}) helper; no frontend caller existed.
