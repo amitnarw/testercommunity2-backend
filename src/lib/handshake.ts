@@ -120,11 +120,12 @@ export async function upsertTesterRelation(
 
 
 /**
- * Per-user slot cap: 12 at L1, +1 per level, capped at MAX (9 → 20).
+ * Per-user slot cap: 12 at L0 (new users), +1 per level, capped at 20.
+ * Spec defines L0 = new user; slots are unchanged in spirit (old L1=12).
  */
 export function getAvailableSlots(level: number): number {
-  const lvl = Math.min(Math.max(level, 1), MAX_HANDSHAKE_LEVEL);
-  return lvl + (BASE_HANDSHAKE_SLOTS - 1);
+  const lvl = Math.min(Math.max(level, 0), MAX_HANDSHAKE_LEVEL);
+  return Math.min(20, BASE_HANDSHAKE_SLOTS + lvl);
 }
 
 /**
@@ -206,13 +207,62 @@ export async function getMissedDayCount(
   return prismaClient.missedDay.count({ where: { testerRelationId } });
 }
 
+const PENALTY_DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
- * Count active penalties (PENDING + IN_PROGRESS) for a user.
+ * Current penalty-testing day number for a task (1-based). Day 1 opens at
+ * penaltyStartAt. Returns 0 when the window hasn't started.
  */
-export async function getActivePenaltyCount(userId: string): Promise<number> {
-  return prismaClient.penaltyTask.count({
+export function penaltyDayNumber(
+  penaltyStartAt: Date | string | null | undefined,
+  now: Date = new Date(),
+): number {
+  if (!penaltyStartAt) return 0;
+  return Math.floor((now.getTime() - new Date(penaltyStartAt).getTime()) / PENALTY_DAY_MS) + 1;
+}
+
+/**
+ * Daily-aware penalty block state (spec: "if they have not completed
+ * penalty testing today" they stay blocked).
+ *
+ * - Legacy tasks with no assigned app (taskAppId null): any open one blocks
+ *   (old single-proof flow, unchanged).
+ * - Assigned tasks: blocked unless today's dayNumber has a VERIFIED daily
+ *   proof. Completing today's proof unlocks platform access for that day.
+ */
+export async function getPenaltyBlockState(
+  userId: string,
+  now: Date = new Date(),
+): Promise<{ blocked: boolean; openCount: number }> {
+  const tasks = await prismaClient.penaltyTask.findMany({
     where: { userId, status: { in: ["PENDING", "IN_PROGRESS"] } },
+    select: {
+      id: true,
+      taskAppId: true,
+      penaltyStartAt: true,
+      penaltyDaysRequired: true,
+      dailyProofs: {
+        where: { status: "VERIFIED" },
+        select: { dayNumber: true },
+      },
+    },
   });
+  if (tasks.length === 0) return { blocked: false, openCount: 0 };
+
+  for (const t of tasks) {
+    // No app assigned yet (or legacy single-proof task) → fully blocked.
+    if (!t.taskAppId || !t.penaltyStartAt) return { blocked: true, openCount: tasks.length };
+    const today = penaltyDayNumber(t.penaltyStartAt, now);
+    const required = t.penaltyDaysRequired || 16;
+    if (today < 1 || today > required) {
+      // Outside the testing window (should have completed or been
+      // terminated) → stay blocked until an admin resolves it.
+      return { blocked: true, openCount: tasks.length };
+    }
+    const doneDays = new Set((t.dailyProofs || []).map((p) => p.dayNumber));
+    if (!doneDays.has(today)) return { blocked: true, openCount: tasks.length };
+  }
+  return { blocked: false, openCount: tasks.length };
 }
 
 /**
@@ -249,6 +299,17 @@ export async function assignPenaltyTask(opts: {
  *
  * This function processes all days that have fully elapsed since lastProcessedDay
  * and applies penalty increments.
+ *
+ * Penalty pause: when a relation has any open penalty task sourced from it
+ * (PENDING or IN_PROGRESS), daily verification on the campaign is paused:
+ *   - the relation's relation.status flips to PENALIZED so /app/handshake-testing
+ *     gates the user out of campaign testing,
+ *   - but missing campaign days during the pause must NOT compound ,
+ *     the user is already being punished via the penalty-task path
+ *     (sweepPenaltyDailyMisses). Accruing campaign-day misses on top of
+ *     that would auto-terminate the user's own campaign within 3 days of
+ *     the first miss, voiding the in-flight 16-day penalty they were just
+ *     assigned (see commit-time audit E1).
  */
 export async function processStagedPenalty(linkId: number): Promise<void> {
   const link = await prismaClient.handshakeLink.findUnique({
@@ -270,13 +331,13 @@ export async function processStagedPenalty(linkId: number): Promise<void> {
   const dayA = computeCurrentDay(appA.testingStartDate);
   const dayB = computeCurrentDay(appB.testingStartDate);
   // P2.5: never treat days beyond a campaign's own required window
-  // (totalDay) as missed ,  a stalled side must not accrue penalties for
+  // (totalDay) as missed — a stalled side must not accrue penalties for
   // days that were never part of its testing period.
   const totalA = appA.totalDay || 16;
   const totalB = appB.totalDay || 16;
 
   // P2.7: truly terminated sides (admin-replaced / removed / dropped) must
-  // never accrue NEW missed days or penalty tasks ,  admin intervention wins
+  // never accrue NEW missed days or penalty tasks — admin intervention wins
   // over the sweep. Per-side on purpose: the other (active) side of the
   // agreement keeps flowing normally. COMPLETED sides are NOT skipped ,
   // their pre-completion ledger must still reconcile into tasks as before.
@@ -284,16 +345,39 @@ export async function processStagedPenalty(linkId: number): Promise<void> {
   const aTerminated = sweepTerminated.includes(link.relationA.status);
   const bTerminated = sweepTerminated.includes(link.relationB.status);
 
+  // Penalty pause (audit E1 + R3 hardening): the spec gates the user out
+  // of campaign submissions while ANY open penalty task exists
+  // (`getPenaltyBlockState`, user-scoped). The sweep must pause missed-day
+  // recording for the penalized user's OWN relations — otherwise they
+  // would keep accruing misses on campaigns they're globally blocked from
+  // testing and trigger an innocent 3-miss removal.
+  //
+  // Per-side: a handshake link has TWO different users (relationA.testerId
+  // ≠ relationB.testerId). Each side's pause is decided by that side's
+  // own user's open-penalty state, not by a single shared flag — otherwise
+  // (a) side B would keep accruing misses while B serves a penalty
+  // (original E1 bug, just mirrored), and (b) A's penalty would
+  // gratuitously shield B from the 3-miss removal even though B is
+  // actively testing and B is not blocked.
+  const userHasOpenPenalty = (uid: string) =>
+    prismaClient.penaltyTask
+      .count({
+        where: { userId: uid, status: { in: ["PENDING", "IN_PROGRESS"] } },
+      })
+      .then((n) => n > 0);
+  const aPaused = await userHasOpenPenalty(link.relationA.testerId);
+  const bPaused = await userHasOpenPenalty(link.relationB.testerId);
+
   let nextLastProcessed = link.lastProcessedDay;
 
   for (let day = link.lastProcessedDay + 1; day < Math.min(dayA, dayB); day++) {
-    if (day <= totalA && !aTerminated) {
+    if (day <= totalA && !aTerminated && !aPaused) {
       const aSubmitted = await hasVerificationForDay(link.relationAId, day);
       if (!aSubmitted) {
         await recordMissedDay(link.relationAId, day);
       }
     }
-    if (day <= totalB && !bTerminated) {
+    if (day <= totalB && !bTerminated && !bPaused) {
       const bSubmitted = await hasVerificationForDay(link.relationBId, day);
       if (!bSubmitted) {
         await recordMissedDay(link.relationBId, day);
@@ -304,20 +388,26 @@ export async function processStagedPenalty(linkId: number): Promise<void> {
 
   // S5c-1/S6: penalty writes are reconciled against the lifetime ledger
   // (needed = missedCount − openTasks) inside each side's transaction, so the
-  // cursor advance below is safe even when one side's tx failed ,  its ledger
+  // cursor advance below is safe even when one side's tx failed — its ledger
   // rows survive and tasks top-up on a later successful pass.
+  //
+  // Penalty pause (audit E1): while a side is serving a penalty task, we
+  // also skip the 3-miss termination path on that side — otherwise the
+  // existing ledger (possibly topped up from earlier cycle) would terminate
+  // the user's own campaign inside the 16-day penalty window, voiding the
+  // assigned tasks and the admin's intent.
   //
   // S7-8: advance unconditionally. The old both-sides-ok gating froze the
   // cursor on partial failure, which combined with S6-3's served-ledger
   // cleanup re-penalized already-served days (regeneration edge).
-  if (!aTerminated) {
+  if (!aTerminated && !aPaused) {
     await applyStagedPenaltyForRelation(
       link.relationAId,
       link.relationA.testerId,
       link.relationB.dashboardAndHubId as number,
     );
   }
-  if (!bTerminated) {
+  if (!bTerminated && !bPaused) {
     await applyStagedPenaltyForRelation(
       link.relationBId,
       link.relationB.testerId,
@@ -331,6 +421,273 @@ export async function processStagedPenalty(linkId: number): Promise<void> {
       data: { lastProcessedDay: nextLastProcessed },
     });
   }
+}
+
+/**
+ * Penalty-day sweep (spec: missing 3 days of penalty-app testing removes
+ * the user's own campaign, same as the campaign-day 3-miss path).
+ *
+ * For every open IN_PROGRESS penalty task with an assigned app, counts
+ * elapsed days (since penaltyStartAt, capped at the required window) that
+ * have no VERIFIED daily proof. Missed days are summed per user across
+ * their open tasks; at >= 3 the user's source campaign is terminated via
+ * the shared terminateHandshakeForThreeMisses (one termination per
+ * distinct source relation).
+ */
+export async function sweepPenaltyDailyMisses(
+  now: Date = new Date(),
+): Promise<void> {
+  // Cleanup: orphan tasks whose source relation is already terminal
+  // (REPLACED/REMOVED/DROPPED) cannot be served (the campaign they were
+  // tied to is gone), so they should not continue blocking the user. EXPIRE
+  // them so they drop out of the block state.
+  await prismaClient.penaltyTask.updateMany({
+    where: {
+      status: { in: ["PENDING", "IN_PROGRESS"] },
+      sourceRelation: {
+        is: {
+          status: { in: ["REPLACED", "REMOVED", "DROPPED"] },
+        },
+      },
+    },
+    data: { status: "EXPIRED" },
+  });
+
+  const tasks = await prismaClient.penaltyTask.findMany({
+    where: {
+      status: "IN_PROGRESS",
+      taskAppId: { not: null },
+      penaltyStartAt: { not: null },
+    },
+    select: {
+      id: true,
+      userId: true,
+      sourceRelationId: true,
+      sourceCampaignId: true,
+      penaltyStartAt: true,
+      penaltyDaysRequired: true,
+      dailyProofs: {
+        where: { status: "VERIFIED" },
+        select: { dayNumber: true },
+      },
+    },
+  });
+
+  // userId -> { missed: number, sources: Map<relationId, campaignId> }
+  const byUser = new Map<
+    string,
+    { missed: number; sources: Map<number, number | null> }
+  >();
+  for (const t of tasks) {
+    const required = t.penaltyDaysRequired || 16;
+    const today = penaltyDayNumber(t.penaltyStartAt, now);
+    const elapsed = Math.min(Math.max(today - 1, 0), required);
+    if (elapsed <= 0) continue;
+    const done = new Set((t.dailyProofs || []).map((p) => p.dayNumber));
+    let missed = 0;
+    for (let d = 1; d <= elapsed; d++) {
+      if (!done.has(d)) missed++;
+    }
+    if (missed <= 0) continue;
+
+    // sourceCampaignId backfill (Pack 3.9): legacy rows may have a null
+    // sourceCampaignId; resolve via the relation when we have one.
+    let sourceCampaignId = t.sourceCampaignId;
+    if (!sourceCampaignId && t.sourceRelationId) {
+      const rel = await prismaClient.testerRelation.findUnique({
+        where: { id: t.sourceRelationId },
+        select: { dashboardAndHubId: true },
+      });
+      sourceCampaignId = rel?.dashboardAndHubId ?? null;
+    }
+
+    let entry = byUser.get(t.userId);
+    if (!entry) {
+      entry = { missed: 0, sources: new Map() };
+      byUser.set(t.userId, entry);
+    }
+    entry.missed += missed;
+    if (t.sourceRelationId && !entry.sources.has(t.sourceRelationId)) {
+      entry.sources.set(t.sourceRelationId, sourceCampaignId);
+    }
+  }
+
+  for (const [userId, entry] of byUser) {
+    if (entry.missed < 3) continue;
+    for (const [relationId, campaignId] of entry.sources) {
+      if (!campaignId) continue;
+      try {
+        const { removed, partnersToNotify } =
+          await prismaClient.$transaction(async (tx) => {
+            const t = await terminateHandshakeForThreeMisses(
+              tx,
+              relationId,
+              campaignId,
+            );
+            return t;
+          });
+        if (removed) {
+          await createAdminNotification({
+            title: `Campaign REMOVED after 3 missed penalty days`,
+            description: `Tester ${userId} missed 3 days of penalty-app testing. Their own campaign ${campaignId} has been removed from Handshake Testing; the partner's app is unaffected.`,
+            type: "ANNOUNCEMENT",
+          });
+        }
+        for (const partnerUserId of partnersToNotify) {
+          try {
+            await createUserNotification(partnerUserId, {
+              title: `A campaign you were testing was removed`,
+              description: `Campaign ${campaignId} was removed because its owner missed 3 required penalty testing days. Your progress on it has been closed; an admin can assign you a new partner or campaign at any time.`,
+              type: "GENERAL_MESSAGE",
+            });
+          } catch (err) {
+            logger.warn(
+              `[penaltySweep] partner notification failed for ${partnerUserId}:`,
+              err,
+            );
+          }
+        }
+      } catch (err) {
+        logger.warn(
+          `[penaltySweep] termination failed for relation ${relationId}:`,
+          err,
+        );
+      }
+    }
+  }
+}
+
+/**
+ * 3-miss termination shared by the campaign-day sweep and the penalty-day
+ * sweep. Expires the relation's open penalty tasks, marks the relation
+ * REPLACED (inactive), REMOVEs the failing tester's own campaign, frees
+ * innocent partner relations testing that campaign, and CANCELs ACTIVE
+ * links so slot caps stop counting the dead relation.
+ *
+ * Returns { removed, partnersToNotify }: `removed` is true only when THIS
+ * call performed the campaign transition (drives admin notification);
+ * `partnersToNotify` collects freed partner userIds (caller notifies).
+ */
+export async function terminateHandshakeForThreeMisses(
+  tx: TxClient,
+  testerRelationId: number,
+  campaignId: number,
+): Promise<{ removed: boolean; partnersToNotify: string[] }> {
+  const partnersToNotify: string[] = [];
+  let removed = false;
+
+  const relation = await tx.testerRelation.findUnique({
+    where: { id: testerRelationId },
+    select: {
+      status: true,
+      handshakeLinkAsA: { select: { id: true, status: true } },
+      handshakeLinkAsB: { select: { id: true, status: true } },
+    },
+  });
+  if (!relation) return { removed, partnersToNotify };
+
+  // S7-6: close any still-open penalty tasks for this relation so a
+  // later admin approval can't resurrect the REPLACED user on the
+  // removed campaign.
+  await tx.penaltyTask.updateMany({
+    where: {
+      sourceRelationId: testerRelationId,
+      status: { in: ["PENDING", "IN_PROGRESS"] },
+    },
+    data: { status: "EXPIRED" },
+  });
+
+  if (relation.status !== "REPLACED") {
+    await tx.testerRelation.update({
+      where: { id: testerRelationId },
+      data: { status: "REPLACED", isActive: false },
+    });
+  }
+
+  const campaign = await tx.dashboardAndHub.findUnique({
+    where: { id: campaignId },
+    select: { id: true, status: true },
+  });
+  if (campaign && campaign.status !== "REMOVED") {
+    await tx.dashboardAndHub.update({
+      where: { id: campaignId },
+      data: { status: "REMOVED" },
+    });
+    // Only true when THIS call performed the transition — prevents
+    // duplicate admin notifications on every subsequent sweep.
+    removed = true;
+
+    // S7-4: the innocent partner was mid-testing the removed
+    // campaign. Free their relation (so they aren't stuck against a
+    // REMOVED status forever) and queue a notification explaining
+    // what happened and how to proceed.
+    const links = await tx.handshakeLink.findMany({
+      where: {
+        OR: [
+          { relationAId: testerRelationId },
+          { relationBId: testerRelationId },
+        ],
+      },
+      select: {
+        relationAId: true,
+        relationBId: true,
+        relationA: {
+          select: { id: true, testerId: true, dashboardAndHubId: true, status: true },
+        },
+        relationB: {
+          select: { id: true, testerId: true, dashboardAndHubId: true, status: true },
+        },
+      },
+    });
+    for (const l of links) {
+      const partnerRel =
+        l.relationAId === testerRelationId ? l.relationB : l.relationA;
+      if (
+        !partnerRel ||
+        partnerRel.id === testerRelationId ||
+        partnerRel.dashboardAndHubId !== campaignId
+      ) {
+        continue;
+      }
+      if (
+        ["REMOVED", "REPLACED", "DROPPED", "COMPLETED"].includes(
+          partnerRel.status,
+        )
+      ) {
+        continue;
+      }
+      await tx.testerRelation.update({
+        where: { id: partnerRel.id },
+        data: {
+          status: "REMOVED",
+          isActive: false,
+          statusDetails: {
+            reason:
+              "Campaign removed because its owner missed 3 required testing days.",
+            removedAt: new Date().toISOString(),
+          },
+        },
+      });
+      partnersToNotify.push(partnerRel.testerId);
+    }
+  }
+
+  // H-B9 + S6-6: cancel ALL links referencing this relation so it
+  // stops counting toward slot caps (was: stuck ACTIVE forever).
+  if (relation.handshakeLinkAsA) {
+    await tx.handshakeLink.updateMany({
+      where: { id: relation.handshakeLinkAsA.id, status: "ACTIVE" },
+      data: { status: "CANCELLED" },
+    });
+  }
+  if (relation.handshakeLinkAsB) {
+    await tx.handshakeLink.updateMany({
+      where: { id: relation.handshakeLinkAsB.id, status: "ACTIVE" },
+      data: { status: "CANCELLED" },
+    });
+  }
+
+  return { removed, partnersToNotify };
 }
 
 /**
@@ -348,7 +705,7 @@ export async function processStagedPenalty(linkId: number): Promise<void> {
  * CANCELLED so the relation stops counting toward the user's slot cap.
  *
  * S6-3/S7-8: Returns { ok, removed }. The caller no longer gates the
- * lastProcessedDay cursor on `ok` ,  task creation reconciles against the
+ * lastProcessedDay cursor on `ok` — task creation reconciles against the
  * lifetime ledger, so a failed side's tasks top-up on a later pass and the
  * cursor can advance safely every run. `removed` drives admin/partner
  * notifications (only when THIS call performed the removal). Retries once on
@@ -385,106 +742,13 @@ async function applyStagedPenaltyForRelation(
           if (!relation) return;
 
           if (missedCount >= 3) {
-            // S7-6: close any still-open penalty tasks for this relation so a
-            // later admin approval can't resurrect the REPLACED user on the
-            // removed campaign.
-            await tx.penaltyTask.updateMany({
-              where: {
-                sourceRelationId: testerRelationId,
-                status: { in: ["PENDING", "IN_PROGRESS"] },
-              },
-              data: { status: "EXPIRED" },
-            });
-
-            if (relation.status !== "REPLACED") {
-              await tx.testerRelation.update({
-                where: { id: testerRelationId },
-                data: { status: "REPLACED", isActive: false },
-              });
-            }
-
-            const campaign = await tx.dashboardAndHub.findUnique({
-              where: { id: campaignId },
-              select: { id: true, status: true },
-            });
-            if (campaign && campaign.status !== "REMOVED") {
-              await tx.dashboardAndHub.update({
-                where: { id: campaignId },
-                data: { status: "REMOVED" },
-              });
-              // Only true when THIS call performed the transition ,  prevents
-              // duplicate admin notifications on every subsequent sweep.
-              removed = true;
-
-              // S7-4: the innocent partner was mid-testing the removed
-              // campaign. Free their relation (so they aren't stuck against a
-              // REMOVED status forever) and queue a notification explaining
-              // what happened and how to proceed.
-              const links = await tx.handshakeLink.findMany({
-                where: {
-                  OR: [
-                    { relationAId: testerRelationId },
-                    { relationBId: testerRelationId },
-                  ],
-                },
-                select: {
-                  relationAId: true,
-                  relationBId: true,
-                  relationA: {
-                    select: { id: true, testerId: true, dashboardAndHubId: true, status: true },
-                  },
-                  relationB: {
-                    select: { id: true, testerId: true, dashboardAndHubId: true, status: true },
-                  },
-                },
-              });
-              for (const l of links) {
-                const partnerRel =
-                  l.relationAId === testerRelationId ? l.relationB : l.relationA;
-                if (
-                  !partnerRel ||
-                  partnerRel.id === testerRelationId ||
-                  partnerRel.dashboardAndHubId !== campaignId
-                ) {
-                  continue;
-                }
-                if (
-                  ["REMOVED", "REPLACED", "DROPPED", "COMPLETED"].includes(
-                    partnerRel.status,
-                  )
-                ) {
-                  continue;
-                }
-                await tx.testerRelation.update({
-                  where: { id: partnerRel.id },
-                  data: {
-                    status: "REMOVED",
-                    isActive: false,
-                    statusDetails: {
-                      reason:
-                        "Campaign removed because its owner missed 3 required testing days.",
-                      removedAt: new Date().toISOString(),
-                    },
-                  },
-                });
-                partnersToNotify.push(partnerRel.testerId);
-              }
-            }
-
-            // H-B9 + S6-6: cancel ALL links referencing this relation so it
-            // stops counting toward slot caps (was: stuck ACTIVE forever).
-            if (relation.handshakeLinkAsA) {
-              await tx.handshakeLink.updateMany({
-                where: { id: relation.handshakeLinkAsA.id, status: "ACTIVE" },
-                data: { status: "CANCELLED" },
-              });
-            }
-            if (relation.handshakeLinkAsB) {
-              await tx.handshakeLink.updateMany({
-                where: { id: relation.handshakeLinkAsB.id, status: "ACTIVE" },
-                data: { status: "CANCELLED" },
-              });
-            }
+            const t = await terminateHandshakeForThreeMisses(
+              tx,
+              testerRelationId,
+              campaignId,
+            );
+            removed = t.removed;
+            partnersToNotify.push(...t.partnersToNotify);
             return;
           }
 
@@ -529,7 +793,7 @@ async function applyStagedPenaltyForRelation(
       );
 
       // Notification fires AFTER successful commit, only when this call
-      // performed the removal ,  failure here never rolls back penalties.
+      // performed the removal — failure here never rolls back penalties.
       if (removed) {
         try {
           // S6-2 semantics: `campaignId` is the FAILING TESTER'S OWN campaign
@@ -762,7 +1026,7 @@ export async function adminTerminateRelation(opts: {
       await createUserNotification(partnerUserId, {
         title: "Your handshake agreement was closed",
         description:
-          "An administrator ended your current testing agreement. Your slot has been freed ,  you can start a new handshake right away.",
+          "An administrator ended your current testing agreement. Your slot has been freed — you can start a new handshake right away.",
         type: "GENERAL_MESSAGE",
       });
     } catch (err) {
@@ -876,7 +1140,7 @@ export async function createMutualHandshake(
       where: { id: userId },
       select: { handshakeLevel: true },
     });
-    const level = user?.handshakeLevel || 1;
+    const level = user?.handshakeLevel ?? 0;
     const slots = getAvailableSlots(level);
     const activeCount = await tx.handshakeLink.count({
       where: {

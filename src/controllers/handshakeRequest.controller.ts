@@ -42,17 +42,23 @@ export const sendHandshakeRequest = async (req: Request, res: Response) => {
       return sendError(res, 400, "Cannot send a handshake request to yourself");
     }
 
-    // P1.5: server-side penalty gate (spec §30) ,  penalized users may not
+    // P1.5: server-side penalty gate (spec §30) — penalized users may not
     // send new handshake requests until they serve their tasks.
-    const { getActivePenaltyCount } = await import("@/lib/handshake");
-    if ((await getActivePenaltyCount(fromUserId)) > 0) {
+    const { getPenaltyBlockState } = await import("@/lib/handshake");
+    const { blocked: penaltyBlocked, openCount: penaltyOpenCount } =
+      await getPenaltyBlockState(fromUserId);
+    if (penaltyBlocked) {
       return sendError(
         res,
         423,
         "You have an active penalty that must be served before sending handshake requests",
         undefined,
         undefined,
-        { blocked: true, reason: "Active penalty ,  see /handshake-testing/penalty" },
+        {
+          blocked: true,
+          reason: "Active penalty — see /handshake-testing/penalty",
+          penaltyCount: penaltyOpenCount,
+        },
       );
     }
 
@@ -60,15 +66,16 @@ export const sendHandshakeRequest = async (req: Request, res: Response) => {
       "handshake_request_expiry_days",
       7,
     );
+    // Spec: max 10 pending outgoing handshake requests per user.
     const requestLimit = await getSystemConfigNumber(
       "handshake_request_limit_per_user",
-      12,
+      10,
     );
 
     // S8-G3: duplicate-request guard , one active request per
     // (sender, target, campaign). Prevents spamming the same developer with
     // repeated requests (with different offered apps) while one is pending.
-    // P2.3 follow-up: only PENDING blocks ,  legacy MUTUAL_MATCHED rows whose
+    // P2.3 follow-up: only PENDING blocks — legacy MUTUAL_MATCHED rows whose
     // handshake later ended must not 409 re-requests forever.
     const duplicate = await prismaClient.handshakeRequest.findFirst({
       where: {
@@ -90,7 +97,7 @@ export const sendHandshakeRequest = async (req: Request, res: Response) => {
     // S13: block the exact reverse of an already-pending request. If the
     // target developer already sent me a request asking to test my offered
     // app, the right action is to accept/reject that incoming request from
-    // the inbox ,  not to send a reverse request for the same pair of apps.
+    // the inbox — not to send a reverse request for the same pair of apps.
     // The in-transaction reciprocal lookup below still handles the true
     // race where both sides hit this guard at the same instant.
     if (offeredAppId) {
@@ -111,6 +118,29 @@ export const sendHandshakeRequest = async (req: Request, res: Response) => {
           "This developer already sent you a handshake request for these apps. Please accept or reject it from your incoming requests.",
         );
       }
+    }
+
+    // R5a: pair-level pending guard. Any PENDING request between these two
+    // users (in either direction, regardless of apps) blocks a second
+    // simultaneous request — covers the crossed-app case the previous two
+    // guards miss. Recipient should accept/reject the existing request from
+    // the inbox before starting a new one.
+    const pairPending = await prismaClient.handshakeRequest.findFirst({
+      where: {
+        status: "PENDING",
+        OR: [
+          { fromUserId, toUserId },
+          { fromUserId: toUserId, toUserId: fromUserId },
+        ],
+      },
+      select: { id: true },
+    });
+    if (pairPending) {
+      return sendError(
+        res,
+        409,
+        "You already have an active handshake request with this developer. Accept or reject it from your requests inbox before sending a new one.",
+      );
     }
 
     const targetApp = await prismaClient.dashboardAndHub.findUnique({
@@ -152,7 +182,7 @@ export const sendHandshakeRequest = async (req: Request, res: Response) => {
       return sendError(
         res,
         400,
-        "offeredAppId is required ,  pick one of your published Handshake apps to offer",
+        "offeredAppId is required — pick one of your published Handshake apps to offer",
       );
     }
     {
@@ -253,7 +283,7 @@ export const sendHandshakeRequest = async (req: Request, res: Response) => {
                 },
               });
 
-              // P2.1: shared creation path ,  slot caps for BOTH users,
+              // P2.1: shared creation path — slot caps for BOTH users,
               // relations, ACTIVE link, counter increments, WAITING stamp,
               // S8-G4 cancellation of other pending requests on fill.
               const { createMutualHandshake } = await import("@/lib/handshake");
@@ -302,7 +332,7 @@ export const sendHandshakeRequest = async (req: Request, res: Response) => {
               reciprocalRequestId: result.reciprocal!.id,
               linkCreated: true,
             },
-            "Mutual match ,  handshake established",
+            "Mutual match — handshake established",
           );
         }
         return sendSuccess(
@@ -440,10 +470,12 @@ export const acceptHandshakeRequest = async (req: Request, res: Response) => {
       );
     }
 
-    // P1.5: server-side penalty gate ,  accepting creates a live handshake,
+    // P1.5: server-side penalty gate — accepting creates a live handshake,
     // which penalized users must not enter until they serve their tasks.
-    const { getActivePenaltyCount } = await import("@/lib/handshake");
-    if ((await getActivePenaltyCount(userId)) > 0) {
+    const { getPenaltyBlockState } = await import("@/lib/handshake");
+    const { blocked: penaltyBlocked, openCount: penaltyOpenCount } =
+      await getPenaltyBlockState(userId);
+    if (penaltyBlocked) {
       return sendError(
         res,
         423,
@@ -452,7 +484,8 @@ export const acceptHandshakeRequest = async (req: Request, res: Response) => {
         undefined,
         {
           blocked: true,
-          reason: "Active penalty ,  see /handshake-testing/penalty",
+          reason: "Active penalty — see /handshake-testing/penalty",
+          penaltyCount: penaltyOpenCount,
         },
       );
     }
@@ -464,7 +497,7 @@ export const acceptHandshakeRequest = async (req: Request, res: Response) => {
       try {
         const created = await prismaClient.$transaction(
           async (tx) => {
-            // H-B3: atomic claim with expiry guard ,  races with the expiry
+            // H-B3: atomic claim with expiry guard — races with the expiry
             // cron or a competing accept/cancel abort here before anything
             // else is written.
             const claim = await tx.handshakeRequest.updateMany({

@@ -49,7 +49,7 @@ const app = express();
 app.use(cors(corsOptions));
 app.use(cookieParser());
 
-// P4: extractInfo must run BEFORE the API router ,  mounted after, it never
+// P4: extractInfo must run BEFORE the API router — mounted after, it never
 // saw matched requests and every controller read undefined ip/ua (empty
 // audit-log metadata everywhere).
 app.use(extractInfo);
@@ -69,7 +69,7 @@ app.get("/health", (_, res) => {
 app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (err?.code === "P2025") {
     logger.warn("Prisma P2025: Record not found", { model: err?.meta?.modelName });
-    // P4: report failure honestly ,  a 200 "Operation completed" made
+    // P4: report failure honestly — a 200 "Operation completed" made
     // failed mutations look successful to clients.
     return res.status(404).json({ success: false, message: "Record not found" });
   }

@@ -64,7 +64,7 @@ export const purchaseAddon = async (req: Request, res: Response) => {
       return sendError(res, 403, "Only the campaign owner can purchase add-ons");
     }
 
-    // P4: config check BEFORE inserting ,  no orphan CREATED rows when
+    // P4: config check BEFORE inserting — no orphan CREATED rows when
     // payments are unconfigured (catalog is preview-only).
     if (!isRazorpayConfigured()) {
       return sendError(
@@ -184,7 +184,7 @@ export const handleAddonWebhook = async (req: Request, res: Response) => {
       return res.status(200).json({ status: "already_paid" });
     }
 
-    // P4: idempotency race fix ,  Razorpay retries the same webhook when we
+    // P4: idempotency race fix — Razorpay retries the same webhook when we
     // respond slowly; a read-then-write here let two concurrent retries both
     // pass the PAID check and create duplicate ProfessionalTesterAssignment
     // rows. A single conditional updateMany makes exactly one retry win.
@@ -264,6 +264,13 @@ interface FillProTesterBody {
 
 /**
  * Admin: fill an OPEN professional tester assignment with a specific user.
+ *
+ * Actually seats the tester: creates/reactivates their TesterRelation
+ * (ADMIN_ASSIGNED, IN_PROGRESS), increments currentTester under a capacity
+ * guard, and — when the fill completes the cohort — stamps the HANDSHAKE
+ * 24h WAITING window and cancels stale pending requests (same block as the
+ * normal accept path). Previously this only flipped the assignment row,
+ * leaving the campaign stuck in WAITING_FOR_PARTNERS with zero relations.
  */
 export const fillProfessionalTester = async (req: Request, res: Response) => {
   try {
@@ -291,22 +298,130 @@ export const fillProfessionalTester = async (req: Request, res: Response) => {
       );
     }
 
-    const updated = await prismaClient.professionalTesterAssignment.update({
-      where: { id },
-      data: {
-        professionalUserId,
-        status: "FILLED",
-        filledAt: new Date(),
+    const campaign = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: assignment.campaignId },
+      select: {
+        id: true,
+        appType: true,
+        status: true,
+        currentTester: true,
+        totalTester: true,
       },
+    });
+    if (!campaign) return sendError(res, 404, "Campaign not found");
+
+    const { upsertTesterRelation, cancelPendingRequestsForCampaign } =
+      await import("@/lib/handshake");
+    const now = new Date();
+
+    const updated = await prismaClient.$transaction(async (tx) => {
+      // Seat the tester (throws __ALREADY_PARTICIPATING__ when already in,
+      // surfacing as 409 below).
+      await upsertTesterRelation(tx, {
+        testerId: professionalUserId,
+        hubId: campaign.id,
+        reactivateStatus: "IN_PROGRESS",
+        assignmentSource: "ADMIN_ASSIGNED",
+      });
+
+      // Atomic capacity-guarded increment (409 when the slot filled first).
+      const incResult = await tx.dashboardAndHub.updateMany({
+        where: {
+          id: campaign.id,
+          currentTester: { lt: campaign.totalTester },
+        },
+        data: { currentTester: { increment: 1 } },
+      });
+      if (incResult.count === 0) {
+        throw new Error("__SLOT_FULL__");
+      }
+
+      const filled = await tx.professionalTesterAssignment.update({
+        where: { id, status: "OPEN" },
+        data: {
+          professionalUserId,
+          status: "FILLED",
+          filledAt: now,
+        },
+      });
+
+      // If this fill completed the cohort, stamp the waiting/active window
+      // (mirrors the normal accept path).
+      const fresh = await tx.dashboardAndHub.findUnique({
+        where: { id: campaign.id },
+        select: {
+          currentTester: true,
+          totalTester: true,
+          status: true,
+          waitingPeriodStartedAt: true,
+          testingStartEligibleAt: true,
+        },
+      });
+      if (
+        fresh &&
+        fresh.currentTester >= fresh.totalTester &&
+        (fresh.status === "AVAILABLE" ||
+          fresh.status === "FINDING_TESTERS" ||
+          fresh.status === "WAITING_FOR_PARTNERS")
+      ) {
+        if (campaign.appType === "HANDSHAKE") {
+          // Pro-fill can seat the last tester into an already-WAITING
+          // campaign (admin Replace freed a slot, status not rolled back).
+          // Re-stamp the waiting window from now and cancel stale pending
+          // requests unconditionally so the new cohort starts clean.
+          await tx.dashboardAndHub.updateMany({
+            where: {
+              id: campaign.id,
+              status: { in: ["AVAILABLE", "FINDING_TESTERS", "WAITING_FOR_PARTNERS"] },
+            },
+            data: {
+              status: "WAITING_FOR_PARTNERS",
+              waitingPeriodStartedAt: now,
+              testingStartEligibleAt: new Date(
+                now.getTime() + 24 * 60 * 60 * 1000,
+              ),
+            },
+          });
+          await cancelPendingRequestsForCampaign(tx, campaign.id, now);
+        } else {
+          const totalDay =
+            (
+              await tx.dashboardAndHub.findUnique({
+                where: { id: campaign.id },
+                select: { totalDay: true },
+              })
+            )?.totalDay || 14;
+          // FREE/PAID never sit in WAITING_FOR_PARTNERS, but guard the
+          // status allow-list defensively.
+          await tx.dashboardAndHub.updateMany({
+            where: {
+              id: campaign.id,
+              status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+            },
+            data: {
+              status: "IN_TESTING",
+              testingStartDate: now,
+              testingEndDate: new Date(
+                now.getTime() + totalDay * 24 * 60 * 60 * 1000,
+              ),
+            },
+          });
+        }
+      }
+
+      return filled;
     });
 
     return sendSuccess(res, updated, "Professional tester assigned");
   } catch (error) {
-    return sendError(
-      res,
-      400,
-      error instanceof Error ? error.message : "Unknown error",
-    );
+    const message = error instanceof Error ? error.message : "Unknown error";
+    if (
+      message === "__ALREADY_PARTICIPATING__" ||
+      message === "__SLOT_FULL__"
+    ) {
+      return sendError(res, 409, message);
+    }
+    return sendError(res, 400, message);
   }
 };
 

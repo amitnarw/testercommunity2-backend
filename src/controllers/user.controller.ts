@@ -774,7 +774,7 @@ export const getUserTransactions = async (req: Request, res: Response) => {
           if (txn.razorpayPaymentId && refundLookup.has(txn.razorpayPaymentId)) {
             const refundInfo = refundLookup.get(txn.razorpayPaymentId)!;
             const refundedInr = refundInfo.amount / 100;
-            description = `Refund ,  ₹${refundedInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} returned to your original payment method`;
+            description = `Refund — ₹${refundedInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} returned to your original payment method`;
             amount = `₹${refundedInr.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
             change = `-${txn.package || 0} Packages`;
           } else {

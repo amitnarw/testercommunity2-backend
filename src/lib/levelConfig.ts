@@ -37,14 +37,14 @@ export function invalidateLevelConfigCache(): void {
 
 /**
  * Map a successfully-completed-app count to a level per spec §33.
- * Returns 1 for new users (count < 10). Max 9.
+ * Spec: L0 = new user (count < 10), L1 = 10, ..., L9 = 5000 (max).
  */
 export async function getLevelFromCompletedCount(
   completedCount: number,
 ): Promise<number> {
   const c = await getCache();
   const thresholds = Array.from(c.byThreshold.keys()).sort((a, b) => a - b);
-  let level = 1;
+  let level = 0;
   for (const threshold of thresholds) {
     if (completedCount >= threshold) {
       level = c.byThreshold.get(threshold) ?? level;
@@ -52,7 +52,7 @@ export async function getLevelFromCompletedCount(
       break;
     }
   }
-  return Math.min(MAX_HANDSHAKE_LEVEL, Math.max(1, level));
+  return Math.min(MAX_HANDSHAKE_LEVEL, Math.max(0, level));
 }
 
 /**

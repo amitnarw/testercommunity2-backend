@@ -992,7 +992,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
         return res.status(200).json({ status: "ok" });
       }
 
-      // Refund created or processed ,  record it and update wallet
+      // Refund created or processed — record it and update wallet
       const isProcessed = refundStatus === "processed" || event.event === "refund.processed";
       const newAmountRefunded = (payment.amountRefunded || 0) + refundAmount;
       const isFullRefund = newAmountRefunded >= payment.amount - 1;

@@ -2,7 +2,7 @@
  * Centralized, on-brand email templates for inTesters.
  *
  * All emails share a single layout (baseEmailLayout) so branding, fonts, and
- * footer stay consistent. Inline styles only ,  emails cannot read the site's
+ * footer stay consistent. Inline styles only — emails cannot read the site's
  * CSS variables. Brand tokens mirror globals.css / tax-invoice.tsx:
  *   primary #3b82f6 / primary-dark #1e40af / primary-light #eff6ff
  * Font: Plus Jakarta Sans (loaded per-email via Google Fonts <link>).
@@ -108,7 +108,7 @@ export function baseEmailLayout({
             </tr>
             <tr>
               <td align="center" style="padding-top:24px;font-size:12px;line-height:18px;color:${EMAIL_BRAND.muted};">
-                <p style="margin:0 0 4px;">© ${new Date().getFullYear()} ${EMAIL_BRAND.name} ,  Gamdix Private Limited</p>
+                <p style="margin:0 0 4px;">© ${new Date().getFullYear()} ${EMAIL_BRAND.name} — Gamdix Private Limited</p>
                 <p style="margin:0;">
                   <a class="footer-link" href="${EMAIL_BRAND.website}" target="_blank" rel="noopener">Website</a>
                   &nbsp;·&nbsp;
@@ -124,7 +124,7 @@ export function baseEmailLayout({
 </html>`;
 }
 
-/** Email verification ,  sent on signup via better-auth. */
+/** Email verification — sent on signup via better-auth. */
 export function verificationEmailHtml(verifyUrl: string): string {
   const body = `
     <h1 style="margin:0 0 8px;font-size:24px;font-weight:800;letter-spacing:-0.02em;color:${EMAIL_BRAND.text};">
@@ -166,7 +166,7 @@ export interface PaymentReceiptInput {
   walletUrl?: string;
 }
 
-/** Payment success receipt ,  sent after a Razorpay payment.captured webhook. */
+/** Payment success receipt — sent after a Razorpay payment.captured webhook. */
 export function paymentReceiptEmailHtml({
   amount,
   currency = "INR",
