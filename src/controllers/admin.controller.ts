@@ -848,14 +848,24 @@ export const acceptApp = async (req: Request, res: Response) => {
 
     const dataToUpdate: any = {};
 
-    // Set AVAILABLE status if it was IN_REVIEW or REJECTED
-    if (existingApp.status === "IN_REVIEW" || existingApp.status === "REJECTED") {
+    // Set AVAILABLE status if it was IN_REVIEW, REJECTED, or UNDER_ADMIN_REVIEW
+    if (
+      existingApp.status === "IN_REVIEW" ||
+      existingApp.status === "REJECTED" ||
+      existingApp.status === "UNDER_ADMIN_REVIEW"
+    ) {
       dataToUpdate.status = "AVAILABLE";
       // Clear rejection details if moving out of rejected status
       dataToUpdate.statusDetails = Prisma.DbNull;
       // Stamp approval time — drives the spec's 24h recruiting window for
       // HANDSHAKE campaigns (unfilled after 24h → admin review).
       dataToUpdate.approvedAt = new Date();
+      // UNDER_ADMIN_REVIEW campaigns were escalated because their 24h window
+      // expired without filling — re-approval restarts that window, so also
+      // clear the escalation timestamp (mirrors updateProjectStatus's reset).
+      if (existingApp.status === "UNDER_ADMIN_REVIEW") {
+        dataToUpdate.escalatedToAdminAt = null;
+      }
     }
 
     if (totalTester !== undefined)
