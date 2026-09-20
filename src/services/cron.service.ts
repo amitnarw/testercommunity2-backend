@@ -188,7 +188,7 @@ async function transitionReadyCampaigns(): Promise<void> {
     // elapsed (testingStartEligibleAt <= now). Without this guard, the cron
     // transitions the campaign to TESTING_ACTIVE the moment the last tester
     // accepts, bypassing the 24h waiting period entirely.
-    // S6-7: HANDSHAKE-only — FREE/PAID campaigns activate immediately on
+    // S6-7: HANDSHAKE-only — PAID campaigns activate immediately on
     // fill (legacy behavior restored in hub.controller.ts) and must never
     // sit in WAITING_FOR_PARTNERS.
     const now = new Date();

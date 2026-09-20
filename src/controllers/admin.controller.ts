@@ -381,12 +381,14 @@ export const adminForceHandshake = async (req: Request, res: Response) => {
         hubId: appAId,
         reactivateStatus: "IN_PROGRESS",
         assignmentSource: "ADMIN_ASSIGNED",
+        offeredAppId: appBId,
       });
       const relationB = await upsertTesterRelation(tx, {
         testerId: userAId,
         hubId: appBId,
         reactivateStatus: "IN_PROGRESS",
         assignmentSource: "ADMIN_ASSIGNED",
+        offeredAppId: appAId,
       });
       const link = await tx.handshakeLink.create({
         data: {
@@ -1016,6 +1018,8 @@ export const updateProjectStatus = async (req: Request, res: Response) => {
           "ON_HOLD",
           "COMPLETED",
           "REMOVED",
+          // Escape hatch for the admin-reviewed start-request flow.
+          "START_REQUESTED",
         ]
       : [
           "IN_REVIEW",
@@ -1308,9 +1312,10 @@ export const getDashboardStats = async (req: Request, res: Response) => {
     const completedPaidApps = await prismaClient.dashboardAndHub.count({
       where: { appType: "PAID", status: "COMPLETED" },
     });
-    const completedFreeApps = await prismaClient.dashboardAndHub.count({
-      where: { appType: "FREE", status: "COMPLETED" },
-    });
+    const completedHandshakeApps =
+      await prismaClient.dashboardAndHub.count({
+        where: { appType: "HANDSHAKE", status: "COMPLETED" },
+      });
 
     // Get paid testers (unique testers with a relation to a PAID app)
     const paidTestersData = await prismaClient.testerRelation.groupBy({
@@ -1476,7 +1481,7 @@ export const getDashboardStats = async (req: Request, res: Response) => {
         testingEndDate: sub.testingEndDate?.toISOString() ?? "",
       })),
       completedPaidApps,
-      completedFreeApps,
+      completedHandshakeApps,
       paidTesters: paidTestersData.length,
       submissionsByStatus: submissionsByStatus.reduce(
         (acc, item) => {
@@ -3531,7 +3536,7 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
     }
 
     // Create new relations
-    const isFreeApp = app.appType === "FREE";
+    const isPaidApp = app.appType === "PAID";
     const newRelationsData = newTesterIds.map((tId) => ({
       testerId: tId,
       dashboardAndHubId: parseInt(id),
@@ -3549,7 +3554,7 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
     let newStatus = app.status;
 
     // S7-1: HANDSHAKE campaigns live in TESTING_ACTIVE (the verification
-    // gate requires it); FREE/PAID keep legacy IN_TESTING as their
+    // gate requires it); PAID keeps legacy IN_TESTING as its
     // active state. Mirrors `startTestingHubApp` (hub.controller.ts:3006).
     const reachedCapacity = newCurrentTester >= (app.totalTester || 0);
     if (app.status === "AVAILABLE" && reachedCapacity) {
@@ -3585,9 +3590,9 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
     });
 
     // Create notifications for the newly assigned testers
-    const notificationTitle = isFreeApp
-      ? "New Testing Assignment"
-      : "New Paid Testing Assignment";
+    const notificationTitle = isPaidApp
+      ? "New Paid Testing Assignment"
+      : "New Testing Assignment";
     const notificationsData = newTesterIds.map((tId) => ({
       title: notificationTitle,
       description: `You have been assigned to test "${updatedApp.androidApp?.appName}". You can now begin testing.`,
@@ -3600,8 +3605,8 @@ export const assignTestersToApp = async (req: Request, res: Response) => {
       data: notificationsData,
     });
 
-    // Notify app owner when paid testers are assigned to their free app
-    if (isFreeApp) {
+    // Notify app owner when testers are assigned to their handshake app
+    if (!isPaidApp) {
       await prismaClient.notification.create({
         data: {
           title: "Platform Testers Assigned",
@@ -3663,7 +3668,7 @@ export const unassignTesterFromApp = async (req: Request, res: Response) => {
     let newStatus = app.status;
 
     // If testers are left but below required, drop from either active-
-    // testing state (IN_TESTING for FREE/PAID, TESTING_ACTIVE for
+    // testing state (IN_TESTING for PAID, TESTING_ACTIVE for
     // HANDSHAKE) back to AVAILABLE. Without TESTING_ACTIVE in the
     // check, a HANDSHAKE campaign unassigned below capacity would stay
     // stuck in TESTING_ACTIVE even though currentTester < totalTester.
@@ -4167,7 +4172,7 @@ export const adminCompleteApp = async (req: Request, res: Response) => {
   * penalty tasks sourced from this campaign are expired so the new cycle
   * starts unblocked. REPLACED/REJECTED/DROPPED relations are untouched.
   *
-  * HANDSHAKE -> TESTING_ACTIVE; PAID/FREE -> IN_TESTING.
+  * HANDSHAKE -> TESTING_ACTIVE; PAID -> IN_TESTING.
   */
 export const adminRestartApp = async (req: Request, res: Response) => {
   try {
@@ -5918,6 +5923,113 @@ export const deletePaidSubmission = async (req: Request, res: Response) => {
       actorRole: req?.role as string,
       module: "submissions",
       action: "deletePaidSubmission",
+      targetId: String(req?.params?.id || ""),
+      result: "FAIL",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Internal Server Error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+export const deleteHandshakeSubmission = async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) {
+      return sendError(res, 400, "Invalid submission ID");
+    }
+
+    const existing = await prismaClient.dashboardAndHub.findUnique({
+      where: { id },
+      include: { androidApp: true },
+    });
+
+    if (!existing) {
+      return sendError(res, 404, "Submission not found");
+    }
+
+    if (existing.appType !== "HANDSHAKE") {
+      return sendError(res, 400, "This endpoint is only for HANDSHAKE submissions");
+    }
+
+    await prismaClient.$transaction(async (tx) => {
+      // 0. Null out other campaigns' tester relations that offered this app.
+      // offeredAppId has no onDelete action, so the DB would reject the delete.
+      await tx.testerRelation.updateMany({
+        where: { offeredAppId: id },
+        data: { offeredAppId: null },
+      });
+
+      // 1. Delete feedback media
+      const feedbacks = await tx.feedback.findMany({
+        where: { dashboardAndHubId: id },
+        select: { id: true },
+      });
+      const feedbackIds = feedbacks.map((f) => f.id);
+      if (feedbackIds.length > 0) {
+        await tx.media.deleteMany({ where: { feedbackId: { in: feedbackIds } } });
+      }
+
+      // 2. Delete feedback
+      await tx.feedback.deleteMany({ where: { dashboardAndHubId: id } });
+
+      // 3. Delete daily verifications for tester relations
+      const rels = await tx.testerRelation.findMany({
+        where: { dashboardAndHubId: id },
+        select: { id: true },
+      });
+      const relIds = rels.map((r) => r.id);
+      if (relIds.length > 0) {
+        await tx.dailyTesterVerification.deleteMany({
+          where: { testerRelationId: { in: relIds } },
+        });
+      }
+
+      // 4. Delete tester relations (MissedDay + HandshakeLink rows cascade)
+      await tx.testerRelation.deleteMany({ where: { dashboardAndHubId: id } });
+
+      // 5. Delete user transactions
+      await tx.userTransaction.deleteMany({ where: { dashboardAndHubId: id } });
+
+      // 6. Delete user activities
+      await tx.userActivity.deleteMany({ where: { dashboardAndHubId: id } });
+
+      // 7. Delete play store declaration
+      await tx.playStoreDeclaration.deleteMany({ where: { dashboardAndHubId: id } });
+
+      // 8. Delete the dashboard and hub entry (HandshakeRequests targeting this
+      // app, conversations, add-on purchases and pro-tester assignments cascade;
+      // offered-app and penalty-task references SetNull via FK rules)
+      await tx.dashboardAndHub.delete({ where: { id } });
+
+      // 9. Delete the android app
+      await tx.androidApp.delete({ where: { id: existing.appId } });
+    });
+
+    const auditLogPayload: AuditLogPayload = {
+      actorId: req.userId || "",
+      actorRole: req.role as string,
+      module: "submissions",
+      action: "deleteHandshakeSubmission",
+      targetId: String(id),
+      result: "SUCCESS",
+      ip: (req as any).userIpAddress || "",
+      ua: (req as any).userAgent || "",
+    };
+
+    return sendSuccess(res, null, "Handshake submission deleted successfully", auditLogPayload);
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "submissions",
+      action: "deleteHandshakeSubmission",
       targetId: String(req?.params?.id || ""),
       result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",

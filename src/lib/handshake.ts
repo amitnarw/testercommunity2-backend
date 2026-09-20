@@ -1109,7 +1109,7 @@ export async function createMutualHandshake(
     where: {
       id: { in: [requestedAppId, offeredAppId] },
       appType: "HANDSHAKE",
-      status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+      status: { in: ["AVAILABLE", "FINDING_TESTERS", "START_REQUESTED"] },
     },
     select: {
       id: true,
@@ -1156,15 +1156,19 @@ export async function createMutualHandshake(
   }
 
   // 3. Relations (create-or-reuse; blocks duplicates, resets old cycles).
+  // offeredAppId = the reciprocal app each tester owns/offers (drives the
+  // "Their App" column in the owner manage-testers view).
   const relationA = await upsertTesterRelation(tx, {
     testerId: requesterId,
     hubId: requestedAppId,
     reactivateStatus: "IN_PROGRESS",
+    offeredAppId,
   });
   const relationB = await upsertTesterRelation(tx, {
     testerId: ownerId,
     hubId: offeredAppId,
     reactivateStatus: "IN_PROGRESS",
+    offeredAppId: requestedAppId,
   });
 
   // 4. The link itself.
@@ -1186,7 +1190,7 @@ export async function createMutualHandshake(
     const inc = await tx.dashboardAndHub.updateMany({
       where: {
         id,
-        status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+        status: { in: ["AVAILABLE", "FINDING_TESTERS", "START_REQUESTED"] },
         currentTester: { lt: snapshot.totalTester },
       },
       data: { currentTester: { increment: 1 } },
@@ -1201,12 +1205,17 @@ export async function createMutualHandshake(
       fresh &&
       fresh.totalTester > 0 &&
       fresh.currentTester >= fresh.totalTester &&
-      (fresh.status === "AVAILABLE" || fresh.status === "FINDING_TESTERS")
+      // START_REQUESTED is also a pre-active recruiting state: if a pending
+      // campaign fills, it enters the normal 24h window and the pending
+      // start request becomes moot (admin approval then 409s).
+      (fresh.status === "AVAILABLE" ||
+        fresh.status === "FINDING_TESTERS" ||
+        fresh.status === "START_REQUESTED")
     ) {
       await tx.dashboardAndHub.updateMany({
         where: {
           id,
-          status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+          status: { in: ["AVAILABLE", "FINDING_TESTERS", "START_REQUESTED"] },
           currentTester: { gte: fresh.totalTester },
         },
         data: {

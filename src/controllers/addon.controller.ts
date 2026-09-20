@@ -391,7 +391,7 @@ export const fillProfessionalTester = async (req: Request, res: Response) => {
                 select: { totalDay: true },
               })
             )?.totalDay || 14;
-          // FREE/PAID never sit in WAITING_FOR_PARTNERS, but guard the
+          // PAID never sits in WAITING_FOR_PARTNERS, but guard the
           // status allow-list defensively.
           await tx.dashboardAndHub.updateMany({
             where: {
