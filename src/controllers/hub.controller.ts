@@ -10,6 +10,7 @@ import {
   extractPackageName,
   hasUrlWhitespace,
   isValidPlayStoreLogoUrl,
+  normalizeEnumParam,
 } from "@/services/common";
 import { cancelPendingRequestsForCampaign } from "@/lib/handshake";
 
@@ -448,12 +449,37 @@ export const getHubSubmittedApp = async (req: Request, res: Response) => {
       return sendError(res, 400, "Please send type filter");
     }
 
+    // Whitelist the tab param: unknown values get a 400 instead of crashing
+    // Prisma with an invalid DashboardAndHubStatus enum value.
+    const normalizedType = normalizeEnumParam(type, [
+      "DRAFT",
+      "PENDING_ADMIN_REVIEW",
+      "APPROVED",
+      "FINDING_TESTERS",
+      "WAITING_FOR_PARTNERS",
+      "TESTING_ACTIVE",
+      "COMPLETED",
+      "UNDER_ADMIN_REVIEW",
+      "SUSPENDED",
+      "REMOVED",
+      "IN_REVIEW",
+      "REJECTED",
+      "IN_TESTING",
+      "ON_HOLD",
+      "REQUESTED",
+      "AVAILABLE",
+      "START_REQUESTED",
+    ]);
+    if (!normalizedType) {
+      return sendError(res, 400, "Invalid type filter");
+    }
+
     // P2.9: the owner-facing "testing" bucket must include the full v2
     // lifecycle —  WAITING_FOR_PARTNERS (24h window) and TESTING_ACTIVE
     // campaigns were previously invisible in every tab of My Submissions,
     // leaving owners without UI access to testers/chat/completion.
     const statusFilter =
-      type === "IN_TESTING"
+      normalizedType === "IN_TESTING"
         ? {
             in: [
               "IN_TESTING",
@@ -461,12 +487,12 @@ export const getHubSubmittedApp = async (req: Request, res: Response) => {
               "TESTING_ACTIVE",
             ] as DashboardAndHubStatus[],
           }
-        : type === "AVAILABLE"
+        : normalizedType === "AVAILABLE"
           ? // START_REQUESTED stays in the owner's Available bucket so the
             // pending-request card (and its banner) remains visible in
             // My Submissions while admins review.
             { in: ["AVAILABLE", "START_REQUESTED"] as DashboardAndHubStatus[] }
-          : (type as DashboardAndHubStatus);
+          : (normalizedType as DashboardAndHubStatus);
 
     const hubSubmittedApp = await prismaClient?.dashboardAndHub?.findMany({
       where: {
