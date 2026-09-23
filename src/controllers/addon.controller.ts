@@ -2,6 +2,7 @@ import { type Request, type Response } from "express";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient } from "@/lib/prisma";
+import { normalizeEnumParam } from "@/services/common";
 import {
   getRazorpayInstance,
   getRazorpayKeyId,
@@ -128,7 +129,7 @@ export const purchaseAddon = async (req: Request, res: Response) => {
       module: "addon",
       action: "purchaseAddon",
       targetId: String(req?.body?.payload?.addOnId || ""),
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -460,7 +461,15 @@ export const listProfessionalAssignments = async (req: Request, res: Response) =
 
     const where: any = {};
     if (campaignId) where.campaignId = campaignId;
-    if (status) where.status = status;
+    // Unknown statuses are ignored instead of crashing Prisma with an
+    // invalid ProfessionalTesterStatus enum value.
+    const normalizedStatus = normalizeEnumParam(status, [
+      "OPEN",
+      "FILLED",
+      "COMPLETED",
+      "CANCELLED",
+    ]);
+    if (normalizedStatus) where.status = normalizedStatus;
 
     const items = await prismaClient.professionalTesterAssignment.findMany({
       where,

@@ -97,6 +97,14 @@ export const addAuditLog = async (payload: {
           "Actor id, actor role, module, action, result, ip, ua are required",
       };
     }
+    // Normalize to the AuditResult enum (SUCCESS | FAIL). Callers
+    // historically passed lowercase "success"/"fail", which Prisma rejects.
+    const normalizedResult =
+      String(result || "")
+        .trim()
+        .toUpperCase() === "SUCCESS"
+        ? "SUCCESS"
+        : "FAIL";
     const log = await prismaClient?.auditLog?.create({
       data: {
         actorId,
@@ -104,14 +112,14 @@ export const addAuditLog = async (payload: {
         module,
         action,
         targetId,
-        result: result as "SUCCESS" | "FAIL",
+        result: normalizedResult,
         reason,
         ip,
         ua,
       },
     });
     if (!log) {
-      return { success: false, message: log };
+      return { success: false, message: "Failed to create audit log" };
     }
     return { success: true, message: "Log added successfully" };
   } catch (error) {

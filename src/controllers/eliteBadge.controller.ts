@@ -86,7 +86,7 @@ export const awardEliteBadge = async (req: Request, res: Response) => {
       module: "eliteBadge",
       action: "awardEliteBadge",
       targetId: String(req?.body?.payload?.userId || ""),
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",

@@ -7,8 +7,23 @@ export const getPublicFaqs = async (req: Request, res: Response) => {
     const { category } = req.query;
 
     const where: any = { isActive: true };
+    // FaqCategory values are lowercase — validate case-sensitively and
+    // ignore unknown values instead of crashing Prisma.
     if (category && typeof category === "string") {
-      where.category = category;
+      const normalizedCategory = category.trim();
+      if (
+        [
+          "general",
+          "community",
+          "professional",
+          "homepage",
+          "pricing",
+          "google_play_guide",
+          "billing",
+        ].includes(normalizedCategory)
+      ) {
+        where.category = normalizedCategory;
+      }
     }
 
     const faqs = await prismaClient.faq.findMany({
