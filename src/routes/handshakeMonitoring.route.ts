@@ -9,6 +9,9 @@ import {
   getRecentMissedDays,
   adminReplaceTester,
   adminForceHandshake,
+  getStartRequests,
+  approveStartRequest,
+  rejectStartRequest,
 } from "@/controllers/handshakeMonitoring.controller";
 
 const router = Router();
@@ -50,6 +53,26 @@ router.post(
   checkAuthorization({ module: "submissions", action: "canUpdate" }),
   decryptPayload,
   adminForceHandshake,
+);
+router.get(
+  "/start-requests",
+  checkAuthentication,
+  checkAuthorization({ module: "submissions", action: "canReadList" }),
+  getStartRequests,
+);
+router.post(
+  "/approve-start-request",
+  checkAuthentication,
+  checkAuthorization({ module: "submissions", action: "canUpdate" }),
+  decryptPayload,
+  approveStartRequest,
+);
+router.post(
+  "/reject-start-request",
+  checkAuthentication,
+  checkAuthorization({ module: "submissions", action: "canUpdate" }),
+  decryptPayload,
+  rejectStartRequest,
 );
 
 export default router;

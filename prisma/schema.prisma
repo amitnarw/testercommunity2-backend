@@ -394,6 +394,7 @@ model DailyTesterVerification {
   testerRelationId Int
   dayNumber        Int
   proofImageUrl    String
+  remark           String?
   status           VerificationStatus @default(PENDING)
   verifiedAt       DateTime?
   rejectionReason  String?
@@ -1495,7 +1496,6 @@ enum FaqCategory {
 
 enum DashboardAndHubAppType {
   PAID
-  FREE
   HANDSHAKE
 }
 
@@ -1570,6 +1570,7 @@ enum DashboardAndHubStatus {
   ON_HOLD
   REQUESTED
   AVAILABLE
+  START_REQUESTED
 }
 
 enum MediaType {

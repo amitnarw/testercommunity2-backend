@@ -1,7 +1,7 @@
 import { type Request, type Response } from "express";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
-import { prismaClient } from "@/lib/prisma";
+import { prismaClient, Prisma } from "@/lib/prisma";
 
 /**
  * Spec §40, §41: admin monitoring overview with key counters.
@@ -19,6 +19,7 @@ export const getMonitoringOverview = async (req: Request, res: Response) => {
       proTesterOpen,
       eliteBadgesAwarded,
       pendingRequests,
+      pendingStartRequests,
       campaignsByStatus,
     ] = await Promise.all([
       prismaClient.dashboardAndHub.count({
@@ -44,6 +45,9 @@ export const getMonitoringOverview = async (req: Request, res: Response) => {
       prismaClient.handshakeRequest.count({
         where: { status: "PENDING", expiresAt: { gt: now } },
       }),
+      prismaClient.dashboardAndHub.count({
+        where: { appType: "HANDSHAKE", status: "START_REQUESTED" },
+      }),
       prismaClient.dashboardAndHub.groupBy({
         by: ["status"],
         _count: { _all: true },
@@ -61,6 +65,7 @@ export const getMonitoringOverview = async (req: Request, res: Response) => {
         proTesterOpen,
         eliteBadgesAwarded,
         pendingRequests,
+        pendingStartRequests,
         campaignsByStatus,
       },
       "ok",
@@ -463,12 +468,14 @@ export const adminForceHandshake = async (req: Request, res: Response) => {
         hubId: appAId,
         reactivateStatus: "IN_PROGRESS",
         assignmentSource: "ADMIN_ASSIGNED",
+        offeredAppId: appBId,
       });
       const relationB = await upsertTesterRelation(tx, {
         testerId: userAId,
         hubId: appBId,
         reactivateStatus: "IN_PROGRESS",
         assignmentSource: "ADMIN_ASSIGNED",
+        offeredAppId: appAId,
       });
       const link = await tx.handshakeLink.create({
         data: {
@@ -526,6 +533,242 @@ export const adminForceHandshake = async (req: Request, res: Response) => {
       res,
       400,
       error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+// Minimum joined testers for a start request to be valid. Mirrors
+// HANDSHAKE_START_REQUEST_MIN_TESTERS in hub.controller.ts (imported
+// dynamically to avoid a static controller-to-controller import).
+async function getStartRequestMinTesters(): Promise<number> {
+  const hub = await import("./hub.controller");
+  return hub.HANDSHAKE_START_REQUEST_MIN_TESTERS ?? 12;
+}
+
+/**
+ * Admin: list HANDSHAKE campaigns with a pending start request
+ * (status START_REQUESTED), oldest first.
+ */
+export const getStartRequests = async (req: Request, res: Response) => {
+  try {
+    const items = await prismaClient.dashboardAndHub.findMany({
+      where: { appType: "HANDSHAKE", status: "START_REQUESTED" },
+      orderBy: { updatedAt: "asc" },
+      include: {
+        appOwner: {
+          select: {
+            id: true,
+            name: true,
+            image: true,
+            handshakeLevel: true,
+            eliteBadge: true,
+          },
+        },
+        androidApp: {
+          select: { appName: true, appLogoUrl: true },
+        },
+      },
+    });
+
+    return sendSuccess(res, { items: items as any }, "ok");
+  } catch (error) {
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+    );
+  }
+};
+
+/**
+ * Admin: approve a pending start request. The campaign transitions to
+ * TESTING_ACTIVE with fresh lifecycle dates (same fresh-cycle semantics
+ * as adminForceHandshake). The 12-tester gate is re-validated — testers
+ * may have dropped while the request was pending, or the campaign may
+ * have filled and entered the normal WAITING window meanwhile.
+ */
+export const approveStartRequest = async (req: Request, res: Response) => {
+  try {
+    const adminId = req?.userId;
+    if (!adminId) return sendError(res, 401, "Unauthorized");
+
+    const body = req.body?.payload ?? req.body;
+    const campaignId = parseInt(String(body?.campaignId || ""), 10);
+    if (!campaignId || isNaN(campaignId)) {
+      return sendError(res, 400, "campaignId is required");
+    }
+
+    const minTesters = await getStartRequestMinTesters();
+    const now = new Date();
+
+    // Atomic claim: only a still-pending request with enough testers wins.
+    const app = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: campaignId },
+      select: { id: true, totalDay: true, appOwnerId: true, androidApp: { select: { appName: true } } },
+    });
+    if (!app) return sendError(res, 404, "Campaign not found");
+
+    const totalDay = app.totalDay || 16;
+    const claim = await prismaClient.dashboardAndHub.updateMany({
+      where: {
+        id: campaignId,
+        appType: "HANDSHAKE",
+        status: "START_REQUESTED",
+        currentTester: { gte: minTesters },
+      },
+      data: {
+        status: "TESTING_ACTIVE",
+        testingStartDate: now,
+        testingEndDate: new Date(
+          now.getTime() + totalDay * 24 * 60 * 60 * 1000,
+        ),
+        currentDay: 1,
+        escalatedToAdminAt: null,
+        // A prior rejection's remark no longer applies once approved.
+        statusDetails: Prisma.DbNull,
+      },
+    });
+    if (claim.count === 0) {
+      const fresh = await prismaClient.dashboardAndHub.findUnique({
+        where: { id: campaignId },
+        select: { status: true, currentTester: true },
+      });
+      if (!fresh) return sendError(res, 404, "Campaign not found");
+      if (fresh.status !== "START_REQUESTED") {
+        return sendError(
+          res,
+          409,
+          `Start request is no longer pending (campaign is ${fresh.status})`,
+        );
+      }
+      return sendError(
+        res,
+        409,
+        `Only ${fresh.currentTester} testers joined — ${minTesters} required to approve`,
+      );
+    }
+
+    await prismaClient.notification.create({
+      data: {
+        title: "Start request approved",
+        description: `Your request to start testing "${app.androidApp?.appName ?? `campaign #${campaignId}`}" was approved. The ${totalDay}-day testing period has begun.`,
+        type: "OTHER" as const,
+        userId: app.appOwnerId,
+        isActive: true,
+      },
+    });
+
+    return sendSuccess(
+      res,
+      { campaignId } as any,
+      "Start request approved — testing is now active",
+    );
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "handshakeMonitoring",
+      action: "approveStartRequest",
+      targetId: String(req?.body?.payload?.campaignId ?? req?.body?.campaignId ?? ""),
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+/**
+ * Admin: reject a pending start request. The campaign returns to
+ * AVAILABLE so testers keep joining; the owner sees the mandatory
+ * remark and can re-request once ready.
+ */
+export const rejectStartRequest = async (req: Request, res: Response) => {
+  try {
+    const adminId = req?.userId;
+    if (!adminId) return sendError(res, 401, "Unauthorized");
+
+    const body = req.body?.payload ?? req.body;
+    const campaignId = parseInt(String(body?.campaignId || ""), 10);
+    const remark = String(body?.remark || "").trim();
+    if (!campaignId || isNaN(campaignId)) {
+      return sendError(res, 400, "campaignId is required");
+    }
+    if (!remark) {
+      return sendError(res, 400, "A rejection remark is required");
+    }
+
+    const app = await prismaClient.dashboardAndHub.findUnique({
+      where: { id: campaignId },
+      select: { appOwnerId: true, androidApp: { select: { appName: true } } },
+    });
+    if (!app) return sendError(res, 404, "Campaign not found");
+
+    const now = new Date();
+    const claim = await prismaClient.dashboardAndHub.updateMany({
+      where: {
+        id: campaignId,
+        appType: "HANDSHAKE",
+        status: "START_REQUESTED",
+      },
+      data: {
+        status: "AVAILABLE",
+        statusDetails: {
+          title: "Start request rejected",
+          description: remark,
+        },
+        // Re-entering AVAILABLE restarts the recruiting window (same
+        // convention as updateProjectStatus for handshake campaigns).
+        approvedAt: now,
+        escalatedToAdminAt: null,
+      },
+    });
+    if (claim.count === 0) {
+      return sendError(
+        res,
+        409,
+        "Start request is no longer pending",
+      );
+    }
+
+    await prismaClient.notification.create({
+      data: {
+        title: "Start request rejected",
+        description: `Your request to start testing "${app.androidApp?.appName ?? `campaign #${campaignId}`}" was rejected by an admin. Reason: ${remark}`,
+        type: "OTHER" as const,
+        userId: app.appOwnerId,
+        isActive: true,
+      },
+    });
+
+    return sendSuccess(
+      res,
+      { campaignId } as any,
+      "Start request rejected — campaign is available again",
+    );
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "handshakeMonitoring",
+      action: "rejectStartRequest",
+      targetId: String(req?.body?.payload?.campaignId ?? req?.body?.campaignId ?? ""),
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      400,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
     );
   }
 };

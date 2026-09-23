@@ -161,6 +161,15 @@ export const addHubApp = async (req: Request, res: Response) => {
     const isHandshake = appType === "HANDSHAKE";
     const isPaid = appType === "PAID";
 
+    // Only two testing types exist: HANDSHAKE (barter) and PAID (pro).
+    if (appType !== undefined && appType !== null && !isHandshake && !isPaid) {
+      return sendError(
+        res,
+        400,
+        'Invalid appType. Must be "HANDSHAKE" or "PAID".',
+      );
+    }
+
     // P1.5: server-side penalty gate (spec §30) —  penalized users may not
     // publish new handshake campaigns until they serve their tasks.
     if (isHandshake) {
@@ -315,7 +324,7 @@ export const addHubApp = async (req: Request, res: Response) => {
           data: {
             appId: androidAppData?.id,
             appOwnerId: req?.userId || "",
-            appType: isPaid ? "PAID" : (isHandshake ? "HANDSHAKE" : "FREE"),
+            appType: isPaid ? "PAID" : "HANDSHAKE",
             currentTester: 0,
             totalTester: resolvedTotalTester,
             currentDay: 0,
@@ -421,7 +430,12 @@ export const getHubSubmittedApp = async (req: Request, res: Response) => {
               "TESTING_ACTIVE",
             ] as DashboardAndHubStatus[],
           }
-        : (type as DashboardAndHubStatus);
+        : type === "AVAILABLE"
+          ? // START_REQUESTED stays in the owner's Available bucket so the
+            // pending-request card (and its banner) remains visible in
+            // My Submissions while admins review.
+            { in: ["AVAILABLE", "START_REQUESTED"] as DashboardAndHubStatus[] }
+          : (type as DashboardAndHubStatus);
 
     const hubSubmittedApp = await prismaClient?.dashboardAndHub?.findMany({
       where: {
@@ -680,6 +694,12 @@ export const getSubmittedAppsCount = async (req: Request, res: Response) => {
         result["IN_TESTING"] += item._count._all;
         continue;
       }
+      // START_REQUESTED stays recruitable — fold it into AVAILABLE so the
+      // owner Pending pill keeps counting the card.
+      if (item.status === "START_REQUESTED") {
+        result["AVAILABLE"] += item._count._all;
+        continue;
+      }
       if (item.status in result) {
         result[item.status] = item._count._all;
       }
@@ -760,7 +780,9 @@ export const getHubApps = async (req: Request, res: Response) => {
     };
 
     if (type === "AVAILABLE") {
-      whereCond.status = "AVAILABLE";
+      // START_REQUESTED campaigns stay discoverable + joinable while the
+      // owner's start request is pending admin approval.
+      whereCond.status = { in: ["AVAILABLE", "START_REQUESTED"] };
       // P2.6: exclude only ACTIVE participations —  campaigns where the user
       // has a COMPLETED/REJECTED/REPLACED/DROPPED history stay discoverable
       // so spec §11 re-handshake-after-completion works from the Available
@@ -799,7 +821,8 @@ export const getHubApps = async (req: Request, res: Response) => {
       };
     } else if (type === "APPROVED") {
       // Waiting to start: User is IN_PROGRESS but App is still AVAILABLE
-      whereCond.status = "AVAILABLE";
+      // (or START_REQUESTED — still pre-active from the tester's side).
+      whereCond.status = { in: ["AVAILABLE", "START_REQUESTED"] };
       whereCond.testerRelations = {
         some: {
           testerId: req?.userId,
@@ -809,7 +832,7 @@ export const getHubApps = async (req: Request, res: Response) => {
     } else if (type === "IN_TESTING") {
       // Active testing: User is IN_PROGRESS and App is in an active-testing
       // state. S7-5: HANDSHAKE campaigns live in TESTING_ACTIVE while legacy
-      // FREE/PAID use IN_TESTING — include both so the hub Running tab shows
+      // PAID uses IN_TESTING — include both so the hub Running tab shows
       // every active campaign.
       // S12: WAITING_FOR_PARTNERS (24h pre-start window) also belongs here — it
       // was previously invisible in the list while getAppsCount already
@@ -1179,7 +1202,7 @@ export const getAppsCount = async (req: Request, res: Response) => {
     //     handshake request to (spec §3.2 "next time I send to a new dev").
     const availableCount = await prismaClient.dashboardAndHub.count({
       where: {
-        status: "AVAILABLE",
+        status: { in: ["AVAILABLE", "START_REQUESTED"] },
         appOwnerId: {
           not: req.userId,
         },
@@ -1362,7 +1385,10 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
             daysCompleted: true,
             lastActivityAt: true,
             // Partner-readiness for the owner waiting view: traverse the
-            // ACTIVE link to the partner's own campaign status.
+            // ACTIVE link to the partner's own campaign status. The partner
+            // campaign's androidApp doubles as the "Their App" fallback when
+            // the relation's own offeredAppId was never stamped (pre-fix
+            // mutual-match / force-handshake rows).
             handshakeLinkAsA: {
               select: {
                 id: true,
@@ -1370,7 +1396,13 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
                 relationB: {
                   select: {
                     dashboardAndHub: {
-                      select: { id: true, status: true },
+                      select: {
+                        id: true,
+                        status: true,
+                        androidApp: {
+                          select: { appName: true, appLogoUrl: true },
+                        },
+                      },
                     },
                   },
                 },
@@ -1383,7 +1415,13 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
                 relationA: {
                   select: {
                     dashboardAndHub: {
-                      select: { id: true, status: true },
+                      select: {
+                        id: true,
+                        status: true,
+                        androidApp: {
+                          select: { appName: true, appLogoUrl: true },
+                        },
+                      },
                     },
                   },
                 },
@@ -1438,6 +1476,11 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
       );
     }
 
+    // Collect ACTIVE handshake link ids across tester relations so the
+    // owner daily gate below can resolve the owner's reciprocal relations
+    // with a single query.
+    const activeLinkIds: number[] = [];
+
     const result: any = {
       ...hubAppDetails,
       statusDetails: parsedStatusDetails,
@@ -1481,8 +1524,27 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
                   ? "READY"
                   : "FINDING";
               const { handshakeLinkAsA, handshakeLinkAsB, ...restItem } = item;
+              if (ownLink?.id) activeLinkIds.push(ownLink.id);
+              // "Their App" fallback: pre-fix mutual-match / force-handshake
+              // rows never stamped offeredAppId, so offeredApp is null. The
+              // ACTIVE link's partner campaign IS the reciprocal app by the
+              // S6-1 convention, so derive it from the traversal above.
+              let offeredApp = item?.offeredApp ?? null;
+              if (!offeredApp?.androidApp && ownLink) {
+                const partnerHub =
+                  item?.handshakeLinkAsA?.status === "ACTIVE"
+                    ? item?.handshakeLinkAsA?.relationB?.dashboardAndHub
+                    : item?.handshakeLinkAsB?.relationA?.dashboardAndHub;
+                if (partnerHub?.id && partnerHub?.androidApp) {
+                  offeredApp = {
+                    id: partnerHub.id,
+                    androidApp: partnerHub.androidApp,
+                  };
+                }
+              }
               return {
                 ...restItem,
+                offeredApp,
                 statusDetails: parsed,
                 partnerReadiness,
                 dailyVerifications: item?.dailyVerifications?.map(
@@ -1493,8 +1555,108 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
                 ),
               };
             })
-          : [],
+            : [],
     };
+
+    // Handshake owner daily gate: joined testers are only viewable when the
+    // owner has submitted today's proof on their own reciprocal relations
+    // (in handshake testing both sides test each other's app daily).
+    // Applies to the owner view of an actively-testing HANDSHAKE campaign.
+    // Null everywhere else (no gating).
+    let ownerDailyGate: {
+      locked: boolean;
+      required: number;
+      submitted: number;
+      partners: {
+        hubId: number;
+        appName: string | null;
+        appLogoUrl: string | null;
+        submittedToday: boolean;
+      }[];
+    } | null = null;
+    if (
+      hubAppDetails?.appType === "HANDSHAKE" &&
+      view === "owner" &&
+      hubAppDetails?.status === "TESTING_ACTIVE" &&
+      activeLinkIds.length > 0
+    ) {
+      const ownerId = hubAppDetails.appOwnerId;
+      const reciprocalSelect = {
+        id: true,
+        testerId: true,
+        status: true,
+        dashboardAndHubId: true,
+        dashboardAndHub: {
+          select: {
+            id: true,
+            androidApp: {
+              select: { appName: true, appLogoUrl: true },
+            },
+          },
+        },
+        dailyVerifications: {
+          select: {
+            dayNumber: true,
+            status: true,
+            verifiedAt: true,
+            createdAt: true,
+          },
+        },
+      };
+      const links = await prismaClient.handshakeLink.findMany({
+        where: {
+          id: { in: [...new Set(activeLinkIds)] },
+          status: "ACTIVE",
+        },
+        select: {
+          id: true,
+          relationA: { select: reciprocalSelect },
+          relationB: { select: reciprocalSelect },
+        },
+      });
+      const dayStart = new Date();
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const partners: {
+        hubId: number;
+        appName: string | null;
+        appLogoUrl: string | null;
+        submittedToday: boolean;
+      }[] = [];
+      for (const link of links) {
+        const mine =
+          (link.relationA as any)?.testerId === ownerId
+            ? (link.relationA as any)
+            : (link.relationB as any)?.testerId === ownerId
+              ? (link.relationB as any)
+              : null;
+        // The reciprocal relation must live on the partner's campaign.
+        if (!mine || mine.dashboardAndHubId === Number(id)) continue;
+        if (partners.some((p) => p.hubId === mine.dashboardAndHubId)) continue;
+        const submittedToday =
+          mine.status === "COMPLETED" ||
+          ((mine.dailyVerifications || []) as any[]).some(
+            (v) =>
+              v?.status !== "REJECTED" &&
+              new Date(v?.createdAt ?? v?.verifiedAt ?? 0).getTime() >=
+                dayStart.getTime(),
+          );
+        partners.push({
+          hubId: mine.dashboardAndHubId,
+          appName: mine.dashboardAndHub?.androidApp?.appName ?? null,
+          appLogoUrl: mine.dashboardAndHub?.androidApp?.appLogoUrl ?? null,
+          submittedToday,
+        });
+      }
+      const required = partners.length;
+      const submitted = partners.filter((p) => p.submittedToday).length;
+      ownerDailyGate = {
+        locked: required > 0 && submitted < required,
+        required,
+        submitted,
+        partners,
+      };
+    }
+    result.ownerDailyGate = ownerDailyGate;
 
     const appRatings = (hubAppDetails?.androidApp?.ratings || []).filter(
       (r) => r.ratingType === "APP",
@@ -2184,6 +2346,9 @@ export const acceptSubmittedHubAppTestingRequest = async (
           testerId: checkTester.appOwnerId,
           hubId: offeredApp.id,
           reactivateStatus: "IN_PROGRESS",
+          // The owner's own app (the target campaign) is what they offer in
+          // exchange for testing the requester's offered app.
+          offeredAppId: Number(hub_id),
         });
         reciprocalRelationId = reciprocal?.id ?? null;
 
@@ -2191,12 +2356,12 @@ export const acceptSubmittedHubAppTestingRequest = async (
         // H-B7 (S4c-4) + S6-6/S6-7: atomic conditional increment restricted
         // to actively-recruiting statuses, then an appType-gated transition
         // derived from the POST-increment row. HANDSHAKE enters the 24h
-        // WAITING_FOR_PARTNERS window; FREE/PAID keep legacy immediate
+        // WAITING_FOR_PARTNERS window; PAID keeps legacy immediate
         // IN_TESTING activation.
         const offeredInc = await tx?.dashboardAndHub?.updateMany({
           where: {
             id: offeredApp.id,
-            status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+            status: { in: ["AVAILABLE", "FINDING_TESTERS", "START_REQUESTED"] },
             currentTester: { lt: offeredApp.totalTester },
           },
           data: { currentTester: { increment: 1 } },
@@ -2218,7 +2383,8 @@ export const acceptSubmittedHubAppTestingRequest = async (
           offeredFresh.totalTester > 0 &&
           offeredFresh.currentTester >= offeredFresh.totalTester &&
           (offeredFresh.status === "AVAILABLE" ||
-            offeredFresh.status === "FINDING_TESTERS");
+            offeredFresh.status === "FINDING_TESTERS" ||
+            offeredFresh.status === "START_REQUESTED");
         if (offeredRecruiting) {
           const now = new Date();
           if (offeredFresh!.appType === "HANDSHAKE") {
@@ -2226,7 +2392,7 @@ export const acceptSubmittedHubAppTestingRequest = async (
             await tx?.dashboardAndHub?.updateMany({
               where: {
                 id: offeredApp.id,
-                status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+                status: { in: ["AVAILABLE", "FINDING_TESTERS", "START_REQUESTED"] },
                 currentTester: { gte: offeredFresh!.totalTester },
               },
               data: {
@@ -2241,12 +2407,12 @@ export const acceptSubmittedHubAppTestingRequest = async (
             // were still targeting it so requesters pick a fresh partner.
             await cancelPendingRequestsForCampaign(tx, offeredApp.id, now);
           } else {
-            // Legacy behavior for FREE/PAID: testing starts immediately.
+            // Legacy behavior for PAID: testing starts immediately.
             const totalDay = offeredApp.totalDay || 14;
             await tx?.dashboardAndHub?.updateMany({
               where: {
                 id: offeredApp.id,
-                status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+                status: { in: ["AVAILABLE", "FINDING_TESTERS", "START_REQUESTED"] },
                 currentTester: { gte: offeredFresh!.totalTester },
               },
               data: {
@@ -2264,12 +2430,12 @@ export const acceptSubmittedHubAppTestingRequest = async (
       // H-B7 (S4c-4) + S6-6/S6-7: atomic conditional increment restricted to
       // actively-recruiting statuses prevents over-enrollment; the transition
       // is applied from the POST-increment state so concurrent joint fills
-      // stamp exactly once. HANDSHAKE → 24h WAITING window; FREE/PAID →
+      // stamp exactly once. HANDSHAKE → 24h WAITING window; PAID →
       // legacy immediate IN_TESTING.
       const incResult = await tx?.dashboardAndHub?.updateMany({
         where: {
           id: Number(hub_id),
-          status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+          status: { in: ["AVAILABLE", "FINDING_TESTERS", "START_REQUESTED"] },
           currentTester: { lt: checkTester.totalTester },
         },
         data: { currentTester: { increment: 1 } },
@@ -2296,7 +2462,8 @@ export const acceptSubmittedHubAppTestingRequest = async (
         freshTarget.totalTester > 0 &&
         freshTarget.currentTester >= freshTarget.totalTester &&
         (freshTarget.status === "AVAILABLE" ||
-          freshTarget.status === "FINDING_TESTERS");
+          freshTarget.status === "FINDING_TESTERS" ||
+          freshTarget.status === "START_REQUESTED");
       if (targetRecruiting) {
         const now = new Date();
         if (freshTarget!.appType === "HANDSHAKE") {
@@ -2304,7 +2471,7 @@ export const acceptSubmittedHubAppTestingRequest = async (
           await tx?.dashboardAndHub?.updateMany({
             where: {
               id: Number(hub_id),
-              status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+              status: { in: ["AVAILABLE", "FINDING_TESTERS", "START_REQUESTED"] },
               currentTester: { gte: freshTarget!.totalTester },
             },
             data: {
@@ -2319,12 +2486,12 @@ export const acceptSubmittedHubAppTestingRequest = async (
           // were still targeting it so requesters pick a fresh partner.
           await cancelPendingRequestsForCampaign(tx, Number(hub_id), now);
         } else {
-          // Legacy behavior for FREE/PAID: testing starts immediately.
+          // Legacy behavior for PAID: testing starts immediately.
           const totalDay = freshTarget!.totalDay || 14;
           await tx?.dashboardAndHub?.updateMany({
             where: {
               id: Number(hub_id),
-              status: { in: ["AVAILABLE", "FINDING_TESTERS"] },
+              status: { in: ["AVAILABLE", "FINDING_TESTERS", "START_REQUESTED"] },
               currentTester: { gte: freshTarget!.totalTester },
             },
             data: {
@@ -2836,7 +3003,7 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       return sendError(res, 400, "Payload is required");
     }
 
-    const { hubId, proofImage, metaData } = payload;
+    const { hubId, proofImage, remark, metaData } = payload;
     if (!hubId) {
       return sendError(res, 400, "hubId is required");
     }
@@ -2864,8 +3031,11 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       return sendError(res, 404, "You are not a tester for this app.");
     }
 
-    // Now that we have relation, we can check if it's a FREE app and proofImage is missing
-    if (relation.dashboardAndHub?.appType !== "PAID" && !proofImage) {
+    // Proof screenshot is mandatory for HANDSHAKE campaigns (PAID/pro testing
+    // uses its own completion flow without daily proofs).
+    const isHandshakeCampaign =
+      relation.dashboardAndHub?.appType === "HANDSHAKE";
+    if (isHandshakeCampaign && !proofImage) {
       return sendError(
         res,
         400,
@@ -2873,8 +3043,19 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       );
     }
 
+    // Remark describing what the tester did is mandatory for HANDSHAKE
+    // campaigns (min 10 chars to block one-word spam like "ok"/"done").
+    const cleanRemark = typeof remark === "string" ? remark.trim() : "";
+    if (isHandshakeCampaign && cleanRemark.length < 10) {
+      return sendError(
+        res,
+        400,
+        "Please add a remark of at least 10 characters describing what you tested today.",
+      );
+    }
+
     // S7-1: appType-aware gate. HANDSHAKE campaigns live in TESTING_ACTIVE
-    // (24h WAITING window → cron transition); FREE/PAID keep the legacy
+    // (24h WAITING window → cron transition); PAID keeps the legacy
     // lifecycle where IN_TESTING IS the active-testing state.
     const campaignStatus = relation.dashboardAndHub?.status;
     const campaignType = relation.dashboardAndHub?.appType;
@@ -3058,6 +3239,7 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
           where: { id: existingRejectedCycleProof.id, status: "REJECTED" },
           data: {
             proofImageUrl: normalizeR2Url(proofImage),
+            remark: cleanRemark || null,
             status: "VERIFIED",
             rejectionReason: null,
             verifiedAt: new Date(),
@@ -3077,6 +3259,7 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
             testerRelationId: relation.id,
             dayNumber: nextDay,
             proofImageUrl: normalizeR2Url(proofImage),
+            remark: cleanRemark || null,
             status: "VERIFIED", // Auto-approved as requested
             verifiedAt: new Date(),
             metaData:
@@ -3431,6 +3614,18 @@ export const startTestingHubApp = async (req: Request, res: Response) => {
       return sendError(res, 404, "App not found or you are not the owner");
     }
 
+    // Handshake campaigns can no longer self-start: owners with >= 12
+    // testers joined must send a start request for admin approval
+    // (POST /hub/request-start-testing). Legacy FREE/PAID keep the
+    // direct-start behavior below.
+    if (app.appType === "HANDSHAKE") {
+      return sendError(
+        res,
+        400,
+        "Handshake campaigns require admin approval to start testing — please send a start request instead",
+      );
+    }
+
     if (app.status === "IN_TESTING") {
       return sendSuccess(res, null, "App is already in testing");
     }
@@ -3444,10 +3639,10 @@ export const startTestingHubApp = async (req: Request, res: Response) => {
     }
 
     const now = new Date();
-    // S7-1: keep statuses consistent per vertical —  HANDSHAKE active state is
-    // TESTING_ACTIVE (its verification gate requires it); FREE/PAID stay on
-    // legacy IN_TESTING.
-    const activatedStatus = app.appType === "HANDSHAKE" ? "TESTING_ACTIVE" : "IN_TESTING";
+    // S7-1 legacy path: only non-HANDSHAKE apps reach here (HANDSHAKE is
+    // blocked above and must use the admin-approved request flow), so the
+    // legacy IN_TESTING activation always applies.
+    const activatedStatus = "IN_TESTING";
     const updatedApp = await prismaClient.dashboardAndHub.update({
       where: { id: app.id },
       data: {
@@ -3470,6 +3665,134 @@ export const startTestingHubApp = async (req: Request, res: Response) => {
       actorRole: req?.role as string,
       module: "hub",
       action: "startTestingHubApp",
+      targetId: req?.userId || "",
+      result: "fail",
+      reason: error instanceof Error ? error.message : "Unknown error",
+      ip: req?.userIpAddress || "",
+      ua: req?.userAgent || "",
+    };
+    return sendError(
+      res,
+      500,
+      error instanceof Error ? error.message : "Unknown error",
+      auditLogPayloadFail,
+    );
+  }
+};
+
+// Minimum joined testers before a HANDSHAKE owner may send a start-testing
+// request to admins (= L1 slot cap). The request only opens the admin
+// approval step — it never activates testing by itself.
+export const HANDSHAKE_START_REQUEST_MIN_TESTERS = 12;
+
+/**
+ * Owner sends a "request to start testing" for a HANDSHAKE campaign.
+ * Gate: >= 12 testers joined. The campaign flips to START_REQUESTED but
+ * stays AVAILABLE-equivalent for testers (discoverable + joinable); an
+ * admin must approve before testing activates. Duplicate sends are
+ * idempotent (friendly success, no double admin notification).
+ */
+export const requestStartTestingHubApp = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const { payload } = req.body;
+    if (!payload?.appId) {
+      return sendError(res, 400, "App ID is required");
+    }
+
+    const { appId } = payload;
+    const userId = req.userId;
+
+    const app = await prismaClient.dashboardAndHub.findFirst({
+      where: {
+        id: Number(appId),
+        appOwnerId: userId,
+      },
+      include: {
+        androidApp: true,
+      },
+    });
+
+    if (!app) {
+      return sendError(res, 404, "App not found or you are not the owner");
+    }
+
+    if (app.appType !== "HANDSHAKE") {
+      return sendError(
+        res,
+        400,
+        "Start requests are only for handshake campaigns",
+      );
+    }
+
+    if (app.status === "START_REQUESTED") {
+      return sendSuccess(
+        res,
+        app as any,
+        "Start request is already pending admin approval",
+      );
+    }
+
+    if (app.status !== "AVAILABLE") {
+      return sendError(
+        res,
+        400,
+        `Cannot request start when app status is ${app.status}`,
+      );
+    }
+
+    const joined = app.currentTester || 0;
+    if (joined < HANDSHAKE_START_REQUEST_MIN_TESTERS) {
+      return sendError(
+        res,
+        403,
+        `12 handshakes required for request to start testing — only ${joined} tester${joined === 1 ? "" : "s"} joined yet`,
+      );
+    }
+
+    const updatedApp = await prismaClient.dashboardAndHub.update({
+      where: { id: app.id },
+      data: {
+        status: "START_REQUESTED",
+        // A prior rejection's remark no longer applies to the new request.
+        statusDetails: Prisma.DbNull,
+      },
+    });
+
+    // Queue the request for admins. Notification failure must not roll
+    // back the status change, so it is best-effort.
+    try {
+      await prismaClient.notification.create({
+        data: {
+          title: "Handshake start request",
+          description: `"${app.androidApp?.appName ?? `Campaign #${app.id}`}" has ${joined} testers joined and the owner requested to start testing. Review it in Handshake Monitoring → Start Requests.`,
+          type: "OTHER" as const,
+          userId: null,
+          isAdminOnly: true,
+          isActive: true,
+        },
+      });
+    } catch (notifyError) {
+      logger.error("Failed to create admin notification for start request", {
+        appId: app.id,
+        error:
+          notifyError instanceof Error ? notifyError.message : notifyError,
+      });
+    }
+
+    return sendSuccess(
+      res,
+      updatedApp as any,
+      "Start request sent to admin for approval",
+    );
+  } catch (error) {
+    const auditLogPayloadFail: AuditLogPayload = {
+      actorId: req?.userId || "",
+      actorRole: req?.role as string,
+      module: "hub",
+      action: "requestStartTestingHubApp",
       targetId: req?.userId || "",
       result: "fail",
       reason: error instanceof Error ? error.message : "Unknown error",

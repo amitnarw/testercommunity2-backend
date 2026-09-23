@@ -21,7 +21,7 @@ export const getTesterProjects = async (req: Request, res: Response) => {
       whereCond.testerRelations.some.status = status;
     }
 
-    // Optional: filter by app type (PAID or FREE)
+    // Optional: filter by app type (PAID or HANDSHAKE)
     if (appType && typeof appType === "string") {
       whereCond.appType = appType;
     }
