@@ -22,6 +22,9 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            # Fail fast: a failed step (esp. `prisma migrate deploy`) must
+            # abort the deploy instead of shipping code against a drifted DB.
+            set -e
             cd /var/www/backend
             git pull origin main
             npm install
