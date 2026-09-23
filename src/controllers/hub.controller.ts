@@ -6,7 +6,11 @@ import { normalizeR2Url } from "@/utils/helperFunctions";
 import logger from "../utils/logger";
 import type { DashboardAndHubStatus } from "@prisma/client";
 import { deleteFunction } from "./r2.controller";
-import { extractPackageName } from "@/services/common";
+import {
+  extractPackageName,
+  hasUrlWhitespace,
+  isValidPlayStoreLogoUrl,
+} from "@/services/common";
 import { cancelPendingRequestsForCampaign } from "@/lib/handshake";
 
 export const getHubStats = async (req: Request, res: Response) => {
@@ -97,7 +101,7 @@ export const getHubStats = async (req: Request, res: Response) => {
       module: "hub",
       action: "getHubStats",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -122,7 +126,7 @@ export const getAppCategories = async (req: Request, res: Response) => {
       module: "hub",
       action: "getAppCategories",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -167,6 +171,33 @@ export const addHubApp = async (req: Request, res: Response) => {
         res,
         400,
         'Invalid appType. Must be "HANDSHAKE" or "PAID".',
+      );
+    }
+
+    // Reject whitespace-contaminated image URLs (e.g. pasted "...02Q 1")
+    // that Next encodes to %20 and Google answers with 400. The logo must
+    // additionally be a valid Play logo URL (mirrors the frontend form rule);
+    // screenshots only get the whitespace check since they may legitimately
+    // be hosted elsewhere (e.g. R2).
+    if (
+      typeof app_logo_url === "string" &&
+      app_logo_url.length > 0 &&
+      !isValidPlayStoreLogoUrl(app_logo_url)
+    ) {
+      return sendError(
+        res,
+        400,
+        "Logo URL must be from play-lh.googleusercontent.com or *.googleusercontent.com (https), without spaces. Copy the URL from Play Console → Store Listing → Graphic Assets.",
+      );
+    }
+    if (
+      hasUrlWhitespace(app_screenshot_url_1) ||
+      hasUrlWhitespace(app_screenshot_url_2)
+    ) {
+      return sendError(
+        res,
+        400,
+        "Screenshot URLs must not contain spaces. Please paste a clean URL.",
       );
     }
 
@@ -395,7 +426,7 @@ export const addHubApp = async (req: Request, res: Response) => {
       module: "user",
       action: "addHubApp",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -465,7 +496,7 @@ export const getHubSubmittedApp = async (req: Request, res: Response) => {
       module: "user",
       action: "getHubSubmittedApp",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -518,6 +549,30 @@ export const resubmitHubApp = async (req: Request, res: Response) => {
 
     if (hubApp.status !== "REJECTED") {
       return sendError(res, 400, "Only rejected apps can be resubmitted");
+    }
+
+    // Same intake validation as addHubApp: reject whitespace-contaminated
+    // image URLs; the logo must additionally be a valid Play logo URL.
+    if (
+      typeof app_logo_url === "string" &&
+      app_logo_url.length > 0 &&
+      !isValidPlayStoreLogoUrl(app_logo_url)
+    ) {
+      return sendError(
+        res,
+        400,
+        "Logo URL must be from play-lh.googleusercontent.com or *.googleusercontent.com (https), without spaces. Copy the URL from Play Console → Store Listing → Graphic Assets.",
+      );
+    }
+    if (
+      hasUrlWhitespace(app_screenshot_url_1) ||
+      hasUrlWhitespace(app_screenshot_url_2)
+    ) {
+      return sendError(
+        res,
+        400,
+        "Screenshot URLs must not contain spaces. Please paste a clean URL.",
+      );
     }
 
     const package_name = extractPackageName(app_url);
@@ -637,7 +692,7 @@ export const resubmitHubApp = async (req: Request, res: Response) => {
       module: "hub",
       action: "resubmitHubApp",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -713,7 +768,7 @@ export const getSubmittedAppsCount = async (req: Request, res: Response) => {
       module: "user",
       action: "getSubmittedAppsCount",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -1177,7 +1232,7 @@ export const getHubApps = async (req: Request, res: Response) => {
       module: "user",
       action: "getHubApps",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -1287,7 +1342,7 @@ export const getAppsCount = async (req: Request, res: Response) => {
       module: "user",
       action: "getAppsCount",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -1931,7 +1986,7 @@ export const getSingleHubAppDetails = async (req: Request, res: Response) => {
       module: "user",
       action: "getSingleHubAppDetails",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -2187,7 +2242,7 @@ export const addHubAppTestingRequest = async (req: Request, res: Response) => {
       module: "user",
       action: "addHubAppTestingRequest",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -2570,7 +2625,7 @@ export const acceptSubmittedHubAppTestingRequest = async (
         module: "user",
         action: "acceptSubmittedHubAppTestingRequest",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -2699,7 +2754,7 @@ export const rejectSubmittedHubAppTestingRequest = async (
       module: "user",
       action: "rejectSubmittedHubAppTestingRequest",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -2795,7 +2850,7 @@ export const addHubAppFeedback = async (req: Request, res: Response) => {
       module: "user",
       action: "addHubAppTestingRequest",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -2904,7 +2959,7 @@ export const updateHubAppFeedback = async (req: Request, res: Response) => {
       module: "user",
       action: "updateHubAppFeedback",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -2982,7 +3037,7 @@ export const deleteHubAppFeedback = async (req: Request, res: Response) => {
       module: "user",
       action: "deleteHubAppFeedback",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -3364,7 +3419,7 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
       module: "hub",
       action: "submitDailyVerification",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -3506,7 +3561,7 @@ export const completeHostedApp = async (req: Request, res: Response) => {
       module: "hub",
       action: "completeHostedApp",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -3576,7 +3631,7 @@ export const validatePromoCode = async (req: Request, res: Response) => {
       module: "hub",
       action: "validatePromoCode",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -3666,7 +3721,7 @@ export const startTestingHubApp = async (req: Request, res: Response) => {
       module: "hub",
       action: "startTestingHubApp",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -3794,7 +3849,7 @@ export const requestStartTestingHubApp = async (
       module: "hub",
       action: "requestStartTestingHubApp",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",

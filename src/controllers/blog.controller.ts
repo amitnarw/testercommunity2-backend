@@ -1,5 +1,6 @@
 import { type Request, type Response } from "express";
 import { prismaClient } from "@/lib/prisma";
+import { normalizeEnumParam } from "@/services/common";
 import { sendError, sendSuccess } from "@/utils/response";
 
 /**
@@ -18,10 +19,19 @@ export const getPublicBlogs = async (req: Request, res: Response) => {
       isActive: true,
     };
 
-    // Filter by category if provided
-    if (category && typeof category === "string") {
-      // The category filter expects a valid BlogCategory enum value (case-insensitive)
-      where.category = category.toUpperCase() as any;
+    // Filter by category if provided. Unknown values are ignored instead
+    // of crashing Prisma with an invalid BlogCategory enum value.
+    const normalizedCategory = normalizeEnumParam(category, [
+      "AUTOMATION",
+      "UI_UX",
+      "SECURITY",
+      "AI",
+      "MOBILE",
+      "DEVOPS",
+      "GENERAL",
+    ]);
+    if (normalizedCategory) {
+      where.category = normalizedCategory;
     }
 
     const blogs = await prismaClient.blog.findMany({
@@ -80,13 +90,25 @@ export const getPublicBlogBySlug = async (req: Request, res: Response) => {
       return sendError(res, 400, "Invalid slug format");
     }
 
-    const blog = await prismaClient.blog.update({
+    // Increment the view count without throwing P2025 when the slug
+    // doesn't exist (updateMany returns count 0 instead of an error).
+    const bumped = await prismaClient.blog.updateMany({
       where: {
         slug: sanitizedSlug,
         isActive: true,
       },
       data: {
         viewCount: { increment: 1 },
+      },
+    });
+
+    if (bumped.count === 0) {
+      return sendError(res, 404, "Blog not found");
+    }
+
+    const blog = await prismaClient.blog.findUnique({
+      where: {
+        slug: sanitizedSlug,
       },
       select: {
         id: true,
@@ -107,6 +129,10 @@ export const getPublicBlogBySlug = async (req: Request, res: Response) => {
         updatedAt: true,
       },
     });
+
+    if (!blog) {
+      return sendError(res, 404, "Blog not found");
+    }
 
     return sendSuccess(res, blog, "Blog fetched successfully");
   } catch (error) {

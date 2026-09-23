@@ -2,6 +2,7 @@ import { type Request, type Response } from "express";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient } from "@/lib/prisma";
+import { normalizeEnumParam } from "@/services/common";
 
 export const getTesterProjects = async (req: Request, res: Response) => {
   try {
@@ -16,14 +17,37 @@ export const getTesterProjects = async (req: Request, res: Response) => {
       },
     };
 
-    // Optional: filter by tester's status in the relation
+    // Optional: filter by tester's status in the relation.
+    // Whitelist against the TesterStatus enum; ignore unknown values so a
+    // stale client can never crash Prisma with an invalid enum value.
     if (status && typeof status === "string") {
-      whereCond.testerRelations.some.status = status;
+      const normalizedStatus = status.trim().toUpperCase();
+      const allowedStatuses = [
+        "PENDING",
+        "IN_PROGRESS",
+        "COMPLETED",
+        "DROPPED",
+        "REMOVED",
+        "REJECTED",
+        "MISSED",
+        "PENALIZED",
+        "REPLACED",
+      ];
+      if (allowedStatuses.includes(normalizedStatus)) {
+        whereCond.testerRelations.some.status = normalizedStatus;
+      }
     }
 
-    // Optional: filter by app type (PAID or HANDSHAKE)
-    if (appType && typeof appType === "string") {
-      whereCond.appType = appType;
+    // Optional: filter by app type (PAID or HANDSHAKE). Legacy "FREE"
+    // (old frontend builds) maps to HANDSHAKE; unknown values are ignored
+    // instead of crashing Prisma with an invalid enum value.
+    const normalizedAppType = normalizeEnumParam(
+      appType,
+      ["PAID", "HANDSHAKE"],
+      { FREE: "HANDSHAKE" },
+    );
+    if (normalizedAppType) {
+      whereCond.appType = normalizedAppType;
     }
 
     const projects = await prismaClient?.dashboardAndHub?.findMany({
@@ -119,7 +143,7 @@ export const getTesterProjects = async (req: Request, res: Response) => {
       module: "tester",
       action: "getTesterProjects",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -175,7 +199,7 @@ export const rateApp = async (req: Request, res: Response) => {
       module: "tester",
       action: "rateApp",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",

@@ -1,4 +1,5 @@
 import { prismaClient } from "@/lib/prisma";
+import { normalizeEnumParam } from "@/services/common";
 import { sendError, sendSuccess } from "@/utils/response";
 import { type Request, type Response } from "express";
 import logger from "../utils/logger";
@@ -291,7 +292,17 @@ export const getFinanceOrders = async (req: Request, res: Response) => {
     const search = qs(req.query.search);
 
     const where: any = {};
-    if (status) where.status = status;
+    // Unknown statuses are ignored instead of crashing Prisma with an
+    // invalid OrderStatus enum value.
+    const normalizedStatus = normalizeEnumParam(status, [
+      "CREATED",
+      "ATTEMPTED",
+      "PAID",
+      "FAILED",
+      "EXPIRED",
+      "CANCELLED",
+    ]);
+    if (normalizedStatus) where.status = normalizedStatus;
     if (search) {
       where.OR = [
         { razorpayOrderId: { contains: search, mode: "insensitive" } },
@@ -356,7 +367,17 @@ export const getFinancePayments = async (req: Request, res: Response) => {
     const search = qs(req.query.search);
 
     const where: any = {};
-    if (status) where.status = status;
+    // Unknown statuses are ignored instead of crashing Prisma with an
+    // invalid PaymentStatus enum value.
+    const normalizedStatus = normalizeEnumParam(status, [
+      "PENDING",
+      "AUTHORIZED",
+      "CAPTURED",
+      "FAILED",
+      "REFUNDED",
+      "PARTIALLY_REFUNDED",
+    ]);
+    if (normalizedStatus) where.status = normalizedStatus;
     if (method) where.method = method;
     if (paymentType) where.paymentType = paymentType;
     if (search) {
@@ -912,7 +933,14 @@ export const getFinanceRefunds = async (req: Request, res: Response) => {
     const status = qs(req.query.status);
 
     const where: any = {};
-    if (status) where.status = status;
+    // Unknown statuses are ignored instead of crashing Prisma with an
+    // invalid RefundModelStatus enum value.
+    const normalizedStatus = normalizeEnumParam(status, [
+      "PENDING",
+      "PROCESSED",
+      "FAILED",
+    ]);
+    if (normalizedStatus) where.status = normalizedStatus;
 
     const [refunds, total] = await Promise.all([
       prismaClient.refund.findMany({
@@ -968,7 +996,15 @@ export const getFinanceWithdrawals = async (req: Request, res: Response) => {
     const search = qs(req.query.search);
 
     const where: any = {};
-    if (status) where.status = status;
+    // Unknown statuses are ignored instead of crashing Prisma with an
+    // invalid WithdrawalStatus enum value.
+    const normalizedStatus = normalizeEnumParam(status, [
+      "PENDING",
+      "APPROVED",
+      "REJECTED",
+      "PAID",
+    ]);
+    if (normalizedStatus) where.status = normalizedStatus;
     if (search) {
       where.OR = [
         { user: { name: { contains: search, mode: "insensitive" } } },

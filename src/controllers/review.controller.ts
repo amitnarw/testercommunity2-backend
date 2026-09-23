@@ -1,4 +1,5 @@
 import { prismaClient } from "@/lib/prisma";
+import { normalizeEnumParam } from "@/services/common";
 import { sendError, sendSuccess } from "@/utils/response";
 import { type Request, type Response } from "express";
 
@@ -118,7 +119,16 @@ export const getAllReviews = async (req: Request, res: Response) => {
     const { status, search } = req.query;
     const where: any = {};
 
-    if (status && status !== "ALL") where.status = status as string;
+    // Unknown statuses are ignored instead of crashing Prisma with an
+    // invalid ReviewStatus enum value.
+    if (status && status !== "ALL") {
+      const normalizedStatus = normalizeEnumParam(status, [
+        "PENDING",
+        "APPROVED",
+        "REJECTED",
+      ]);
+      if (normalizedStatus) where.status = normalizedStatus;
+    }
     if (search) {
       where.OR = [
         { comment: { contains: search as string, mode: "insensitive" } },

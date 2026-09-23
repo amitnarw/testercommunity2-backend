@@ -2,6 +2,7 @@ import { type Request, type Response } from "express";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient } from "@/lib/prisma";
+import { normalizeEnumParam } from "@/services/common";
 import { normalizeR2Url } from "@/utils/helperFunctions";
 import {
   getPenaltyBlockState,
@@ -617,7 +618,16 @@ export const listAllPenalties = async (req: Request, res: Response) => {
     );
 
     const where: any = {};
-    if (status) where.status = status;
+    // Unknown statuses are ignored instead of crashing Prisma with an
+    // invalid PenaltyTaskStatus enum value.
+    const normalizedStatus = normalizeEnumParam(status, [
+      "PENDING",
+      "IN_PROGRESS",
+      "COMPLETED",
+      "EXPIRED",
+      "FAILED",
+    ]);
+    if (normalizedStatus) where.status = normalizedStatus;
     if (userId) where.userId = userId;
 
     const [items, total] = await Promise.all([

@@ -9,6 +9,7 @@ import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { type JSONValue } from "@/utils/encryptDecryptPayload";
 import { normalizeR2Url } from "@/utils/helperFunctions";
+import { normalizeEnumParam } from "@/services/common";
 import { hashPassword, generateRandomString } from "better-auth/crypto"; // MUST use better-auth/crypto (scrypt), not @/utils/passwordUtils (bcrypt), because signIn.email verifies with scrypt
 import { type Request, type Response } from "express";
 
@@ -28,7 +29,7 @@ export const getControlRoomData = async (req: Request, res: Response) => {
       module: "admin",
       action: "getControlRoomData",
       targetId: req?.userId || "",
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -763,7 +764,30 @@ export const getSubmittedApps = async (req: Request, res: Response) => {
       if (status === "ACCEPTED" || status === "AVAILABLE") {
         where.status = "AVAILABLE"; // Map accepted to available
       } else {
-        where.status = status;
+        // Unknown statuses are ignored instead of crashing Prisma with an
+        // invalid DashboardAndHubStatus enum value.
+        const normalizedStatus = normalizeEnumParam(status, [
+          "DRAFT",
+          "PENDING_ADMIN_REVIEW",
+          "APPROVED",
+          "FINDING_TESTERS",
+          "WAITING_FOR_PARTNERS",
+          "TESTING_ACTIVE",
+          "COMPLETED",
+          "UNDER_ADMIN_REVIEW",
+          "SUSPENDED",
+          "REMOVED",
+          "IN_REVIEW",
+          "REJECTED",
+          "IN_TESTING",
+          "ON_HOLD",
+          "REQUESTED",
+          "AVAILABLE",
+          "START_REQUESTED",
+        ]);
+        if (normalizedStatus) {
+          where.status = normalizedStatus;
+        }
       }
     }
 
@@ -1233,9 +1257,17 @@ export const getSubmittedAppsCount = async (req: Request, res: Response) => {
     const includeDrafts = req.query.includeDrafts === "true";
     const where: any = includeDrafts ? {} : { status: { not: "DRAFT" } };
 
-    // Add appType filter if provided and not ALL
+    // Add appType filter if provided and not ALL. Legacy "FREE" maps to
+    // HANDSHAKE; unknown values are ignored instead of crashing Prisma.
     if (appType && appType !== "ALL") {
-      where.appType = appType;
+      const normalizedAppType = normalizeEnumParam(
+        appType,
+        ["PAID", "HANDSHAKE"],
+        { FREE: "HANDSHAKE" },
+      );
+      if (normalizedAppType) {
+        where.appType = normalizedAppType;
+      }
     }
 
     const counts = await prismaClient.dashboardAndHub.groupBy({
@@ -1530,14 +1562,29 @@ export const getAllFeedback = async (req: Request, res: Response) => {
 
     const where: any = {};
 
+    // Unknown filter values are ignored instead of crashing Prisma with an
+    // invalid FeedbackType enum value.
     if (status && status !== "All") {
-      where.type = status;
+      const normalizedType = normalizeEnumParam(status, [
+        "BUG",
+        "SUGGESTION",
+        "PRAISE",
+        "OTHER",
+      ]);
+      if (normalizedType) {
+        where.type = normalizedType;
+      }
     }
 
     if (appType && appType !== "ALL") {
-      where.dashboardAndHub = {
-        appType: appType,
-      };
+      const normalizedAppType = normalizeEnumParam(
+        appType,
+        ["PAID", "HANDSHAKE"],
+        { FREE: "HANDSHAKE" },
+      );
+      if (normalizedAppType) {
+        where.dashboardAndHub = { appType: normalizedAppType };
+      }
     }
 
     const feedback = await prismaClient.feedback.findMany({
@@ -2773,8 +2820,18 @@ export const getAllSuggestions = async (req: Request, res: Response) => {
     const status = req.query.status as string;
 
     const where: any = {};
+    // Unknown statuses are ignored instead of crashing Prisma with an
+    // invalid FeedbackStatus enum value.
     if (status && status !== "All") {
-      where.status = status;
+      const normalizedStatus = normalizeEnumParam(status, [
+        "PENDING",
+        "REVIEWED",
+        "IMPLEMENTED",
+        "REJECTED",
+      ]);
+      if (normalizedStatus) {
+        where.status = normalizedStatus;
+      }
     }
 
     const suggestions = await prismaClient.websiteFeedbackSuggestion.findMany({
@@ -2979,8 +3036,33 @@ export const getAllNotifications = async (req: Request, res: Response) => {
     const skip = (page - 1) * limit;
 
     const where: any = {};
+    // Unknown filter values are ignored instead of crashing Prisma with an
+    // invalid NotificationType enum value.
     if (type && type !== "All") {
-      where.type = type;
+      const normalizedType = normalizeEnumParam(type, [
+        "NEW_TEST",
+        "FEEDBACK_RECEIVED",
+        "TEST_COMPLETED",
+        "BUG_REPORT",
+        "POINTS_AWARDED",
+        "POINTS_DEDUCTED",
+        "NEW_JOIN_REQUEST",
+        "NEW_JOIN_ACCEPT",
+        "REJECTED",
+        "APP_APPROVED",
+        "APP_REJECTED",
+        "TEST_INVITATION",
+        "GENERAL_MESSAGE",
+        "REMINDER",
+        "ANNOUNCEMENT",
+        "ACCOUNT_UPDATE",
+        "INSUFFICIENT_BALANCE",
+        "OTHER",
+        "SPECIAL_OFFERS",
+      ]);
+      if (normalizedType) {
+        where.type = normalizedType;
+      }
     }
     if (search.trim()) {
       where.OR = [
@@ -4472,6 +4554,15 @@ export const updateBlog = async (req: Request, res: Response) => {
 
     if (!id) return sendError(res, 400, "Blog ID is required");
 
+    // Fail fast with 404 instead of letting Prisma throw P2025 below
+    const existingBlog = await prismaClient.blog.findUnique({
+      where: { id: parseInt(id) },
+      select: { id: true },
+    });
+    if (!existingBlog) {
+      return sendError(res, 404, "Blog not found");
+    }
+
     // If slug is being changed, check uniqueness
     if (slug !== undefined) {
       const existingWithSlug = await prismaClient.blog.findUnique({
@@ -5363,7 +5454,7 @@ export const convertUserAuthType = async (req: Request, res: Response) => {
       module: "users",
       action: "convertAuthType",
       targetId: userId,
-      result: "success",
+      result: "SUCCESS",
       ip: (req as any).userIpAddress || "",
       ua: (req as any).userAgent || "",
     };

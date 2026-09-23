@@ -2,6 +2,7 @@ import { type Request, type Response } from "express";
 import type { AuditLogPayload } from "@/types/audit_log";
 import { sendError, sendSuccess } from "@/utils/response";
 import { prismaClient } from "@/lib/prisma";
+import { normalizeEnumParam } from "@/services/common";
 import { Prisma } from "@prisma/client";
 import { getSystemConfigNumber } from "@/lib/handshake";
 
@@ -409,7 +410,7 @@ export const sendHandshakeRequest = async (req: Request, res: Response) => {
       module: "handshakeRequest",
       action: "sendHandshakeRequest",
       targetId: String(req?.body?.payload?.toUserId || ""),
-      result: "fail",
+      result: "FAIL",
       reason: error instanceof Error ? error.message : "Unknown error",
       ip: req?.userIpAddress || "",
       ua: req?.userAgent || "",
@@ -747,9 +748,19 @@ export const listHandshakeRequests = async (req: Request, res: Response) => {
         "direction must be 'incoming' or 'outgoing'",
       );
     }
-    if (status) where.status = status;
+    // Unknown statuses are ignored instead of crashing Prisma with an
+    // invalid HandshakeRequestStatus enum value.
+    const normalizedStatus = normalizeEnumParam(status, [
+      "PENDING",
+      "ACCEPTED",
+      "REJECTED",
+      "EXPIRED",
+      "CANCELLED",
+      "MUTUAL_MATCHED",
+    ]);
+    if (normalizedStatus) where.status = normalizedStatus;
 
-    if (!status || status === "PENDING") {
+    if (!normalizedStatus || normalizedStatus === "PENDING") {
       if (!where.AND) where.AND = [];
       where.AND.push({
         OR: [
