@@ -3102,8 +3102,14 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
         // S12: cycle-aware nextDay derivation (see step 2 below) needs to
         // count current-cycle proofs; carry verifiedAt + status so the
         // gateway rejects stale (pre-restart) rows automatically.
+        // createdAt powers the one-proof-per-calendar-day guard (step 3b).
         dailyVerifications: {
-          select: { dayNumber: true, status: true, verifiedAt: true },
+          select: {
+            dayNumber: true,
+            status: true,
+            verifiedAt: true,
+            createdAt: true,
+          },
         },
       },
     });
@@ -3195,7 +3201,11 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
     const totalDaysRequired = relation.dashboardAndHub?.totalDay || 16;
     const testingStartDate = relation.dashboardAndHub?.testingStartDate;
     const ownDailyVerifications = (relation as any).dailyVerifications as
-      | { verifiedAt: Date | string | null; status: string }[]
+      | {
+          verifiedAt: Date | string | null;
+          createdAt: Date | string | null;
+          status: string;
+        }[]
       | undefined;
     const cycleProofCount =
       testingStartDate && ownDailyVerifications
@@ -3222,12 +3232,13 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
     }
 
     // P2.4: per-day time gate —  day N only opens after testingStartDate +
-    // (N-1) calendar days. Without this the whole 16 day cycle (and with it
-    // the hadMiss/level rules) could be completed in minutes.
-    if (
-      relation.dashboardAndHub?.appType === "HANDSHAKE" &&
-      relation.dashboardAndHub?.testingStartDate
-    ) {
+    // (N-1) calendar days. Without this the whole cycle (and with it the
+    // hadMiss/level rules) could be completed in minutes.
+    //
+    // Applies to ALL campaign types, not just HANDSHAKE: a PAID tester who
+    // clicked the day-1 check-in 3 times burned days 1-3 instantly because
+    // this gate previously skipped non-handshake campaigns entirely.
+    if (relation.dashboardAndHub?.testingStartDate) {
       const startMs = new Date(
         relation.dashboardAndHub.testingStartDate,
       ).getTime();
@@ -3241,6 +3252,30 @@ export const submitDailyVerification = async (req: Request, res: Response) => {
           `Day ${nextDay} verification opens on ${opensAt.toISOString().slice(0, 16).replace("T", " ")} UTC. Come back then.`,
         );
       }
+    }
+
+    // P2.4 gate passed. Now enforce one proof per UTC calendar day for ALL
+    // campaign types (same 1/day rule as HANDSHAKE). The time gate above only
+    // stops day N from opening EARLY — a tester behind schedule (or a legacy
+    // campaign with no testingStartDate) could otherwise burn several already-
+    // open days back-to-back: a reported PAID tester clicked the day-1 card 3
+    // times and days 1-3 were verified instantly. REJECTED rows are excluded
+    // so an admin-rejected proof stays resubmittable the same day.
+    const dayStartUtc = new Date();
+    dayStartUtc.setUTCHours(0, 0, 0, 0);
+    const dayStartMs = dayStartUtc.getTime();
+    const submittedToday = ownDailyVerifications?.some((v) => {
+      if (!v || v.status === "REJECTED" || !v.createdAt) return false;
+      // createdAt only — verifiedAt is refreshed by admin status updates and
+      // is not touched on resubmission, so it would falsely block/deny.
+      return new Date(v.createdAt).getTime() >= dayStartMs;
+    });
+    if (submittedToday) {
+      return sendError(
+        res,
+        409,
+        "You have already submitted today's verification. The next day opens tomorrow.",
+      );
     }
 
     // 3. Duplicate Check — cycle-aware.
